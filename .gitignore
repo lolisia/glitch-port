@@ -11,3 +11,13 @@ AGENTS.md
 opencode.json
 opencode.jsonc
 .worktrees/
+
+# .NET build output
+bin/
+obj/
+*.user
+
+# Node.js / dashboard build output
+node_modules/
+dist/
+dashboard/.vite/
