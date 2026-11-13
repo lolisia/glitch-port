@@ -1,0 +1,17 @@
+<Project>
+
+  <!--
+    Shared settings for every project under collector/ and sdk/.
+
+    TargetFramework is intentionally NOT defined here: each project owns its
+    target framework (collector projects are net10.0, sdk/dotnet/src/GlitchPort.Core
+    is netstandard2.1, test projects are net10.0).
+  -->
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+</Project>

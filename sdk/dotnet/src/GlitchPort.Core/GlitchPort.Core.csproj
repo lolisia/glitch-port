@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Dependency-free client core.
+
+    netstandard2.1 keeps the library consumable from Unity (and other game
+    engines that ship a .NET Standard 2.1 profile). Do not add PackageReference
+    items or ASP.NET Core framework references here: the whole point of this
+    project is that it can be embedded without pulling extra packages in.
+  -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Version>0.1.0</Version>
+    <AssemblyName>GlitchPort.Core</AssemblyName>
+    <RootNamespace>GlitchPort</RootNamespace>
+    <Description>Dependency-free glitch-port .NET SDK core: DSN parsing and message capture.</Description>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,23 @@
+# EditorConfig: https://editorconfig.org
+# These are the baseline rules for the whole repository; component-specific
+# overrides may be added in nested .editorconfig files later.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+[*.cs]
+indent_size = 4
+tab_width = 4
+
+[*.sh]
+indent_size = 4
+tab_width = 4
+
+[*.{json,yml,ts,tsx}]
+indent_size = 2
+tab_width = 2
