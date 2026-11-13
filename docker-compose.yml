@@ -1,0 +1,26 @@
+# Local development stack for glitch-port.
+#
+# Only PostgreSQL runs in Docker today; the Relay, Processor and dashboard run
+# on the host (see README.md). The published port matches the connection string
+# in collector/src/GlitchPort.Processor/appsettings.Development.json.
+#
+#   docker compose up -d --wait postgres
+#   docker compose down -v            # also drops the anonymous data volume
+#
+# No named volume is declared: the data is disposable, and `down -v` guarantees
+# a clean schema for every `bash scripts/e2e-hello.sh` run.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    ports:
+      - "55432:5432"
+    environment:
+      POSTGRES_USER: glitchport
+      POSTGRES_PASSWORD: glitchport
+      POSTGRES_DB: glitchport
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U glitchport -d glitchport"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
