@@ -1,6 +1,7 @@
 using GlitchPort.Processor;
 using GlitchPort.Processor.Data;
 using GlitchPort.Processor.Endpoints;
+using GlitchPort.Processor.Management;
 using GlitchPort.Processor.Migrations;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Npgsql;
@@ -37,6 +38,10 @@ builder.Services.AddSingleton(static services =>
 });
 builder.Services.AddSingleton<MessageStore>();
 builder.Services.AddSingleton<EventStore>();
+builder.Services.AddSingleton<ManagementEventStore>();
+builder.Services.AddSingleton<ManagementIssueStore>();
+builder.Services.AddSingleton<ManagementLabelStore>();
+builder.Services.AddSingleton<ManagementStatsStore>();
 
 var app = builder.Build();
 
@@ -45,6 +50,7 @@ app.UseCors(CorsPolicyName);
 app.MapGet("/healthz", () => Results.Ok());
 app.MapEnvelopeEndpoints();
 app.MapMessageEndpoints();
+app.MapManagementEndpoints();
 
 // The schema must be ready before the server accepts its first request.
 await DatabaseMigrator.ApplyAsync(
