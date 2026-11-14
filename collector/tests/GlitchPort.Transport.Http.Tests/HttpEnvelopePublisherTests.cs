@@ -18,6 +18,8 @@ public sealed class HttpEnvelopePublisherTests
         "client_timestamp",
         "sdk_name",
         "sdk_version",
+        "payload",
+        "client_ip",
     ];
 
     [Fact]
@@ -186,7 +188,7 @@ public sealed class HttpEnvelopePublisherTests
 
         var item = Assert.Single(root.EnumerateArray().ToArray());
         Assert.Equal(ExpectedPropertyNames, item.EnumerateObject().Select(property => property.Name));
-        Assert.Equal(1, item.GetProperty("version").GetInt32());
+        Assert.Equal(2, item.GetProperty("version").GetInt32());
         Assert.Equal(envelope.EventId, item.GetProperty("event_id").GetGuid());
         Assert.Equal(envelope.ProjectId, item.GetProperty("project_id").GetInt64());
         Assert.Equal(envelope.ReceivedAt, item.GetProperty("received_at").GetDateTimeOffset());
@@ -195,6 +197,12 @@ public sealed class HttpEnvelopePublisherTests
         Assert.Equal(envelope.ClientTimestamp, item.GetProperty("client_timestamp").GetDateTimeOffset());
         Assert.Equal(envelope.SdkName, item.GetProperty("sdk_name").GetString());
         Assert.Equal(envelope.SdkVersion, item.GetProperty("sdk_version").GetString());
+
+        var payload = item.GetProperty("payload");
+        Assert.Equal(JsonValueKind.Object, payload.ValueKind);
+        Assert.Equal("boom", payload.GetProperty("message").GetString());
+        Assert.Equal("error", payload.GetProperty("level").GetString());
+        Assert.Equal(TestData.ExpectedClientIp, item.GetProperty("client_ip").GetString());
     }
 
     [Fact]

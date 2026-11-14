@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace GlitchPort.Collector.Contracts;
@@ -11,6 +12,7 @@ namespace GlitchPort.Collector.Contracts;
 [JsonSerializable(typeof(Envelope))]
 [JsonSerializable(typeof(Envelope[]))]
 [JsonSerializable(typeof(List<Envelope>))]
+[JsonSerializable(typeof(JsonElement))]
 public sealed partial class ContractsJsonContext : JsonSerializerContext
 {
 }
