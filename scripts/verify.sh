@@ -7,6 +7,9 @@
 #      and scripts/unity-test.sh and are never built here)
 #   2. dotnet test  -c Release --no-build   every *.Tests.csproj under the same roots
 #   3. npm ci (when needed) + npm run build   in dashboard/, when dashboard/package.json exists
+#   4. bash scripts/build-unity-plugins.sh --check   verify the bundled Core DLL
+#   5. bash scripts/unity-test.sh   Unity EditMode and PlayMode tests when the
+#      editor is installed (skipped otherwise)
 #
 # The tree is verified incrementally while the repository is being bootstrapped:
 # missing components are skipped instead of failing the run. Any command that
@@ -41,9 +44,11 @@ find_projects() {
   fi
 
   # Unity batch mode generates *.csproj/*.sln files inside the test project;
-  # they must not be picked up by the regular .NET build/test pass.
-  find "${dotnet_roots[@]}" -type f -name "$pattern" \
-    -not -path 'sdk/unity/*' -not -path '*/sdk/unity/*' | sort
+  # they must not be picked up by the regular .NET build/test pass, so the
+  # whole sdk/unity tree is pruned from the search.
+  find "${dotnet_roots[@]}" \
+    \( -path 'sdk/unity' -o -path '*/sdk/unity' -o -path 'sdk/unity/*' -o -path '*/sdk/unity/*' \) -prune -o \
+    -type f -name "$pattern" -print | sort
 }
 
 build_projects="$(find_projects '*.csproj')"
@@ -75,6 +80,24 @@ if [ -f dashboard/package.json ]; then
   (cd dashboard && npm run build)
 else
   echo "verify: no dashboard/package.json (skipped)"
+fi
+
+# The Unity package ships a precompiled GlitchPort.Core.dll; --check fails when
+# the committed DLL no longer matches the Core sources.
+if [ -f scripts/build-unity-plugins.sh ]; then
+  echo "verify: bash scripts/build-unity-plugins.sh --check"
+  bash scripts/build-unity-plugins.sh --check
+else
+  echo "verify: no scripts/build-unity-plugins.sh (skipped)"
+fi
+
+# The Unity tests skip themselves (exit 0) when the editor recorded in the test
+# project is not installed, so verifying works on machines without Unity.
+if [ -f scripts/unity-test.sh ]; then
+  echo "verify: bash scripts/unity-test.sh"
+  bash scripts/unity-test.sh
+else
+  echo "verify: no scripts/unity-test.sh (skipped)"
 fi
 
 echo "verify: ok"
