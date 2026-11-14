@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
@@ -12,6 +15,23 @@ namespace GlitchPort.HelloClient.Tests
     public sealed class HelloClientAppTests
     {
         private const string CustomDsn = "http://custom-key@relay.example.com:9000/7";
+        private const string TerminalPathVariable = "GLITCHPORT_TERMINAL_PATH";
+
+        public static IEnumerable<object[]> InvalidArguments()
+        {
+            yield return new object[] { new[] { "--level", "loud" } };
+            yield return new object[] { new[] { "--level" } };
+            yield return new object[] { new[] { "--count", "0" } };
+            yield return new object[] { new[] { "--count", "-1" } };
+            yield return new object[] { new[] { "--count", "many" } };
+            yield return new object[] { new[] { "--count" } };
+            yield return new object[] { new[] { "--hold", "-1" } };
+            yield return new object[] { new[] { "--hold", "soon" } };
+            yield return new object[] { new[] { "--hold" } };
+            yield return new object[] { new[] { "--bogus" } };
+            yield return new object[] { new[] { "-v" } };
+            yield return new object[] { new[] { "hello", "again" } };
+        }
 
         [Fact]
         public async Task RunAsync_WithoutArguments_CapturesHelloThroughDefaultDsn()
@@ -24,38 +44,114 @@ namespace GlitchPort.HelloClient.Tests
                 Assert.Equal(0, result.ExitCode);
                 Assert.Equal(string.Empty, result.Stderr);
 
-                Assert.Equal(HttpMethod.Post, handler.Method);
-                Assert.NotNull(handler.RequestUri);
-                Assert.Equal("http://localhost:5080/api/1/messages", handler.RequestUri!.ToString());
-                Assert.Equal("dev-public-key", handler.ApiKey);
+                var request = Assert.Single(handler.Requests);
+                Assert.Equal(HttpMethod.Post, request.Method);
+                Assert.NotNull(request.RequestUri);
+                Assert.Equal("http://localhost:5080/api/1/messages", request.RequestUri!.ToString());
+                Assert.Equal("dev-public-key", request.ApiKey);
 
-                Assert.Equal("hello", ParsePayload(handler).GetProperty("message").GetString());
+                var payload = ParsePayload(request.Body);
+                Assert.Equal("hello", payload.GetProperty("message").GetString());
+                Assert.Equal("info", payload.GetProperty("level").GetString());
 
-                var eventId = Guid.Parse(ParsePayload(handler).GetProperty("event_id").GetString()!);
-                Assert.Equal("event_id: " + eventId.ToString("D"), result.Stdout.TrimEnd('\r', '\n'));
+                var lines = SplitLines(result.Stdout);
+                Assert.Equal(2, lines.Length);
+                Assert.StartsWith("event_id: ", lines[0], StringComparison.Ordinal);
+                Assert.True(Guid.TryParse(lines[0].Substring("event_id: ".Length), out _));
+                Assert.Equal("relay http (http): delivered=1 failed=0 dropped=0", lines[1]);
             });
         }
 
         [Fact]
-        public async Task RunAsync_WithMessageArgument_UsesDsnFromEnvironment()
+        public async Task RunAsync_WithEnvironmentDsn_UsesEveryConfiguredRelay()
         {
-            await WithDsnAsync(CustomDsn, async () =>
+            var directory = CreateTempDirectory();
+
+            try
+            {
+                var dsn = CustomDsn
+                    + ";file:?dir=" + Uri.EscapeDataString(directory) + "&format=ndjson";
+
+                await WithDsnAsync(dsn, async () =>
+                {
+                    using var handler = new RecordingHttpMessageHandler();
+                    var result = await RunAsync(new[] { "boom" }, handler);
+
+                    Assert.Equal(0, result.ExitCode);
+                    Assert.Equal(string.Empty, result.Stderr);
+
+                    var request = Assert.Single(handler.Requests);
+                    Assert.NotNull(request.RequestUri);
+                    Assert.Equal("http://relay.example.com:9000/api/7/messages", request.RequestUri!.ToString());
+                    Assert.Equal("custom-key", request.ApiKey);
+                    Assert.Equal("boom", ParsePayload(request.Body).GetProperty("message").GetString());
+
+                    var lines = SplitLines(result.Stdout);
+                    Assert.Contains("relay http (http): delivered=1 failed=0 dropped=0", lines);
+                    Assert.Contains("relay file (file): delivered=1 failed=0 dropped=0", lines);
+
+                    var file = Assert.Single(Directory.GetFiles(directory, "*.ndjson"));
+                    var content = File.ReadAllText(file);
+                    Assert.Contains("\"message\":\"boom\"", content, StringComparison.Ordinal);
+                });
+            }
+            finally
+            {
+                TryDeleteDirectory(directory);
+            }
+        }
+
+        [Theory]
+        [InlineData("warning")]
+        [InlineData("WARNING")]
+        [InlineData("Fatal")]
+        public async Task RunAsync_WithLevel_SendsTheParsedLevel(string value)
+        {
+            await WithDsnAsync(null, async () =>
             {
                 using var handler = new RecordingHttpMessageHandler();
-                var result = await RunAsync(new[] { "boom" }, handler);
+                var result = await RunAsync(new[] { "hello", "--level", value }, handler);
 
                 Assert.Equal(0, result.ExitCode);
                 Assert.Equal(string.Empty, result.Stderr);
 
-                Assert.NotNull(handler.RequestUri);
-                Assert.Equal("http://relay.example.com:9000/api/7/messages", handler.RequestUri!.ToString());
-                Assert.Equal("custom-key", handler.ApiKey);
-                Assert.Equal("boom", ParsePayload(handler).GetProperty("message").GetString());
+                var request = Assert.Single(handler.Requests);
+                Assert.Equal(
+                    value.ToLowerInvariant(),
+                    ParsePayload(request.Body).GetProperty("level").GetString());
             });
         }
 
         [Fact]
-        public async Task RunAsync_WhenRelayRejectsMessage_ReportsFlushFailureAndReturnsOne()
+        public async Task RunAsync_WithCount_CapturesTheMessageThreeTimes()
+        {
+            await WithDsnAsync(null, async () =>
+            {
+                using var handler = new RecordingHttpMessageHandler();
+                var result = await RunAsync(new[] { "hello", "--count", "3" }, handler);
+
+                Assert.Equal(0, result.ExitCode);
+                Assert.Equal(string.Empty, result.Stderr);
+                Assert.Equal(3, handler.Requests.Count);
+
+                var lines = SplitLines(result.Stdout);
+                var eventIds = lines
+                    .Where(line => line.StartsWith("event_id: ", StringComparison.Ordinal))
+                    .ToArray();
+
+                Assert.Equal(3, eventIds.Length);
+                foreach (var line in eventIds)
+                {
+                    Assert.True(Guid.TryParse(line.Substring("event_id: ".Length), out _));
+                }
+
+                Assert.Equal(3, eventIds.Distinct(StringComparer.Ordinal).Count());
+                Assert.Contains("relay http (http): delivered=3 failed=0 dropped=0", lines);
+            });
+        }
+
+        [Fact]
+        public async Task RunAsync_WhenRelayRejectsMessage_ReportsTheFailureAndReturnsOne()
         {
             await WithDsnAsync(null, async () =>
             {
@@ -63,18 +159,92 @@ namespace GlitchPort.HelloClient.Tests
                 var result = await RunAsync(Array.Empty<string>(), handler);
 
                 Assert.Equal(1, result.ExitCode);
+                Assert.Equal(string.Empty, result.Stderr);
 
                 // Capture succeeds and prints the event id; the failure is reported by
                 // the flush that follows.
-                var stdoutLine = result.Stdout.TrimEnd('\r', '\n');
-                Assert.StartsWith("event_id: ", stdoutLine, StringComparison.Ordinal);
-                Assert.True(Guid.TryParse(stdoutLine.Substring("event_id: ".Length), out _));
+                var lines = SplitLines(result.Stdout);
+                Assert.StartsWith("event_id: ", lines[0], StringComparison.Ordinal);
+                Assert.True(Guid.TryParse(lines[0].Substring("event_id: ".Length), out _));
+                Assert.Contains("relay http (http): delivered=0 failed=1 dropped=0", lines);
+            });
+        }
 
-                var errorLine = result.Stderr.TrimEnd('\r', '\n');
-                Assert.StartsWith("error: relay http failed: ", errorLine, StringComparison.Ordinal);
-                Assert.Contains("500", errorLine, StringComparison.Ordinal);
-                Assert.DoesNotContain("\r", errorLine, StringComparison.Ordinal);
-                Assert.DoesNotContain("\n", errorLine, StringComparison.Ordinal);
+        [Theory]
+        [MemberData(nameof(InvalidArguments))]
+        public async Task RunAsync_WithInvalidArguments_WritesOneErrorLineAndReturnsOne(string[] args)
+        {
+            await WithDsnAsync(null, async () =>
+            {
+                using var handler = new RecordingHttpMessageHandler();
+                var result = await RunAsync(args, handler);
+
+                Assert.Equal(1, result.ExitCode);
+                Assert.Equal(string.Empty, result.Stdout);
+                Assert.Empty(handler.Requests);
+
+                var line = Assert.Single(SplitLines(result.Stderr));
+                Assert.StartsWith("error: ", line, StringComparison.Ordinal);
+                Assert.True(line.Length > "error: ".Length, "the error line carried no message.");
+            });
+        }
+
+        [Fact]
+        public async Task RunAsync_WithTerminalRelay_PrintsTheChildProcessId()
+        {
+            var suffix = OperatingSystem.IsWindows() ? ".exe" : string.Empty;
+            Assert.True(
+                File.Exists(Path.Combine(AppContext.BaseDirectory, "glitchport-terminal" + suffix)),
+                "glitchport-terminal was not copied next to the test assembly.");
+
+            // Ignore a machine-wide override so the renderer shipped next to the test
+            // assembly is the one that gets started.
+            await WithEnvironmentAsync(TerminalPathVariable, null, async () =>
+            {
+                await WithDsnAsync("terminal:?window=inherit&format=compact", async () =>
+                {
+                    using var handler = new RecordingHttpMessageHandler();
+                    var result = await RunAsync(Array.Empty<string>(), handler);
+
+                    Assert.Equal(0, result.ExitCode);
+                    Assert.Equal(string.Empty, result.Stderr);
+                    Assert.Empty(handler.Requests);
+
+                    var lines = SplitLines(result.Stdout);
+                    Assert.Contains(
+                        lines,
+                        line => line.StartsWith("terminal_pid: ", StringComparison.Ordinal)
+                            && int.TryParse(
+                                line.Substring("terminal_pid: ".Length),
+                                NumberStyles.Integer,
+                                CultureInfo.InvariantCulture,
+                                out var processId)
+                            && processId > 0);
+                    Assert.Contains("relay terminal (terminal): delivered=1 failed=0 dropped=0", lines);
+                });
+            });
+        }
+
+        [Fact]
+        public async Task RunAsync_WithHold_WaitsUntilCancelled()
+        {
+            await WithDsnAsync(null, async () =>
+            {
+                using var handler = new RecordingHttpMessageHandler();
+                using var cancellation = new CancellationTokenSource();
+                cancellation.CancelAfter(TimeSpan.FromSeconds(1));
+
+                var started = DateTime.UtcNow;
+                var result = await RunAsync(new[] { "--hold", "60" }, handler, cancellation.Token);
+                var elapsed = DateTime.UtcNow - started;
+
+                Assert.Equal(1, result.ExitCode);
+                Assert.True(
+                    elapsed < TimeSpan.FromSeconds(30),
+                    "the hold did not observe the cancellation token.");
+                Assert.Contains("event_id: ", result.Stdout, StringComparison.Ordinal);
+                Assert.StartsWith("error: ", result.Stderr, StringComparison.Ordinal);
+                Assert.Single(SplitLines(result.Stderr));
             });
         }
 
@@ -164,7 +334,10 @@ namespace GlitchPort.HelloClient.Tests
             });
         }
 
-        private static async Task<RunResult> RunAsync(string[] args, RecordingHttpMessageHandler handler)
+        private static async Task<RunResult> RunAsync(
+            string[] args,
+            RecordingHttpMessageHandler handler,
+            CancellationToken cancellationToken = default)
         {
             using var httpClient = new HttpClient(handler);
             using var stdout = new StringWriter();
@@ -174,34 +347,71 @@ namespace GlitchPort.HelloClient.Tests
                 args,
                 stdout,
                 stderr,
-                CancellationToken.None,
+                cancellationToken,
                 options => new GlitchPortClient(options, httpClient));
 
             return new RunResult(exitCode, stdout.ToString(), stderr.ToString());
         }
 
-        private static JsonElement ParsePayload(RecordingHttpMessageHandler handler)
+        private static JsonElement ParsePayload(string? body)
         {
-            Assert.False(string.IsNullOrWhiteSpace(handler.Body));
+            Assert.False(string.IsNullOrWhiteSpace(body));
 
             // Clone the root element so it stays valid after the document is
             // disposed; callers only read a couple of properties from it.
-            using var document = JsonDocument.Parse(handler.Body!);
+            using var document = JsonDocument.Parse(body!);
             return document.RootElement.Clone();
         }
 
-        private static async Task WithDsnAsync(string? dsn, Func<Task> action)
+        private static string[] SplitLines(string value)
         {
-            var previous = Environment.GetEnvironmentVariable(HelloClientApp.DsnEnvironmentVariable);
+            return value
+                .Replace("\r\n", "\n", StringComparison.Ordinal)
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        }
+
+        private static string CreateTempDirectory()
+        {
+            var path = Path.Combine(
+                Path.GetTempPath(),
+                "glitchport-hello-tests",
+                Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(path);
+            return path;
+        }
+
+        private static void TryDeleteDirectory(string path)
+        {
+            try
+            {
+                if (Directory.Exists(path))
+                {
+                    Directory.Delete(path, recursive: true);
+                }
+            }
+            catch (Exception)
+            {
+                // Leftovers in the temp directory are harmless.
+            }
+        }
+
+        private static Task WithDsnAsync(string? dsn, Func<Task> action)
+        {
+            return WithEnvironmentAsync(HelloClientApp.DsnEnvironmentVariable, dsn, action);
+        }
+
+        private static async Task WithEnvironmentAsync(string name, string? value, Func<Task> action)
+        {
+            var previous = Environment.GetEnvironmentVariable(name);
 
             try
             {
-                Environment.SetEnvironmentVariable(HelloClientApp.DsnEnvironmentVariable, dsn);
+                Environment.SetEnvironmentVariable(name, value);
                 await action();
             }
             finally
             {
-                Environment.SetEnvironmentVariable(HelloClientApp.DsnEnvironmentVariable, previous);
+                Environment.SetEnvironmentVariable(name, previous);
             }
         }
 
