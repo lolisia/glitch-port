@@ -1,9 +1,10 @@
 # Management API
 
-The Management API lets the dashboard and automation read and update the issues,
-events and labels the Processor stores. It is served by the Processor under
-`/api/manage`; with the default development settings the base URL is
-`http://localhost:5090/api/manage`.
+The Management API lets the dashboard and automation manage projects and public
+ingest keys and read and update the issues, events and labels the Processor
+stores. Projects and keys live in PostgreSQL. The API is served by the
+Processor under `/api/manage`; with the default development settings the base
+URL is `http://localhost:5090/api/manage`.
 
 The API is intended for trusted server-side clients. Every request must carry
 the Processor admin token (see [Authentication](#authentication)).
@@ -32,10 +33,13 @@ curl -s "http://localhost:5090/api/manage/projects/1/issues" \
 - Timestamps are ISO 8601 strings in UTC, for example
   `"2026-11-15T10:00:00+00:00"`. Date-time values are always written with a
   `+00:00` offset and are never localized.
-- Issue and label ids are 64-bit integers. Event ids are UUIDs written as
-  lowercase strings, for example `"9f1c2d3e-4f5a-6b7c-8d9e-0f1a2b3c4d5e"`.
-- Project ids in paths are integers. A project that has no data yet simply
-  returns empty results; the API does not validate projects.
+- Issue, label, project and key ids are 64-bit integers. Event ids are UUIDs
+  written as lowercase strings, for example
+  `"9f1c2d3e-4f5a-6b7c-8d9e-0f1a2b3c4d5e"`.
+- Project ids in paths are integers.
+  `GET /api/manage/projects/{projectId}/issues` returns `404 Not Found` when
+  the project does not exist; a project that exists but has no data simply
+  returns empty results.
 - Optional query parameters with an empty value are treated as absent.
 - Errors return a JSON body with a single `error` field:
 
@@ -62,17 +66,26 @@ Any cursor that cannot be decoded returns `400 Bad Request`.
 | Status | Meaning |
 | --- | --- |
 | `200 OK` | The request succeeded. |
-| `201 Created` | The label was created. |
-| `204 No Content` | The resource was deleted. The response has no body. |
+| `201 Created` | The project, key or label was created. |
+| `204 No Content` | The resource was deleted or the key was revoked. The response has no body. |
 | `400 Bad Request` | A query parameter, the JSON body or a cursor is invalid. |
 | `401 Unauthorized` | The `Authorization` header is missing or wrong. |
-| `404 Not Found` | The issue, event or label does not exist. |
-| `409 Conflict` | A label with the same name already exists in the project. |
+| `404 Not Found` | The project, issue, event, key or label does not exist. |
+| `409 Conflict` | A project slug or a label name already exists. |
 
 ## Endpoints
 
 | Method | Path | Purpose |
 | --- | --- | --- |
+| `GET` | `/projects` | List projects with issue and key counts. |
+| `POST` | `/projects` | Create a project with its first public key. |
+| `GET` | `/projects/{projectId}` | Read one project with counts and DSN. |
+| `PATCH` | `/projects/{projectId}` | Change a project name and/or platform. |
+| `DELETE` | `/projects/{projectId}` | Delete a project and all of its data. |
+| `GET` | `/projects/{projectId}/keys` | List the public keys of a project. |
+| `POST` | `/projects/{projectId}/keys` | Create a public ingest key. |
+| `PATCH` | `/keys/{keyId}` | Change a key label, rate limit or active state. |
+| `DELETE` | `/keys/{keyId}` | Revoke a key; the row is retained. |
 | `GET` | `/projects/{projectId}/issues` | List issues with filters, sorting and cursor paging. |
 | `GET` | `/issues/{issueId}` | Read one issue with its labels and latest event. |
 | `PATCH` | `/issues/{issueId}` | Change the status and/or replace the label set. |
@@ -89,6 +102,286 @@ Any cursor that cannot be decoded returns `400 Bad Request`.
 
 The legacy `GET /api/manage/messages` endpoint (limit 1–500) remains available
 for clients that only need the message list; it is not part of the issue API.
+
+## Projects and keys
+
+Projects and their public ingest keys are stored in PostgreSQL. Every project
+has a `slug` that is unique across the installation. A project owns zero or
+more keys; each key is identified by a 32-character lowercase hexadecimal
+`public_key` and can be revoked without deleting its row.
+
+### Project object
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | integer | Project id. |
+| `name` | string | Display name. |
+| `slug` | string | Unique URL-friendly identifier. |
+| `platform` | string or null | Optional platform hint, for example `unity`. |
+| `created_at` | timestamp | Creation time. |
+| `issue_count` | integer | Unresolved issues. Returned by the list and detail endpoints, not by create. |
+| `key_count` | integer | Active keys. Revoked keys are not counted. Returned by the list and detail endpoints, not by create. |
+| `dsn` | string or null | Ingest DSN of the first active key, or `null` when every key is revoked. Returned by the detail endpoint and by create responses. |
+
+The DSN has the form:
+
+```text
+http(s)://<public_key>@<host>:<port>/<projectId>
+```
+
+It is built from the Processor setting `Processor:PublicRelayUrl`, which is
+`http://localhost:5080` in development. The scheme (`http` or `https`), host
+and port come from that setting, not from the request that created the project.
+Production deployments must set `Processor:PublicRelayUrl` to the public Relay
+URL when it differs from the request host; otherwise the returned DSN points at
+the wrong Relay.
+
+### Key object
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | integer | Key id. |
+| `public_key` | string | 32 lowercase hex characters. Sent as `X-GlitchPort-Key`. |
+| `label` | string or null | Optional display label, for example `production`. |
+| `is_active` | boolean | `false` for a revoked key. |
+| `rate_limit_per_minute` | integer or null | Per-key ingest limit. `null` means no per-key limit; `0` means unlimited. |
+| `created_at` | timestamp | Creation time. |
+| `revoked_at` | timestamp or null | Time the key was revoked, or `null` while active. |
+| `dsn` | string | Ingest DSN built from `Processor:PublicRelayUrl` in the form `http(s)://<public_key>@<host>:<port>/<projectId>`. |
+
+Public keys grant write access only and are safe to embed in game clients.
+
+## List projects
+
+```http
+GET /api/manage/projects
+```
+
+Returns all projects ordered by id. `issue_count` counts unresolved issues and
+`key_count` counts active keys:
+
+```json
+[
+  {
+    "id": 1,
+    "name": "Default",
+    "slug": "default",
+    "platform": "unity",
+    "created_at": "2026-11-15T10:00:00+00:00",
+    "issue_count": 3,
+    "key_count": 2
+  }
+]
+```
+
+The list item does not include `dsn`; read the project detail or one of its
+keys to get a DSN.
+
+## Create a project
+
+```http
+POST /api/manage/projects
+Content-Type: application/json
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `name` | string | Required. Display name. Must not be blank; whitespace is trimmed. |
+| `slug` | string, optional | Unique identifier. When omitted it is derived from `name`: lowercase, every run of non-alphanumeric characters becomes a single `-`, leading and trailing `-` are removed, and an empty result becomes `project`. An explicit slug is used as provided and must not be blank. |
+| `platform` | string, optional | Platform hint, for example `unity`. Must not be blank when present. |
+
+```json
+{ "name": "Star Raiders", "slug": "star-raiders", "platform": "unity" }
+```
+
+Creating a project also creates one active public key atomically, so the
+response already contains a usable DSN:
+
+```json
+{
+  "id": 2,
+  "name": "Star Raiders",
+  "slug": "star-raiders",
+  "platform": "unity",
+  "created_at": "2026-11-15T10:00:00+00:00",
+  "dsn": "http://a1b2c3d4e5f60718293a4b5c6d7e8f90@localhost:5080/2"
+}
+```
+
+Returns `201 Created`. The create response omits `issue_count` and `key_count`;
+read the project detail for the full object. `400` for a blank name, slug or
+platform or a malformed body. `409 Conflict` when another project already uses
+the slug. Use `GET /api/manage/projects/{projectId}/keys` to read the generated
+key's `public_key` and `label`.
+
+```bash
+curl -s -X POST "http://localhost:5090/api/manage/projects" \
+  -H "Authorization: Bearer dev-admin-token" \
+  -H "Content-Type: application/json" \
+  --data-binary '{"name":"Star Raiders","platform":"unity"}'
+```
+
+## Get a project
+
+```http
+GET /api/manage/projects/{projectId}
+```
+
+Returns the project detail with its counts and the DSN of the first active key
+(`null` when no active key remains):
+
+```json
+{
+  "id": 2,
+  "name": "Star Raiders",
+  "slug": "star-raiders",
+  "platform": "unity",
+  "created_at": "2026-11-15T10:00:00+00:00",
+  "issue_count": 0,
+  "key_count": 1,
+  "dsn": "http://a1b2c3d4e5f60718293a4b5c6d7e8f90@localhost:5080/2"
+}
+```
+
+`404` when the project does not exist.
+
+## Update a project
+
+```http
+PATCH /api/manage/projects/{projectId}
+Content-Type: application/json
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `name` | string, optional | New display name. Must not be blank. |
+| `platform` | string, optional | New platform hint. Must not be blank when present. |
+
+Omitted fields are left unchanged. The slug cannot be changed. The response is
+the updated project detail, in the same shape as
+[Get a project](#get-a-project). `400` for a blank name or platform or a
+malformed body; `404` when the project does not exist.
+
+```bash
+curl -s -X PATCH "http://localhost:5090/api/manage/projects/2" \
+  -H "Authorization: Bearer dev-admin-token" \
+  -H "Content-Type: application/json" \
+  --data-binary '{"name":"Star Raiders (Live)"}'
+```
+
+## Delete a project
+
+```http
+DELETE /api/manage/projects/{projectId}
+```
+
+Deletes the project and cascades to its issues, events, labels, label
+assignments and keys. Legacy rows of `/api/manage/messages` are not tied to
+projects and stay in place. Returns `204 No Content`, or `404` when the project
+does not exist.
+
+```bash
+curl -s -X DELETE "http://localhost:5090/api/manage/projects/2" \
+  -H "Authorization: Bearer dev-admin-token"
+```
+
+## List keys
+
+```http
+GET /api/manage/projects/{projectId}/keys
+```
+
+Returns every key of the project ordered by id, including revoked keys:
+
+```json
+[
+  {
+    "id": 5,
+    "public_key": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+    "label": "production",
+    "is_active": true,
+    "rate_limit_per_minute": null,
+    "created_at": "2026-11-15T10:00:00+00:00",
+    "revoked_at": null,
+    "dsn": "http://a1b2c3d4e5f60718293a4b5c6d7e8f90@localhost:5080/2"
+  }
+]
+```
+
+`404` when the project does not exist.
+
+## Create a key
+
+```http
+POST /api/manage/projects/{projectId}/keys
+Content-Type: application/json
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `label` | string, optional | Display label, for example `production`. |
+| `rate_limit_per_minute` | integer or null, optional | Per-key ingest limit. `null` (the default) means no per-key limit; `0` means unlimited. Negative values return `400`. |
+
+```json
+{ "label": "staging", "rate_limit_per_minute": 600 }
+```
+
+Returns `201 Created` with the [key object](#key-object), including its
+`public_key` and `dsn`. `400` for a negative limit or a malformed body; `404`
+when the project does not exist.
+
+```bash
+curl -s -X POST "http://localhost:5090/api/manage/projects/2/keys" \
+  -H "Authorization: Bearer dev-admin-token" \
+  -H "Content-Type: application/json" \
+  --data-binary '{"label":"staging","rate_limit_per_minute":600}'
+```
+
+## Update a key
+
+```http
+PATCH /api/manage/keys/{keyId}
+Content-Type: application/json
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `label` | string, optional | New display label. |
+| `rate_limit_per_minute` | integer or null, optional | New per-key limit. An explicit `null` clears the limit, `0` means unlimited and a negative value returns `400`. |
+| `is_active` | boolean, optional | `false` revokes the key and sets `revoked_at`; `true` re-enables it and clears `revoked_at`. |
+
+Omitted fields are left unchanged. Send `rate_limit_per_minute: null`
+explicitly to clear a configured limit; omitting the field keeps the current
+value.
+
+```json
+{ "rate_limit_per_minute": null }
+```
+
+Returns `200 OK` with the updated [key object](#key-object). `400` for a
+negative limit or a malformed body; `404` when the key does not exist.
+
+## Revoke a key
+
+```http
+DELETE /api/manage/keys/{keyId}
+```
+
+Revokes the key without deleting its row: `is_active` becomes `false` and
+`revoked_at` is set to the current time. The key stays visible in
+[List keys](#list-keys) and its DSN remains readable, but the Relay rejects it
+with `401 Unauthorized` after its next configuration refresh (every 60 seconds
+by default, `Relay:ConfigRefreshSeconds`), unless the same key is also listed
+in the Relay's static `Relay:Projects` configuration. Returns `204 No Content`,
+or `404` when the key does not exist.
+
+To re-enable a revoked key, send `PATCH /api/manage/keys/{keyId}` with
+`{"is_active": true}`.
+
+```bash
+curl -s -X DELETE "http://localhost:5090/api/manage/keys/5" \
+  -H "Authorization: Bearer dev-admin-token"
+```
 
 ## Issue object
 
@@ -175,8 +468,9 @@ malformed cursor return `400`.
 }
 ```
 
-`next_cursor` is `null` when the page is the last one. An empty project returns
-`{"items": [], "next_cursor": null}`.
+`next_cursor` is `null` when the page is the last one. A project that exists
+but has no issues returns `{"items": [], "next_cursor": null}`. An unknown
+project returns `404 Not Found` with the standard error body.
 
 ```bash
 curl -s "http://localhost:5090/api/manage/projects/1/issues?status=all&sort=count&limit=25" \
@@ -583,10 +877,10 @@ curl -s "http://localhost:5090/api/manage/projects/1/stats?period=14d" \
 
 | Status | When |
 | --- | --- |
-| `400 Bad Request` | Unknown `status`, `level` or `sort`; `limit` outside 1–100; malformed `cursor`; `period` other than `24h` or `14d`; empty or oversized bulk `ids`; unknown bulk `action`; missing or blank label names; blank label `name`/`color`; malformed JSON. |
+| `400 Bad Request` | Unknown `status`, `level` or `sort`; `limit` outside 1–100; malformed `cursor`; `period` other than `24h` or `14d`; empty or oversized bulk `ids`; unknown bulk `action`; missing or blank label names; blank label `name`/`color`; blank project `name`, `slug` or `platform`; negative `rate_limit_per_minute`; invalid `is_active`; malformed JSON. |
 | `401 Unauthorized` | Missing, malformed or wrong `Authorization: Bearer` token. |
-| `404 Not Found` | Unknown issue id, event id or label id, including a non-numeric issue or label id path and a non-UUID event id path. |
-| `409 Conflict` | Creating a label whose name already exists in the project, or renaming a label to an existing name. |
+| `404 Not Found` | Unknown project, issue, event, key or label id, including a non-numeric project, issue, key or label id path and a non-UUID event id path. |
+| `409 Conflict` | A project `slug` that is already in use, creating a label whose name already exists in the project, or renaming a label to an existing name. |
 
 ## See also
 
