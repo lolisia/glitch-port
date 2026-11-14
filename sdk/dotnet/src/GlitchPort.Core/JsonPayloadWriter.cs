@@ -26,12 +26,26 @@ namespace GlitchPort
             string sdkName,
             string sdkVersion)
         {
-            var builder = new StringBuilder(message.Length + 192);
+            return CreateMessagePayload(eventId, timestamp, Level.Info, message, sdkName, sdkVersion);
+        }
+
+        /// <summary>Builds the <c>application/json</c> body for a captured message with an explicit level.</summary>
+        public static string CreateMessagePayload(
+            Guid eventId,
+            DateTimeOffset timestamp,
+            Level level,
+            string message,
+            string sdkName,
+            string sdkVersion)
+        {
+            var builder = new StringBuilder(message.Length + 224);
 
             builder.Append("{\"event_id\":");
             AppendString(builder, eventId.ToString("D", CultureInfo.InvariantCulture));
             builder.Append(",\"timestamp\":");
             AppendString(builder, timestamp.ToUniversalTime().ToString(TimestampFormat, CultureInfo.InvariantCulture));
+            builder.Append(",\"level\":");
+            AppendString(builder, LevelNames.ToJson(level));
             builder.Append(",\"message\":");
             AppendString(builder, message);
             builder.Append(",\"sdk\":{\"name\":");
