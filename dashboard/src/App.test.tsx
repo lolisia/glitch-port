@@ -1,8 +1,8 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
-import type { Message } from './api';
+import type { EventDetail, IssueDetail } from './api/types';
 
 interface MockResponse {
   ok: boolean;
@@ -18,140 +18,173 @@ function jsonResponse(body: unknown, status = 200): MockResponse {
   };
 }
 
-function stubFetch(response: MockResponse | Error) {
-  const fetchMock = vi.fn();
+const issueDetail: IssueDetail = {
+  id: 42,
+  title: 'Crash on startup',
+  culprit: 'UGameEngine::Init',
+  level: 'error',
+  platform: 'unreal',
+  status: 'unresolved',
+  first_seen: '2026-01-01T00:00:00Z',
+  last_seen: '2026-01-02T00:00:00Z',
+  event_count: 3,
+  last_release: '1.0.0',
+  last_environment: 'production',
+  labels: [],
+  latest_event: null,
+};
 
-  if (response instanceof Error) {
-    fetchMock.mockRejectedValue(response);
-  } else {
-    fetchMock.mockResolvedValue(response);
-  }
+const eventDetail: EventDetail = {
+  id: '22222222-2222-2222-2222-222222222222',
+  issue_id: 42,
+  timestamp: '2026-01-02T00:00:00Z',
+  received_at: '2026-01-02T00:00:01Z',
+  level: 'error',
+  platform: 'unreal',
+  environment: 'production',
+  release: '1.0.0',
+  user_id: 'player-1',
+  endpoint: 'POST /api/1/envelope',
+  payload: { message: 'Crash on startup' },
+};
+
+/**
+ * Dispatches by URL, matching the most specific route first. The placeholders
+ * do not fetch yet, but the stub already covers every endpoint the upcoming
+ * issues screens use so those tests can build on it.
+ */
+function stubFetch() {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const path = new URL(String(input), 'http://localhost').pathname;
+
+    if (/^\/api\/manage\/messages$/.test(path)) {
+      return jsonResponse([]);
+    }
+    if (/^\/api\/manage\/projects\/\d+\/issues$/.test(path)) {
+      return jsonResponse({ items: [], next_cursor: null });
+    }
+    if (/^\/api\/manage\/projects\/\d+\/stats$/.test(path)) {
+      return jsonResponse([]);
+    }
+    if (/^\/api\/manage\/projects\/\d+\/labels$/.test(path)) {
+      return jsonResponse([]);
+    }
+    if (/^\/api\/manage\/issues\/\d+\/events$/.test(path)) {
+      return jsonResponse({ items: [], next_cursor: null });
+    }
+    if (/^\/api\/manage\/issues\/\d+$/.test(path)) {
+      return jsonResponse(issueDetail);
+    }
+    if (/^\/api\/manage\/events\/[^/]+$/.test(path)) {
+      return jsonResponse(eventDetail);
+    }
+
+    throw new Error(`Unexpected fetch: ${path}`);
+  });
 
   vi.stubGlobal('fetch', fetchMock);
   return fetchMock;
 }
 
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => {
-    resolve = res;
-  });
-
-  return { promise, resolve };
-}
+beforeEach(() => {
+  window.history.replaceState(null, '', '/');
+  stubFetch();
+});
 
 describe('App', () => {
-  it('renders the title, Refresh button, table headers and fetched rows', async () => {
-    const receivedAt = new Date(2026, 0, 2, 3, 4, 5);
-    const rows: Message[] = [
-      {
-        id: '11111111-1111-1111-1111-111111111111',
-        received_at: receivedAt.toISOString(),
-        endpoint: 'POST /api/1/messages',
-        message: 'hello',
-      },
-    ];
-    const fetchMock = stubFetch(jsonResponse(rows));
-
+  it('renders the issues page for a blank hash and rewrites it to #/issues', async () => {
     render(<App />);
 
     expect(
-      screen.getByRole('heading', { name: 'glitch-port messages' }),
+      screen.getByRole('heading', { level: 1, name: 'glitch-port' }),
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
-    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    expect(screen.getByText('Project 1')).toBeInTheDocument();
+    expect(screen.getByTestId('issues-page')).toBeInTheDocument();
 
-    const table = await screen.findByRole('table');
-    const headers = within(table).getAllByRole('columnheader');
-    expect(headers.map((header) => header.textContent)).toEqual([
-      'Received at',
-      'Endpoint',
-      'Message',
-    ]);
-    expect(
-      within(table).getByText('POST /api/1/messages'),
-    ).toBeInTheDocument();
-    expect(within(table).getByText('hello')).toBeInTheDocument();
-    // Constructed from local time, so the formatted local time is stable
-    // regardless of the test machine's timezone.
-    expect(within(table).getByText('2026-01-02 03:04:05')).toBeInTheDocument();
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:5090/api/manage/messages?limit=100',
-      { headers: { Authorization: 'Bearer dev-admin-token' } },
-    );
+    await waitFor(() => expect(window.location.hash).toBe('#/issues'));
   });
 
-  it('renders the empty state when no messages are returned', async () => {
-    stubFetch(jsonResponse([]));
+  it('rewrites an unknown hash to #/issues', async () => {
+    window.history.replaceState(null, '', '/#/projects');
 
     render(<App />);
 
+    expect(screen.getByTestId('issues-page')).toBeInTheDocument();
+
+    await waitFor(() => expect(window.location.hash).toBe('#/issues'));
+  });
+
+  it('renders the issue detail page for #/issues/42', () => {
+    window.history.replaceState(null, '', '/#/issues/42');
+
+    render(<App />);
+
+    expect(screen.getByTestId('issue-detail-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('issues-page')).not.toBeInTheDocument();
+    expect(window.location.hash).toBe('#/issues/42');
+  });
+
+  it('renders the messages page for #/messages', async () => {
+    window.history.replaceState(null, '', '/#/messages');
+
+    render(<App />);
+
+    expect(screen.getByTestId('messages-page')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Messages' }),
+    ).toBeInTheDocument();
     expect(await screen.findByText('No messages yet.')).toBeInTheDocument();
-    expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 
-  it('renders the error state for a non-2xx response', async () => {
-    stubFetch(jsonResponse({ error: 'boom' }, 500));
-
-    render(<App />);
-
-    expect(
-      await screen.findByText('Failed to load messages: HTTP 500'),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole('table')).not.toBeInTheDocument();
-  });
-
-  it('renders the error state for a network error', async () => {
-    stubFetch(new Error('network down'));
-
-    render(<App />);
-
-    expect(
-      await screen.findByText('Failed to load messages: network down'),
-    ).toBeInTheDocument();
-  });
-
-  it('refetches on Refresh and disables the button while loading', async () => {
+  it('switches screens and aria-current when the tabs are clicked', async () => {
     const user = userEvent.setup();
-    const receivedAt = new Date(2026, 0, 2, 3, 4, 5);
-    const initial = deferred<MockResponse>();
-    const fetchMock = vi.fn().mockReturnValueOnce(initial.promise);
-    vi.stubGlobal('fetch', fetchMock);
+    window.history.replaceState(null, '', '/#/issues');
 
     render(<App />);
 
-    const refresh = screen.getByRole('button', { name: 'Refresh' });
-    expect(refresh).toBeDisabled();
-    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    const issuesTab = screen.getByRole('link', { name: 'Issues' });
+    const messagesTab = screen.getByRole('link', { name: 'Messages' });
+    expect(issuesTab).toHaveAttribute('aria-current', 'page');
+    expect(messagesTab).not.toHaveAttribute('aria-current');
 
-    initial.resolve(
-      jsonResponse([
-        {
-          id: '11111111-1111-1111-1111-111111111111',
-          received_at: receivedAt.toISOString(),
-          endpoint: 'POST /api/1/messages',
-          message: 'hello',
-        },
-      ]),
-    );
+    await user.click(messagesTab);
 
-    expect(await screen.findByText('hello')).toBeInTheDocument();
-    expect(refresh).toBeEnabled();
+    expect(await screen.findByTestId('messages-page')).toBeInTheDocument();
+    expect(messagesTab).toHaveAttribute('aria-current', 'page');
+    expect(issuesTab).not.toHaveAttribute('aria-current');
+    expect(window.location.hash).toBe('#/messages');
 
-    const next = deferred<MockResponse>();
-    fetchMock.mockReturnValueOnce(next.promise);
+    await user.click(issuesTab);
 
-    await user.click(refresh);
+    expect(await screen.findByTestId('issues-page')).toBeInTheDocument();
+    expect(issuesTab).toHaveAttribute('aria-current', 'page');
+    expect(messagesTab).not.toHaveAttribute('aria-current');
+  });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(screen.getByText('Loading...')).toBeInTheDocument();
-    expect(refresh).toBeDisabled();
+  it('switches screens on a hashchange event (back/forward)', () => {
+    window.history.replaceState(null, '', '/#/issues');
 
-    next.resolve(jsonResponse([]));
+    render(<App />);
 
-    expect(await screen.findByText('No messages yet.')).toBeInTheDocument();
-    expect(refresh).toBeEnabled();
+    expect(screen.getByTestId('issues-page')).toBeInTheDocument();
+
+    act(() => {
+      window.history.replaceState(null, '', '/#/messages');
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+
+    expect(screen.getByTestId('messages-page')).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: 'Messages' }),
+    ).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('keeps the query for a filtered issues route', () => {
+    window.history.replaceState(null, '', '/#/issues?status=resolved&q=null');
+
+    render(<App />);
+
+    expect(screen.getByTestId('issues-page')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/issues?status=resolved&q=null');
   });
 });
