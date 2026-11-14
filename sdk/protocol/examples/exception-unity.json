@@ -1,0 +1,125 @@
+{
+  "event_id": "9f1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+  "timestamp": "2026-11-14T12:00:00.000Z",
+  "level": "error",
+  "platform": "unity",
+  "logger": "UnityEngine.Debug",
+  "message": "NullReferenceException: Object reference not set to an instance of an object",
+  "release": "star-raiders@1.2.3",
+  "environment": "production",
+  "server_name": "player-01",
+  "sdk": {
+    "name": "glitchport.unity",
+    "version": "0.1.0"
+  },
+  "exception": [
+    {
+      "type": "System.NullReferenceException",
+      "value": "Object reference not set to an instance of an object",
+      "module": "Assembly-CSharp",
+      "stacktrace": {
+        "frames": [
+          {
+            "function": "UnityEngine.Events.UnityAction.Invoke",
+            "module": "UnityEngine.CoreModule",
+            "filename": "UnityEngine.CoreModule.dll",
+            "lineno": 0,
+            "in_app": false
+          },
+          {
+            "function": "UnityEngine.EventSystems.ExecuteEvents.Execute",
+            "module": "UnityEngine.UI",
+            "filename": "UnityEngine.UI.dll",
+            "lineno": 0,
+            "in_app": false
+          },
+          {
+            "function": "PlayerController.Update",
+            "module": "Assembly-CSharp",
+            "filename": "Assets/Scripts/PlayerController.cs",
+            "abs_path": "/build/star-raiders/Assets/Scripts/PlayerController.cs",
+            "context_line": "weapon.Fire();",
+            "lineno": 42,
+            "colno": 17,
+            "in_app": true
+          },
+          {
+            "function": "Weapon.Fire",
+            "module": "Assembly-CSharp",
+            "filename": "Assets/Scripts/Weapon.cs",
+            "abs_path": "/build/star-raiders/Assets/Scripts/Weapon.cs",
+            "context_line": "projectile.Spawn();",
+            "lineno": 88,
+            "colno": 13,
+            "in_app": true
+          },
+          {
+            "function": "Projectile.Spawn",
+            "module": "Assembly-CSharp",
+            "filename": "Assets/Scripts/Projectile.cs",
+            "abs_path": "/build/star-raiders/Assets/Scripts/Projectile.cs",
+            "context_line": "var target = owner.CurrentTarget.transform;",
+            "lineno": 37,
+            "colno": 26,
+            "in_app": true
+          }
+        ]
+      }
+    }
+  ],
+  "tags": {
+    "scene": "Stage1",
+    "map": "desert",
+    "game_mode": "coop"
+  },
+  "user": {
+    "id": "player-123",
+    "username": "foo",
+    "email": "foo@example.com",
+    "ip_address": "{{auto}}"
+  },
+  "contexts": {
+    "os": {
+      "name": "Windows",
+      "version": "11"
+    },
+    "device": {
+      "model": "Desktop",
+      "memory_size": 17179869184
+    },
+    "gpu": {
+      "name": "NVIDIA GeForce RTX 4070",
+      "api": "Direct3D12"
+    },
+    "runtime": {
+      "name": "Unity",
+      "version": "6000.0.30f1"
+    },
+    "game": {
+      "scene": "Stage1",
+      "frame": 123456
+    }
+  },
+  "breadcrumbs": [
+    {
+      "timestamp": "2026-11-14T11:59:58.000Z",
+      "category": "scene",
+      "message": "Loaded Stage1",
+      "level": "info",
+      "type": "default",
+      "data": {
+        "scene": "Stage1"
+      }
+    },
+    {
+      "timestamp": "2026-11-14T11:59:59.000Z",
+      "category": "input",
+      "message": "Attack pressed",
+      "level": "debug",
+      "type": "default",
+      "data": {
+        "button": "Mouse0"
+      }
+    }
+  ]
+}

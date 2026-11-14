@@ -1,0 +1,148 @@
+{
+  "event_id": "0a1b2c3d4e5f60718293a4b5c6d7e8f9",
+  "timestamp": "2026-11-14T18:45:12.345Z",
+  "level": "fatal",
+  "platform": "dotnet",
+  "logger": "GameServer.Matchmaking",
+  "message": "ConnectionLostException: The matchmaking backend connection was lost",
+  "release": "game-server@1.4.0",
+  "environment": "production",
+  "server_name": "game-01",
+  "sdk": {
+    "name": "glitchport.dotnet",
+    "version": "0.1.0"
+  },
+  "exception": [
+    {
+      "type": "System.Net.Sockets.SocketException",
+      "value": "An established connection was aborted by the software in your host machine.",
+      "module": "System.Net.Sockets",
+      "stacktrace": {
+        "frames": [
+          {
+            "function": "GameServer.Net.Transport.SendAsync",
+            "module": "GameServer",
+            "filename": "Net/Transport.cs",
+            "abs_path": "/build/GameServer/Net/Transport.cs",
+            "context_line": "await socket.SendAsync(buffer, cancellationToken);",
+            "lineno": 88,
+            "colno": 13,
+            "in_app": true
+          },
+          {
+            "function": "System.Net.Sockets.Socket.Send",
+            "module": "System.Net.Sockets",
+            "filename": "Socket.cs",
+            "abs_path": "/src/runtime/src/libraries/System.Net.Sockets/src/System/Net/Sockets/Socket.cs",
+            "context_line": "return SocketPal.Send(socketHandle, buffer);",
+            "lineno": 1234,
+            "colno": 48,
+            "in_app": false
+          }
+        ]
+      }
+    },
+    {
+      "type": "System.IO.IOException",
+      "value": "Unable to write data to the transport connection.",
+      "module": "System.IO",
+      "stacktrace": {
+        "frames": [
+          {
+            "function": "GameServer.Matchmaking.Matchmaker.PublishAsync",
+            "module": "GameServer",
+            "filename": "Matchmaking/Matchmaker.cs",
+            "abs_path": "/build/GameServer/Matchmaking/Matchmaker.cs",
+            "context_line": "await transport.SendAsync(payload, cancellationToken);",
+            "lineno": 145,
+            "colno": 9,
+            "in_app": true
+          },
+          {
+            "function": "GameServer.Net.Transport.SendAsync",
+            "module": "GameServer",
+            "filename": "Net/Transport.cs",
+            "abs_path": "/build/GameServer/Net/Transport.cs",
+            "context_line": "await socket.SendAsync(buffer, cancellationToken);",
+            "lineno": 88,
+            "colno": 13,
+            "in_app": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "GameServer.ConnectionLostException",
+      "value": "The matchmaking backend connection was lost.",
+      "module": "GameServer",
+      "stacktrace": {
+        "frames": [
+          {
+            "function": "GameServer.Matchmaking.MatchmakingService.EnqueueAsync",
+            "module": "GameServer",
+            "filename": "Matchmaking/MatchmakingService.cs",
+            "abs_path": "/build/GameServer/Matchmaking/MatchmakingService.cs",
+            "context_line": "await matchmaker.PublishAsync(player);",
+            "lineno": 72,
+            "colno": 9,
+            "in_app": true
+          },
+          {
+            "function": "GameServer.Matchmaking.Matchmaker.PublishAsync",
+            "module": "GameServer",
+            "filename": "Matchmaking/Matchmaker.cs",
+            "abs_path": "/build/GameServer/Matchmaking/Matchmaker.cs",
+            "context_line": "await transport.SendAsync(payload, cancellationToken);",
+            "lineno": 145,
+            "colno": 9,
+            "in_app": true
+          }
+        ]
+      }
+    }
+  ],
+  "tags": {
+    "service": "matchmaking",
+    "region": "eu-west-1"
+  },
+  "user": {
+    "id": "player-456",
+    "username": "bar",
+    "ip_address": "198.51.100.7"
+  },
+  "contexts": {
+    "runtime": {
+      "name": ".NET",
+      "version": "10.0.0"
+    },
+    "os": {
+      "name": "Linux",
+      "version": "6.8"
+    }
+  },
+  "breadcrumbs": [
+    {
+      "timestamp": "2026-11-14T18:45:10.000Z",
+      "category": "matchmaking",
+      "message": "Player player-456 joined the queue",
+      "level": "info",
+      "type": "default",
+      "data": {
+        "queue": "ranked"
+      }
+    },
+    {
+      "timestamp": "2026-11-14T18:45:12.000Z",
+      "category": "matchmaking",
+      "message": "Publishing match assignment",
+      "level": "info",
+      "type": "default",
+      "data": {
+        "match_id": "m-9001"
+      }
+    }
+  ],
+  "extra": {
+    "connection_id": "conn-77"
+  }
+}

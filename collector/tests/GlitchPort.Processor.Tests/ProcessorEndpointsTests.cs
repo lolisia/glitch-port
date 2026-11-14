@@ -1,5 +1,5 @@
+using System.Globalization;
 using System.Net;
-using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using GlitchPort.Collector.Contracts;
@@ -10,7 +10,7 @@ namespace GlitchPort.Processor.Tests;
 [Collection(ProcessorCollection.Name)]
 public sealed class ProcessorEndpointsTests
 {
-    private const string InternalHeader = "X-GlitchPort-Internal";
+    private const string InternalHeader = TestData.InternalHeader;
 
     private readonly ProcessorFixture _fixture;
 
@@ -43,24 +43,24 @@ public sealed class ProcessorEndpointsTests
             "second");
         Envelope[] batch = [first, second];
 
-        using var initialResponse = await PostEnvelopesAsync(
+        using var initialResponse = await TestData.PostEnvelopesAsync(
             client,
             ProcessorApplicationFactory.InternalSharedSecret,
             batch);
 
         Assert.Equal(HttpStatusCode.OK, initialResponse.StatusCode);
-        Assert.Equal(2, await ReadStoredAsync(initialResponse));
-        Assert.Equal(1, await TestDatabase.CountMessagesAsync(_fixture.ConnectionString, first.EventId));
+        Assert.Equal(2, await TestData.ReadStoredAsync(initialResponse));
+        Assert.Equal(1, await TestDatabase.CountEventsAsync(_fixture.ConnectionString, first.EventId));
 
-        using var duplicateResponse = await PostEnvelopesAsync(
+        using var duplicateResponse = await TestData.PostEnvelopesAsync(
             client,
             ProcessorApplicationFactory.InternalSharedSecret,
             batch);
 
         Assert.Equal(HttpStatusCode.OK, duplicateResponse.StatusCode);
-        Assert.Equal(0, await ReadStoredAsync(duplicateResponse));
-        Assert.Equal(1, await TestDatabase.CountMessagesAsync(_fixture.ConnectionString, first.EventId));
-        Assert.Equal(1, await TestDatabase.CountMessagesAsync(_fixture.ConnectionString, second.EventId));
+        Assert.Equal(0, await TestData.ReadStoredAsync(duplicateResponse));
+        Assert.Equal(1, await TestDatabase.CountEventsAsync(_fixture.ConnectionString, first.EventId));
+        Assert.Equal(1, await TestDatabase.CountEventsAsync(_fixture.ConnectionString, second.EventId));
     }
 
     [Fact]
@@ -76,13 +76,13 @@ public sealed class ProcessorEndpointsTests
             Message = "minimal envelope",
         };
 
-        using var response = await PostEnvelopesAsync(
+        using var response = await TestData.PostEnvelopesAsync(
             client,
             ProcessorApplicationFactory.InternalSharedSecret,
             [envelope]);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(1, await ReadStoredAsync(response));
+        Assert.Equal(1, await TestData.ReadStoredAsync(response));
     }
 
     [Theory]
@@ -94,10 +94,10 @@ public sealed class ProcessorEndpointsTests
         using var client = _fixture.CreateClient();
         var envelope = TestData.CreateEnvelope(Guid.NewGuid(), DateTimeOffset.UtcNow, "must not store");
 
-        using var response = await PostEnvelopesAsync(client, secret, [envelope]);
+        using var response = await TestData.PostEnvelopesAsync(client, secret, [envelope]);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-        Assert.Equal(0, await TestDatabase.CountMessagesAsync(_fixture.ConnectionString, envelope.EventId));
+        Assert.Equal(0, await TestDatabase.CountEventsAsync(_fixture.ConnectionString, envelope.EventId));
     }
 
     [Fact]
@@ -118,7 +118,7 @@ public sealed class ProcessorEndpointsTests
     [Fact]
     public async Task Manage_messages_orders_by_received_at_descending_and_honours_limit_one()
     {
-        await TestDatabase.ExecuteAsync(_fixture.ConnectionString, "delete from messages");
+        await DeleteStoredMessagesAsync();
 
         using var client = _fixture.CreateClient();
 
@@ -131,13 +131,13 @@ public sealed class ProcessorEndpointsTests
             new DateTimeOffset(2026, 2, 1, 0, 0, 0, TimeSpan.Zero),
             "newer");
 
-        using var postResponse = await PostEnvelopesAsync(
+        using var postResponse = await TestData.PostEnvelopesAsync(
             client,
             ProcessorApplicationFactory.InternalSharedSecret,
             [older, newer]);
-        Assert.Equal(2, await ReadStoredAsync(postResponse));
+        Assert.Equal(2, await TestData.ReadStoredAsync(postResponse));
 
-        using var request = CreateAuthorizedGet("/api/manage/messages?limit=1");
+        using var request = TestData.CreateAuthorizedGet("/api/manage/messages?limit=1");
         using var response = await client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -161,13 +161,58 @@ public sealed class ProcessorEndpointsTests
         Assert.EndsWith("+00:00", receivedAt);
         Assert.Equal(
             new DateTimeOffset(2026, 2, 1, 0, 0, 0, TimeSpan.Zero),
-            DateTimeOffset.Parse(receivedAt, System.Globalization.CultureInfo.InvariantCulture));
+            DateTimeOffset.Parse(receivedAt, CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task Manage_messages_returns_events_unioned_with_legacy_messages()
+    {
+        await DeleteStoredMessagesAsync();
+
+        using var client = _fixture.CreateClient();
+
+        var projectId = TestData.NextProjectId();
+        var legacyId = Guid.NewGuid();
+        await TestDatabase.ExecuteAsync(
+            _fixture.ConnectionString,
+            $"""
+            insert into messages (id, project_id, received_at, endpoint, message)
+            values ('{legacyId}', {projectId}, '2026-01-01T00:00:00Z', 'POST /api/1/messages', 'legacy row')
+            """);
+
+        var eventId = Guid.NewGuid();
+        var payload = TestData.CreateExceptionPayload(level: "info");
+        var envelope = TestData.CreatePayloadEnvelope(
+            eventId,
+            projectId,
+            new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero),
+            payload);
+
+        using var postResponse = await TestData.PostEnvelopesAsync(
+            client,
+            ProcessorApplicationFactory.InternalSharedSecret,
+            [envelope]);
+        Assert.Equal(1, await TestData.ReadStoredAsync(postResponse));
+
+        using var request = TestData.CreateAuthorizedGet("/api/manage/messages?limit=10");
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var items = document.RootElement;
+
+        Assert.Equal(2, items.GetArrayLength());
+        Assert.Equal(eventId, items[0].GetProperty("id").GetGuid());
+        Assert.Equal("NullReferenceException: Object reference not set to an instance of an object", items[0].GetProperty("message").GetString());
+        Assert.Equal(legacyId, items[1].GetProperty("id").GetGuid());
+        Assert.Equal("legacy row", items[1].GetProperty("message").GetString());
     }
 
     [Fact]
     public async Task Manage_messages_defaults_to_limit_100()
     {
-        await TestDatabase.ExecuteAsync(_fixture.ConnectionString, "delete from messages");
+        await DeleteStoredMessagesAsync();
 
         using var client = _fixture.CreateClient();
 
@@ -179,13 +224,16 @@ public sealed class ProcessorEndpointsTests
                 $"message-{index}"))
             .ToArray();
 
-        using var postResponse = await PostEnvelopesAsync(
+        using var postResponse = await TestData.PostEnvelopesAsync(
             client,
             ProcessorApplicationFactory.InternalSharedSecret,
             envelopes);
-        Assert.Equal(101, await ReadStoredAsync(postResponse));
+        Assert.Equal(101, await TestData.ReadStoredAsync(postResponse));
+        Assert.Equal(101, await TestDatabase.CountEventsAsync(
+            _fixture.ConnectionString,
+            envelopes[0].ProjectId));
 
-        using var defaultRequest = CreateAuthorizedGet("/api/manage/messages");
+        using var defaultRequest = TestData.CreateAuthorizedGet("/api/manage/messages");
         using var defaultResponse = await client.SendAsync(defaultRequest);
 
         Assert.Equal(HttpStatusCode.OK, defaultResponse.StatusCode);
@@ -197,7 +245,7 @@ public sealed class ProcessorEndpointsTests
         Assert.Equal("message-100", defaultItems[0].GetProperty("message").GetString());
         Assert.Equal("message-1", defaultItems[99].GetProperty("message").GetString());
 
-        using var allRequest = CreateAuthorizedGet("/api/manage/messages?limit=500");
+        using var allRequest = TestData.CreateAuthorizedGet("/api/manage/messages?limit=500");
         using var allResponse = await client.SendAsync(allRequest);
 
         Assert.Equal(HttpStatusCode.OK, allResponse.StatusCode);
@@ -214,7 +262,7 @@ public sealed class ProcessorEndpointsTests
     public async Task Manage_messages_rejects_an_out_of_range_limit(string limit)
     {
         using var client = _fixture.CreateClient();
-        using var request = CreateAuthorizedGet($"/api/manage/messages?limit={limit}");
+        using var request = TestData.CreateAuthorizedGet($"/api/manage/messages?limit={limit}");
 
         using var response = await client.SendAsync(request);
 
@@ -260,36 +308,7 @@ public sealed class ProcessorEndpointsTests
             Assert.Single(response.Headers.GetValues("Access-Control-Allow-Methods")).Split(',').Select(value => value.Trim()));
     }
 
-    private static async Task<HttpResponseMessage> PostEnvelopesAsync(
-        HttpClient client,
-        string? secret,
-        IEnumerable<Envelope> envelopes)
-    {
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/internal/envelopes")
-        {
-            Content = TestData.CreateEnvelopeContent(envelopes),
-        };
-
-        if (secret is not null)
-        {
-            request.Headers.TryAddWithoutValidation(InternalHeader, secret);
-        }
-
-        return await client.SendAsync(request);
-    }
-
-    private static async Task<int> ReadStoredAsync(HttpResponseMessage response)
-    {
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        return document.RootElement.GetProperty("stored").GetInt32();
-    }
-
-    private static HttpRequestMessage CreateAuthorizedGet(string path)
-    {
-        var request = new HttpRequestMessage(HttpMethod.Get, path);
-        request.Headers.Authorization = new AuthenticationHeaderValue(
-            "Bearer",
-            ProcessorApplicationFactory.AdminToken);
-        return request;
-    }
+    private Task DeleteStoredMessagesAsync() => TestDatabase.ExecuteAsync(
+        _fixture.ConnectionString,
+        "delete from events; delete from messages");
 }
