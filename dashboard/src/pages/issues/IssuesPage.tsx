@@ -1,0 +1,363 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  bulkUpdateIssues,
+  getStats,
+  listIssues,
+  listLabels,
+} from '../../api/client';
+import type { BulkAction, Issue, StatsBucket } from '../../api/types';
+import { navigate, useHashRoute } from '../../router';
+import { EmptyState, ErrorState, LoadingState } from '../../ui';
+import { BulkActionBar } from './components/BulkActionBar';
+import { IssueFilterBar } from './components/IssueFilterBar';
+import { IssueTable } from './components/IssueTable';
+import { StatsSummary } from './components/StatsSummary';
+import {
+  SEARCH_DEBOUNCE_MS,
+  buildIssueFilterParams,
+  buildIssueListQuery,
+  collectFilterOptions,
+  readIssueFilters,
+} from './components/filters';
+import type { IssueFilters } from './components/filters';
+import './issues.css';
+
+/**
+ * Issue list with URL-driven filters, cursor pagination and bulk actions.
+ *
+ * All filter state lives in the hash query so a refresh or a shared link keeps
+ * the current view. Changing a filter navigates with `replace` and the route
+ * query change is what triggers the list request; the cursor never reaches the
+ * URL.
+ */
+export function IssuesPage() {
+  const route = useHashRoute();
+  const filters = readIssueFilters(route.query);
+  const { status, level, environment, release, label, q, sort } = filters;
+
+  const [items, setItems] = useState<Issue[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [listError, setListError] = useState<unknown>(null);
+  const [moreError, setMoreError] = useState<unknown>(null);
+  const [selection, setSelection] = useState<ReadonlySet<number>>(
+    () => new Set<number>(),
+  );
+  const [labelNames, setLabelNames] = useState<string[]>([]);
+  const [search, setSearch] = useState(q);
+  const [labelName, setLabelName] = useState('');
+  const [bulkError, setBulkError] = useState<unknown>(null);
+  const [bulkPending, setBulkPending] = useState(false);
+  const [stats, setStats] = useState<StatsBucket[] | null>(null);
+
+  // The counter discards responses that belong to a superseded filter set.
+  const requestIdRef = useRef(0);
+  // Event handlers and the debounce timer must merge into the latest filters,
+  // not the ones captured when they were created.
+  const filtersRef = useRef<IssueFilters>(filters);
+
+  useEffect(() => {
+    filtersRef.current = filters;
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getStats('24h')
+      .then((buckets) => {
+        if (!cancelled) {
+          setStats(Array.isArray(buckets) ? buckets : []);
+        }
+      })
+      .catch(() => {
+        // The 24h summary is decorative; a failure must not block the list.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    listLabels()
+      .then((labels) => {
+        if (!cancelled) {
+          setLabelNames(
+            Array.isArray(labels) ? labels.map((item) => item.name) : [],
+          );
+        }
+      })
+      .catch(() => {
+        // Without the project labels the filter still offers "All labels".
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const loadFirstPage = useCallback(async (active: IssueFilters) => {
+    const requestId = ++requestIdRef.current;
+
+    setItems([]);
+    setNextCursor(null);
+    setSelection(new Set<number>());
+    setLoading(true);
+    setLoadingMore(false);
+    setListError(null);
+    setMoreError(null);
+    setBulkError(null);
+
+    try {
+      const response = await listIssues(buildIssueListQuery(active));
+
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+
+      setItems(Array.isArray(response.items) ? response.items : []);
+      setNextCursor(response.next_cursor ?? null);
+    } catch (error) {
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+
+      setListError(error);
+    } finally {
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadFirstPage({ status, level, environment, release, label, q, sort });
+  }, [loadFirstPage, status, level, environment, release, label, q, sort]);
+
+  const loadMore = useCallback(
+    async (active: IssueFilters, cursor: string) => {
+      const requestId = requestIdRef.current;
+
+      setLoadingMore(true);
+      setMoreError(null);
+
+      try {
+        const response = await listIssues(
+          buildIssueListQuery(active, cursor),
+        );
+
+        if (requestId !== requestIdRef.current) {
+          return;
+        }
+
+        setItems((previous) => [
+          ...previous,
+          ...(Array.isArray(response.items) ? response.items : []),
+        ]);
+        setNextCursor(response.next_cursor ?? null);
+      } catch (error) {
+        if (requestId === requestIdRef.current) {
+          setMoreError(error);
+        }
+      } finally {
+        if (requestId === requestIdRef.current) {
+          setLoadingMore(false);
+        }
+      }
+    },
+    [],
+  );
+
+  const runBulk = useCallback(
+    async (action: BulkAction, labels?: string[]) => {
+      const ids = Array.from(selection);
+
+      if (ids.length === 0) {
+        return;
+      }
+
+      const requestId = requestIdRef.current;
+      setBulkPending(true);
+      setBulkError(null);
+
+      try {
+        await bulkUpdateIssues(
+          labels === undefined ? { ids, action } : { ids, action, labels },
+        );
+
+        setSelection(new Set<number>());
+        setLabelName('');
+
+        // A filter change while the request was in flight has already loaded
+        // a fresh first page, so only refetch when the view is unchanged.
+        if (requestId === requestIdRef.current) {
+          await loadFirstPage(filters);
+        }
+      } catch (error) {
+        setBulkError(error);
+      } finally {
+        setBulkPending(false);
+      }
+    },
+    [filters, loadFirstPage, selection],
+  );
+
+  const handleBulkAction = (action: BulkAction) => {
+    if (action === 'delete') {
+      const confirmed = window.confirm(
+        `Delete ${selection.size} selected issues?`,
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    void runBulk(action);
+  };
+
+  const handleLabelAction = (action: 'add_labels' | 'remove_labels') => {
+    const name = labelName.trim();
+
+    if (name === '') {
+      return;
+    }
+
+    void runBulk(action, [name]);
+  };
+
+  const toggleSelection = (id: number) => {
+    setSelection((previous) => {
+      const next = new Set(previous);
+
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    setSelection((previous) => {
+      if (items.length > 0 && items.every((item) => previous.has(item.id))) {
+        return new Set<number>();
+      }
+
+      return new Set(items.map((item) => item.id));
+    });
+  };
+
+  useEffect(() => {
+    setSearch(q);
+  }, [q]);
+
+  const applyFilterPatch = useCallback((patch: Partial<IssueFilters>) => {
+    navigate(
+      '/issues',
+      buildIssueFilterParams({ ...filtersRef.current, ...patch }),
+      { replace: true },
+    );
+  }, []);
+
+  useEffect(() => {
+    const trimmed = search.trim();
+
+    if (trimmed === q) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      applyFilterPatch({ q: trimmed });
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [applyFilterPatch, q, search]);
+
+  const environmentOptions = useMemo(
+    () =>
+      collectFilterOptions(
+        items.map((item) => item.last_environment),
+        environment,
+      ),
+    [environment, items],
+  );
+
+  const releaseOptions = useMemo(
+    () => collectFilterOptions(items.map((item) => item.last_release), release),
+    [items, release],
+  );
+
+  return (
+    <section className="issues-page" data-testid="issues-page">
+      <header className="page-header">
+        <h2>Issues</h2>
+      </header>
+
+      {stats !== null && <StatsSummary buckets={stats} />}
+
+      <IssueFilterBar
+        filters={filters}
+        search={search}
+        labelNames={labelNames}
+        environmentOptions={environmentOptions}
+        releaseOptions={releaseOptions}
+        onFilterChange={applyFilterPatch}
+        onSearchChange={setSearch}
+      />
+
+      {selection.size > 0 && (
+        <BulkActionBar
+          count={selection.size}
+          labelName={labelName}
+          pending={bulkPending}
+          error={bulkError}
+          onLabelNameChange={setLabelName}
+          onAction={handleBulkAction}
+          onLabelAction={handleLabelAction}
+        />
+      )}
+
+      {loading && <LoadingState />}
+
+      {!loading && listError !== null && (
+        <ErrorState error={listError} prefix="Failed to load issues" />
+      )}
+
+      {!loading && listError === null && items.length === 0 && (
+        <EmptyState>No issues found.</EmptyState>
+      )}
+
+      {!loading && listError === null && items.length > 0 && (
+        <>
+          <IssueTable
+            issues={items}
+            selection={selection}
+            onToggle={toggleSelection}
+            onToggleAll={toggleAll}
+          />
+
+          {moreError !== null && (
+            <ErrorState error={moreError} prefix="Failed to load issues" />
+          )}
+
+          {nextCursor !== null && (
+            <button
+              type="button"
+              className="issues-load-more"
+              onClick={() => void loadMore(filters, nextCursor)}
+              disabled={loading || loadingMore}
+            >
+              Load more
+            </button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
