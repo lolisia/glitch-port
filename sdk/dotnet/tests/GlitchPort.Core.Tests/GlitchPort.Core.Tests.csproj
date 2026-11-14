@@ -6,6 +6,9 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <RootNamespace>GlitchPort.Tests</RootNamespace>
+
+    <!-- Filled by the ProjectReference build of the fake terminal child. -->
+    <TestTerminalChildOutputDirectory>$(MSBuildThisFileDirectory)..\GlitchPort.TestTerminalChild\bin\$(Configuration)\net10.0\</TestTerminalChildOutputDirectory>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,5 +23,32 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\GlitchPort.Core\GlitchPort.Core.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The terminal relay tests start a real child process. The project is built
+      first but not referenced as an assembly; the target below copies its
+      output (apphost, dll, runtimeconfig, deps) next to the test assembly so
+      TerminalRelayOptions.ExecutablePath can point at a platform executable.
+    -->
+    <ProjectReference
+      Include="..\GlitchPort.TestTerminalChild\GlitchPort.TestTerminalChild.csproj"
+      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <Target Name="CopyTestTerminalChild" AfterTargets="Build">
+    <ItemGroup>
+      <TestTerminalChildFiles Include="$(TestTerminalChildOutputDirectory)**\*" />
+    </ItemGroup>
+
+    <Warning
+      Condition="'@(TestTerminalChildFiles)' == ''"
+      Text="The fake terminal child was not built; terminal relay tests will fail." />
+
+    <Copy
+      SourceFiles="@(TestTerminalChildFiles)"
+      DestinationFolder="$(OutDir)test-terminal-child\%(RecursiveDir)"
+      SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>

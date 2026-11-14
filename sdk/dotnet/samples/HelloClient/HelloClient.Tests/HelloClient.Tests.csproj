@@ -3,6 +3,10 @@
   <!--
     Tests for the hello sample. They live next to the sample so the sample keeps
     a single, dependency-free production project.
+
+    The terminal renderer is built and copied into the test output directory so
+    the terminal relay tests exercise a real child process, exactly like a
+    HelloClient build does.
   -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -24,6 +28,21 @@
 
   <ItemGroup>
     <ProjectReference Include="..\HelloClient.csproj" />
+    <ProjectReference Include="..\..\..\tools\GlitchPort.Terminal\GlitchPort.Terminal.csproj"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
+
+  <!--
+    Put glitchport-terminal next to the test assembly. The glob runs after the
+    build, when the referenced tool project has produced its output.
+  -->
+  <Target Name="CopyTerminalToolForTests" AfterTargets="Build">
+    <ItemGroup>
+      <TerminalToolFiles Include="..\..\..\tools\GlitchPort.Terminal\bin\$(Configuration)\net10.0\glitchport-terminal*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(TerminalToolFiles)"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>

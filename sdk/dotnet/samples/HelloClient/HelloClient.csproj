@@ -4,7 +4,9 @@
     End-to-end sample used by the repository verification flow.
 
     It must stay dependency-free beyond GlitchPort.Core: the point of the sample
-    is to show that capturing a message only needs the SDK core.
+    is to show that capturing a message only needs the SDK core. The terminal
+    renderer is referenced with ReferenceOutputAssembly="false" so it is only
+    built (and then copied next to the sample), never linked against.
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -17,6 +19,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\GlitchPort.Core\GlitchPort.Core.csproj" />
+    <ProjectReference Include="..\..\tools\GlitchPort.Terminal\GlitchPort.Terminal.csproj"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <!--
@@ -34,5 +38,21 @@
   <ItemGroup>
     <InternalsVisibleTo Include="HelloClient.Tests" />
   </ItemGroup>
+
+  <!--
+    Ship the terminal renderer next to HelloClient so the "terminal:" relay can
+    find it through AppContext.BaseDirectory without a separate install step.
+
+    The item glob is evaluated when the target runs, i.e. after the project
+    reference above has built glitchport-terminal in the same configuration.
+  -->
+  <Target Name="CopyTerminalTool" AfterTargets="Build">
+    <ItemGroup>
+      <TerminalToolFiles Include="..\..\tools\GlitchPort.Terminal\bin\$(Configuration)\net10.0\glitchport-terminal*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(TerminalToolFiles)"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>
