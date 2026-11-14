@@ -37,6 +37,48 @@ namespace GlitchPort.Terminal
         private static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
 
         /// <summary>
+        /// Captures the standard input stream when it is redirected (a pipe or a
+        /// file) so it survives a following <see cref="Reattach"/> call.
+        /// </summary>
+        /// <remarks>
+        /// <c>AllocConsole</c> can install new standard handles, which would
+        /// otherwise silently replace a relay's stdin pipe with the new console's
+        /// input buffer. Returns <see langword="null"/> when stdin is a console,
+        /// when the platform is not Windows, or when the stream cannot be
+        /// captured; the caller then opens standard input after re-attaching so
+        /// that direct terminal use keeps reading the new console.
+        /// </remarks>
+        public static Stream? TryCaptureRedirectedStandardInput()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return null;
+            }
+
+            try
+            {
+                if (!Console.IsInputRedirected)
+                {
+                    return null;
+                }
+
+                // Console.OpenStandardInput does not own the handle, so the stream
+                // stays valid even when FreeConsole detaches the inherited console.
+                return Console.OpenStandardInput();
+            }
+            catch (IOException)
+            {
+                // The standard input handle is unusable; fall back to the console.
+                return null;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // The standard input handle cannot be read; fall back to the console.
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Detaches from the inherited console and allocates a new window. The
         /// standard streams must be opened again afterwards.
         /// </summary>

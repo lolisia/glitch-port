@@ -13,6 +13,13 @@ namespace GlitchPort.Terminal
         private const string Usage =
             "usage: glitchport-terminal [--parent-pid <pid>] [--format <pretty|compact|json>] [--window <new|inherit>] [--app <name>]";
 
+        /// <summary>
+        /// The single warning printed when <c>--window new</c> is requested on a
+        /// platform that cannot allocate a per-process console.
+        /// </summary>
+        internal const string UnsupportedWindowWarning =
+            "warning: --window new is not supported on this platform; falling back to --window inherit";
+
         internal static async Task<int> Main(string[] args)
         {
             if (!TryParseArguments(args, out var options, out var window, out var error))
@@ -22,8 +29,18 @@ namespace GlitchPort.Terminal
                 return 2;
             }
 
-            if (window == TerminalWindowMode.New && OperatingSystem.IsWindows())
+            window = ResolveWindowMode(window, Console.Error, OperatingSystem.IsWindows());
+
+            // A relay supplies the protocol through a redirected standard input
+            // pipe. FreeConsole/AllocConsole can replace the standard handles, so
+            // the pipe is captured first; afterwards it would be impossible to
+            // tell it apart from the fresh console's input handle. Without a
+            // redirected input (direct terminal use) the new console remains the
+            // input source.
+            Stream? preservedInput = null;
+            if (window == TerminalWindowMode.New)
             {
+                preservedInput = ConsoleWindow.TryCaptureRedirectedStandardInput();
                 ConsoleWindow.Reattach();
             }
 
@@ -32,12 +49,38 @@ namespace GlitchPort.Terminal
 
             ParentProcessWatcher.Start(options.ParentProcessId);
 
-            // Open the streams after a possible console re-attach so the writer is
-            // created against the current standard handles.
-            using var input = CreateInput(Console.OpenStandardInput());
+            // Open the output stream after a possible console re-attach so the
+            // writer is created against the current standard handles. A preserved
+            // input stream skips the new console's stdin entirely.
+            using var input = CreateInput(preservedInput ?? Console.OpenStandardInput());
             using var output = CreateOutput(Console.OpenStandardOutput());
 
             return await TerminalHost.RunAsync(input, output, options, CancellationToken.None).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Downgrades <see cref="TerminalWindowMode.New"/> to
+        /// <see cref="TerminalWindowMode.Inherit"/> on platforms without a
+        /// comparable per-process console and reports the fallback exactly once.
+        /// </summary>
+        /// <param name="requested">The window mode requested on the command line.</param>
+        /// <param name="error">The sink for the fallback warning.</param>
+        /// <param name="isWindows">Whether the current platform supports a new console window.</param>
+        /// <returns>The mode the renderer should use.</returns>
+        internal static TerminalWindowMode ResolveWindowMode(
+            TerminalWindowMode requested,
+            TextWriter error,
+            bool isWindows)
+        {
+            ArgumentNullException.ThrowIfNull(error);
+
+            if (requested != TerminalWindowMode.New || isWindows)
+            {
+                return requested;
+            }
+
+            error.WriteLine(UnsupportedWindowWarning);
+            return TerminalWindowMode.Inherit;
         }
 
         /// <summary>Creates the UTF-8 (no BOM) standard input reader.</summary>

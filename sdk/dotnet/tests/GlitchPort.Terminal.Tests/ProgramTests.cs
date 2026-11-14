@@ -94,6 +94,43 @@ namespace GlitchPort.Terminal.Tests
             Assert.Contains("--parent-pid", error);
         }
 
+        [Fact]
+        public void ResolveWindowMode_NewOnUnsupportedPlatform_WarnsExactlyOnceAndFallsBackToInherit()
+        {
+            using var error = new StringWriter();
+
+            var resolved = Program.ResolveWindowMode(TerminalWindowMode.New, error, isWindows: false);
+
+            Assert.Equal(TerminalWindowMode.Inherit, resolved);
+
+            var lines = error.ToString().Replace("\r\n", "\n").TrimEnd('\n').Split('\n');
+            Assert.Single(lines);
+            Assert.Equal(Program.UnsupportedWindowWarning, lines[0]);
+            Assert.Contains("--window inherit", lines[0]);
+        }
+
+        [Fact]
+        public void ResolveWindowMode_NewOnWindows_KeepsNewWithoutWarning()
+        {
+            using var error = new StringWriter();
+
+            var resolved = Program.ResolveWindowMode(TerminalWindowMode.New, error, isWindows: true);
+
+            Assert.Equal(TerminalWindowMode.New, resolved);
+            Assert.Equal(string.Empty, error.ToString());
+        }
+
+        [Fact]
+        public void ResolveWindowMode_Inherit_DoesNotWarn()
+        {
+            using var error = new StringWriter();
+
+            var resolved = Program.ResolveWindowMode(TerminalWindowMode.Inherit, error, isWindows: false);
+
+            Assert.Equal(TerminalWindowMode.Inherit, resolved);
+            Assert.Equal(string.Empty, error.ToString());
+        }
+
         private static bool HasUtf8Bom(byte[] bytes)
         {
             return bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;

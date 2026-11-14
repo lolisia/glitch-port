@@ -127,7 +127,7 @@ its pipe breaks, later events are reported as failed.
 | `Name`           | `terminal`                                                              | Relay name in delivery reports.                                |
 | `MinLevel`       | `Level.Debug`                                                           | Lowest level the renderer receives.                            |
 | `QueueCapacity`  | `1000`                                                                  | Maximum number of events waiting for the renderer.             |
-| `Window`         | `TerminalWindow.Inherit`                                                | `New` allocates a separate console window (Windows only).      |
+| `Window`         | `TerminalWindow.Inherit`                                                | `New` allocates a separate console window (Windows only; stdin is preserved). |
 | `Format`         | `TerminalFormat.Pretty`                                                 | `Pretty`, `Compact` or `Json` rendering.                       |
 | `AppName`        | The current process name                                                | Name shown in the renderer's session header.                   |
 | `ExecutablePath` | `null`                                                                  | Explicit renderer path; otherwise the discovery order below.   |
@@ -150,9 +150,28 @@ The renderer reads a small JSON-lines protocol from standard input:
 
 **Window behaviour.** `TerminalWindow.Inherit` (the default) uses the console
 that the game already owns, on every platform. `TerminalWindow.New` detaches
-from that console and allocates a fresh window on Windows; on Linux and macOS
-the value is accepted but the renderer always inherits, because those platforms
-have no analogous per-process console.
+from that console and allocates a fresh window on Windows.
+
+With `TerminalWindow.New` the renderer preserves a relay-provided standard input
+across the re-attach. When standard input is redirected — which is always the
+case when `glitchport-terminal` is started by the terminal relay — the pipe is
+captured before `FreeConsole`/`AllocConsole` and remains the renderer's only
+input source; the new console is used for output only and is never read. The
+protocol stream therefore stays connected: the hello and event lines continue
+to be read and rendered, and a full stdin pipe can never block the relay. A
+directly started renderer with no redirected standard input keeps reading the
+new console exactly as before.
+
+On Linux and macOS `TerminalWindow.New` is not supported: those platforms have
+no analogous per-process console. The renderer prints exactly one warning to
+standard error:
+
+```text
+warning: --window new is not supported on this platform; falling back to --window inherit
+```
+
+and otherwise behaves exactly like `TerminalWindow.Inherit`, including reading
+redirected standard input.
 
 **Parent lifetime.** The renderer must never outlive the process it reports on:
 
@@ -285,7 +304,7 @@ terminal:?window=new|inherit&format=pretty|compact|json&min_level=debug&name=ter
 
 | Parameter   | Values                                    | Default    | Meaning                                                 |
 | ----------- | ----------------------------------------- | ---------- | ------------------------------------------------------- |
-| `window`    | `new`, `inherit`                          | `inherit`  | `new` opens a separate window on Windows only.          |
+| `window`    | `new`, `inherit`                          | `inherit`  | `new` opens a separate window on Windows; other platforms warn once and inherit. |
 | `format`    | `pretty`, `compact`, `json`               | `pretty`   | Renderer output format.                                 |
 | `min_level` | `debug`, `info`, `warning`, `error`, `fatal` | `debug` | Lowest level rendered.                                  |
 | `name`      | Any text                                  | `terminal` | Relay name in delivery reports.                         |
