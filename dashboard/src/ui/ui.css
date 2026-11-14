@@ -1,0 +1,65 @@
+.level-badge {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  background-color: #eaeef2;
+  color: #57606a;
+}
+
+.level-badge.level-fatal,
+.level-badge.level-error {
+  background-color: #ffebe9;
+  color: #cf222e;
+}
+
+.level-badge.level-warning {
+  background-color: #fff8c5;
+  color: #9a6700;
+}
+
+.level-badge.level-info {
+  background-color: #ddf4ff;
+  color: #0969da;
+}
+
+.level-badge.level-debug,
+.level-badge.level-unknown {
+  background-color: #eaeef2;
+  color: #57606a;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background-color: #eaeef2;
+  color: #1f2328;
+}
+
+.label-chip {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.state {
+  margin: 0.75rem 0;
+}
+
+.state-empty {
+  color: #57606a;
+}
+
+.state-hint {
+  margin: 0.25rem 0 0;
+  color: #57606a;
+  font-size: 0.875rem;
+}
