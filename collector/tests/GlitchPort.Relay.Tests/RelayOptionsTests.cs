@@ -22,6 +22,9 @@ public sealed class RelayOptionsTests
         Assert.Equal(
             RelayOptions.DefaultUnknownKeyCacheSeconds,
             options.UnknownKeyCacheSeconds);
+        Assert.Equal(
+            RelayOptions.DefaultRateLimitPerProjectPerMinute,
+            options.RateLimitPerProjectPerMinute);
     }
 
     [Theory]
@@ -96,6 +99,57 @@ public sealed class RelayOptionsTests
         var options = RelayOptions.FromConfiguration(configuration);
 
         Assert.Equal(0, options.UnknownKeyCacheSeconds);
+    }
+
+    [Fact]
+    public void FromConfiguration_PreservesUnlimitedRateLimit()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Relay:RateLimit:PerProjectPerMinute"] = "0",
+            })
+            .Build();
+
+        var options = RelayOptions.FromConfiguration(configuration);
+
+        Assert.Equal(0, options.RateLimitPerProjectPerMinute);
+    }
+
+    [Theory]
+    [InlineData("not-a-number")]
+    [InlineData("-1")]
+    [InlineData("1.5")]
+    [InlineData("")]
+    public void FromConfiguration_WithInvalidRateLimit_UsesDefault(string value)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Relay:RateLimit:PerProjectPerMinute"] = value,
+            })
+            .Build();
+
+        var options = RelayOptions.FromConfiguration(configuration);
+
+        Assert.Equal(
+            RelayOptions.DefaultRateLimitPerProjectPerMinute,
+            options.RateLimitPerProjectPerMinute);
+    }
+
+    [Fact]
+    public void FromConfiguration_BindsRateLimit()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Relay:RateLimit:PerProjectPerMinute"] = "250",
+            })
+            .Build();
+
+        var options = RelayOptions.FromConfiguration(configuration);
+
+        Assert.Equal(250, options.RateLimitPerProjectPerMinute);
     }
 
     [Fact]

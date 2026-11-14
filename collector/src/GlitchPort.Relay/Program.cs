@@ -2,6 +2,7 @@ using System.Globalization;
 using GlitchPort.Collector.Contracts;
 using GlitchPort.Relay;
 using GlitchPort.Relay.Config;
+using GlitchPort.Relay.RateLimit;
 using GlitchPort.Transport.Http;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -26,6 +27,9 @@ builder.Services.AddHttpClient(ProjectConfigClient.HttpClientName, (sp, client) 
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ProjectConfigProvider>();
+builder.Services.AddSingleton(sp => new ProjectRateLimiter(
+    sp.GetRequiredService<RelayOptions>(),
+    sp.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton(sp => new ProjectConfigClient(
     sp.GetRequiredService<IHttpClientFactory>().CreateClient(ProjectConfigClient.HttpClientName),
     sp.GetRequiredService<ILogger<ProjectConfigClient>>()));

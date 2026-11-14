@@ -34,6 +34,18 @@ public sealed class RelayOptions
     /// </summary>
     public const int MinimumUnknownKeyCacheSeconds = 0;
 
+    /// <summary>
+    /// Default ingest limit applied to a single project, in requests per
+    /// minute.
+    /// </summary>
+    public const int DefaultRateLimitPerProjectPerMinute = 6000;
+
+    /// <summary>
+    /// Smallest accepted per-project rate limit. Zero disables the project
+    /// limit.
+    /// </summary>
+    public const int MinimumRateLimitPerProjectPerMinute = 0;
+
     /// <summary>Base URLs of the Processor instances that receive envelopes.</summary>
     public string[] ProcessorEndpoints { get; init; } = [];
 
@@ -63,6 +75,14 @@ public sealed class RelayOptions
     public int UnknownKeyCacheSeconds { get; init; } = DefaultUnknownKeyCacheSeconds;
 
     /// <summary>
+    /// Ingest limit applied to a single project, in requests per minute, read
+    /// from <c>Relay:RateLimit:PerProjectPerMinute</c>. Zero means unlimited;
+    /// negative or invalid values fall back to the default.
+    /// </summary>
+    public int RateLimitPerProjectPerMinute { get; init; } =
+        DefaultRateLimitPerProjectPerMinute;
+
+    /// <summary>
     /// Builds the options from <paramref name="configuration"/>, falling back to
     /// safe defaults when values are missing or invalid.
     /// </summary>
@@ -89,7 +109,24 @@ public sealed class RelayOptions
                 "UnknownKeyCacheSeconds",
                 DefaultUnknownKeyCacheSeconds,
                 MinimumUnknownKeyCacheSeconds),
+            RateLimitPerProjectPerMinute = ReadRateLimitPerProjectPerMinute(section),
         };
+    }
+
+    private static int ReadRateLimitPerProjectPerMinute(IConfigurationSection section)
+    {
+        var rawValue = section.GetSection("RateLimit")["PerProjectPerMinute"];
+        if (int.TryParse(
+                rawValue,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out var requestsPerMinute)
+            && requestsPerMinute >= MinimumRateLimitPerProjectPerMinute)
+        {
+            return requestsPerMinute;
+        }
+
+        return DefaultRateLimitPerProjectPerMinute;
     }
 
     private static int ReadSeconds(

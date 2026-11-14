@@ -2,14 +2,16 @@ using System.Net;
 using System.Text.Json;
 using GlitchPort.Collector.Contracts;
 using GlitchPort.Relay.Config;
+using GlitchPort.Relay.RateLimit;
 
 namespace GlitchPort.Relay;
 
 /// <summary>
 /// Shared ingest pipeline used by both <c>POST /api/{projectId}/events</c> and
-/// the legacy <c>POST /api/{projectId}/messages</c> endpoint: authorize,
-/// enforce the decompressed body limit, decompress, validate, normalize, build
-/// a protocol v2 envelope and publish it to the Processor.
+/// the legacy <c>POST /api/{projectId}/messages</c> endpoint: authorize, apply
+/// the project and key rate limits, enforce the decompressed body limit,
+/// decompress, validate, normalize, build a protocol v2 envelope and publish it
+/// to the Processor.
 /// </summary>
 internal static class RelayIngestEndpoints
 {
@@ -18,6 +20,7 @@ internal static class RelayIngestEndpoints
         long projectId,
         HttpContext httpContext,
         ProjectConfigProvider projectConfigs,
+        ProjectRateLimiter rateLimiter,
         IEnvelopePublisher publisher,
         ILogger<Program> logger,
         CancellationToken cancellationToken) =>
@@ -25,6 +28,7 @@ internal static class RelayIngestEndpoints
             projectId,
             httpContext,
             projectConfigs,
+            rateLimiter,
             publisher,
             logger,
             isLegacyMessage: false,
@@ -35,6 +39,7 @@ internal static class RelayIngestEndpoints
         long projectId,
         HttpContext httpContext,
         ProjectConfigProvider projectConfigs,
+        ProjectRateLimiter rateLimiter,
         IEnvelopePublisher publisher,
         ILogger<Program> logger,
         CancellationToken cancellationToken) =>
@@ -42,6 +47,7 @@ internal static class RelayIngestEndpoints
             projectId,
             httpContext,
             projectConfigs,
+            rateLimiter,
             publisher,
             logger,
             isLegacyMessage: true,
@@ -51,6 +57,7 @@ internal static class RelayIngestEndpoints
         long projectId,
         HttpContext httpContext,
         ProjectConfigProvider projectConfigs,
+        ProjectRateLimiter rateLimiter,
         IEnvelopePublisher publisher,
         ILogger<Program> logger,
         bool isLegacyMessage,
@@ -58,6 +65,7 @@ internal static class RelayIngestEndpoints
     {
         ArgumentNullException.ThrowIfNull(httpContext);
         ArgumentNullException.ThrowIfNull(projectConfigs);
+        ArgumentNullException.ThrowIfNull(rateLimiter);
         ArgumentNullException.ThrowIfNull(publisher);
         ArgumentNullException.ThrowIfNull(logger);
 
@@ -70,6 +78,25 @@ internal static class RelayIngestEndpoints
                 projectId);
 
             return RelayResults.Unauthorized();
+        }
+
+        // Enforcement happens before the body is read: a rate-limited client
+        // must not be able to make the Relay decompress a payload.
+        var decision = rateLimiter.Acquire(
+            authorization.ProjectId,
+            authorization.Key,
+            authorization.RateLimitPerMinute);
+
+        if (!decision.IsAllowed)
+        {
+            logger.LogDebug(
+                "Rate limited ingest request for project {ProjectId}; retry after {RetryAfterSeconds}s.",
+                projectId,
+                decision.RetryAfterSeconds);
+
+            return RelayResults.RateLimited(
+                httpContext.Response,
+                decision.RetryAfterSeconds);
         }
 
         var body = await RequestBodyReader
