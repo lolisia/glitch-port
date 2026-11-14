@@ -10,6 +10,8 @@
 #   4. bash scripts/build-unity-plugins.sh --check   verify the bundled Core DLL
 #   5. bash scripts/unity-test.sh   Unity EditMode and PlayMode tests when the
 #      editor is installed (skipped otherwise)
+#   6. bash scripts/verify.d/*.sh   component hooks in name order (skipped when
+#      the directory has no *.sh files)
 #
 # The tree is verified incrementally while the repository is being bootstrapped:
 # missing components are skipped instead of failing the run. Any command that
@@ -98,6 +100,25 @@ if [ -f scripts/unity-test.sh ]; then
   bash scripts/unity-test.sh
 else
   echo "verify: no scripts/unity-test.sh (skipped)"
+fi
+
+# Component-specific verification hooks. Each scripts/verify.d/*.sh file is run
+# with bash in name order after the built-in stages. A missing or empty
+# directory is skipped; the first failing hook fails the whole run (set -e).
+verify_hooks=()
+if [ -d scripts/verify.d ]; then
+  shopt -s nullglob
+  verify_hooks=(scripts/verify.d/*.sh)
+  shopt -u nullglob
+fi
+
+if [ "${#verify_hooks[@]}" -eq 0 ]; then
+  echo "verify: no scripts/verify.d/*.sh hooks (skipped)"
+else
+  for hook in "${verify_hooks[@]}"; do
+    echo "verify: bash $hook"
+    bash "$hook"
+  done
 fi
 
 echo "verify: ok"

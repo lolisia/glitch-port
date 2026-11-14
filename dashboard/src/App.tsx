@@ -1,90 +1,61 @@
-import { useCallback, useEffect, useState } from 'react';
-import { fetchMessages } from './api';
-import type { Message } from './api';
-
-type LoadState =
-  | { status: 'loading' }
-  | { status: 'error'; error: string }
-  | { status: 'ready'; messages: Message[] };
-
-function formatReceivedAt(value: string): string {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  const pad = (part: number) => String(part).padStart(2, '0');
-
-  return (
-    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
-    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
-  );
-}
-
-function toErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+import { useEffect } from 'react';
+import { projectId } from './api/client';
+import { IssueDetailPage } from './pages/issues/IssueDetailPage';
+import { IssuesPage } from './pages/issues/IssuesPage';
+import { MessagesPage } from './pages/messages/MessagesPage';
+import { navigate, useHashRoute } from './router';
 
 export default function App() {
-  const [state, setState] = useState<LoadState>({ status: 'loading' });
-
-  const load = useCallback(async () => {
-    setState({ status: 'loading' });
-
-    try {
-      const messages = await fetchMessages();
-      setState({ status: 'ready', messages });
-    } catch (error) {
-      setState({ status: 'error', error: toErrorMessage(error) });
-    }
-  }, []);
+  const route = useHashRoute();
+  // Unknown routes fall back to the issues page, so the Issues tab stays
+  // highlighted until the normalising effect replaces the hash.
+  const issuesActive = route.name !== 'messages';
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    const hash = window.location.hash;
 
-  const loading = state.status === 'loading';
+    if (
+      route.name === 'unknown' ||
+      hash === '' ||
+      hash === '#' ||
+      hash === '#/'
+    ) {
+      navigate('/issues', undefined, { replace: true });
+    }
+  }, [route]);
 
   return (
-    <main className="page">
-      <header className="page-header">
-        <h1>glitch-port messages</h1>
-        <button type="button" onClick={() => void load()} disabled={loading}>
-          Refresh
-        </button>
+    <>
+      <header className="top-bar">
+        <h1>glitch-port</h1>
+        <nav className="tabs" aria-label="Sections">
+          <a
+            className="tab"
+            href="#/issues"
+            aria-current={issuesActive ? 'page' : undefined}
+          >
+            Issues
+          </a>
+          <a
+            className="tab"
+            href="#/messages"
+            aria-current={issuesActive ? undefined : 'page'}
+          >
+            Messages
+          </a>
+        </nav>
+        <span className="project-id">Project {projectId}</span>
       </header>
 
-      {loading && <p>Loading...</p>}
+      <main className="page">
+        {route.name === 'messages' && <MessagesPage />}
 
-      {state.status === 'error' && (
-        <p role="alert">Failed to load messages: {state.error}</p>
-      )}
+        {route.name === 'issue' && route.issueId !== null && (
+          <IssueDetailPage issueId={route.issueId} />
+        )}
 
-      {state.status === 'ready' && state.messages.length === 0 && (
-        <p>No messages yet.</p>
-      )}
-
-      {state.status === 'ready' && state.messages.length > 0 && (
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">Received at</th>
-              <th scope="col">Endpoint</th>
-              <th scope="col">Message</th>
-            </tr>
-          </thead>
-          <tbody>
-            {state.messages.map((row) => (
-              <tr key={row.id}>
-                <td>{formatReceivedAt(row.received_at)}</td>
-                <td>{row.endpoint}</td>
-                <td>{row.message}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </main>
+        {(route.name === 'issues' || route.name === 'unknown') && <IssuesPage />}
+      </main>
+    </>
   );
 }

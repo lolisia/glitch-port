@@ -198,7 +198,7 @@ public sealed class IngestEndpointTests
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
 
         var envelope = Assert.Single(publisher.Envelopes);
-        Assert.Equal(1, envelope.Version);
+        Assert.Equal(2, envelope.Version);
         Assert.Equal(1, envelope.ProjectId);
         Assert.Equal("POST /api/1/messages", envelope.Endpoint);
         Assert.Equal("boom", envelope.Message);
@@ -209,6 +209,12 @@ public sealed class IngestEndpointTests
             envelope.ClientTimestamp);
         Assert.Equal("glitchport-unreal", envelope.SdkName);
         Assert.Equal("1.2.3", envelope.SdkVersion);
+
+        var payload = RelayTestClient.Payload(envelope);
+        Assert.Equal("boom", payload.GetProperty("message").GetString());
+        Assert.Equal("info", payload.GetProperty("level").GetString());
+        Assert.Equal("other", payload.GetProperty("platform").GetString());
+        Assert.Equal(envelope.EventId, payload.GetProperty("event_id").GetGuid());
     }
 
     [Fact]
@@ -236,6 +242,9 @@ public sealed class IngestEndpointTests
         var envelope = Assert.Single(publisher.Envelopes);
         Assert.Equal("boom", envelope.Message);
         Assert.Equal(eventId, envelope.EventId);
+        Assert.Equal(
+            "warning",
+            RelayTestClient.Payload(envelope).GetProperty("level").GetString());
     }
 
     [Fact]
@@ -250,6 +259,7 @@ public sealed class IngestEndpointTests
         using var response = await client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal("5", response.Headers.GetValues("Retry-After").Single());
         using var document = await ReadJsonAsync(response);
         Assert.False(string.IsNullOrWhiteSpace(document.RootElement.GetProperty("error").GetString()));
     }

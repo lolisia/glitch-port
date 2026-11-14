@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using GlitchPort.Processor.Data;
+using GlitchPort.Processor.Management;
 
 namespace GlitchPort.Processor;
 
@@ -11,6 +12,22 @@ namespace GlitchPort.Processor;
 [JsonSerializable(typeof(MessageListItem))]
 [JsonSerializable(typeof(List<MessageListItem>))]
 [JsonSerializable(typeof(StoredEnvelopesResponse))]
+[JsonSerializable(typeof(LabelResponse))]
+[JsonSerializable(typeof(List<LabelResponse>))]
+[JsonSerializable(typeof(IssueResponse))]
+[JsonSerializable(typeof(IssueListResponse))]
+[JsonSerializable(typeof(IssueDetailResponse))]
+[JsonSerializable(typeof(EventSummaryResponse))]
+[JsonSerializable(typeof(EventListResponse))]
+[JsonSerializable(typeof(EventDetailResponse))]
+[JsonSerializable(typeof(StatsBucketResponse))]
+[JsonSerializable(typeof(List<StatsBucketResponse>))]
+[JsonSerializable(typeof(UpdateIssueRequest))]
+[JsonSerializable(typeof(BulkIssuesRequest))]
+[JsonSerializable(typeof(BulkIssuesResponse))]
+[JsonSerializable(typeof(CreateLabelRequest))]
+[JsonSerializable(typeof(UpdateLabelRequest))]
+[JsonSerializable(typeof(ManagementErrorResponse))]
 internal sealed partial class ProcessorJsonContext : JsonSerializerContext
 {
 }

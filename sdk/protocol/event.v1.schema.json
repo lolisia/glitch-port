@@ -1,0 +1,256 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://glitch-port.dev/schemas/event.v1.schema.json",
+  "title": "glitch-port event (protocol v1)",
+  "description": "A single error or message event accepted by POST /api/{projectId}/events. Field names are snake_case. The Relay supplies omitted defaults, truncates strings longer than the limits below, drops entries beyond the count limits, and ignores unknown top-level properties. The whole request body is limited to 1 MB; contexts and extra are limited to 65536 bytes (64 KB) serialized each and are omitted when larger, while the event is still accepted.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "description": "Unique event identifier: 32 hexadecimal characters or a UUID string. The Relay generates an identifier when the field is omitted.",
+      "pattern": "^(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Time at which the event occurred as an ISO 8601 / RFC 3339 date-time with a timezone. The Relay uses the receive time when the field is omitted."
+    },
+    "level": {
+      "type": "string",
+      "enum": ["debug", "info", "warning", "error", "fatal"],
+      "description": "Event severity. The Relay defaults to error when an exception is present and info otherwise."
+    },
+    "platform": {
+      "type": "string",
+      "maxLength": 32,
+      "description": "Platform or SDK family, for example unity, dotnet or javascript. The Relay defaults to other."
+    },
+    "logger": {
+      "type": "string",
+      "maxLength": 128,
+      "description": "Logger or subsystem that produced the event, for example UnityEngine.Debug."
+    },
+    "message": {
+      "type": "string",
+      "maxLength": 8192,
+      "description": "Human-readable event message. At least one of message or exception is required."
+    },
+    "release": {
+      "type": "string",
+      "maxLength": 200,
+      "description": "Release identifier, for example mygame@1.2.3."
+    },
+    "environment": {
+      "type": "string",
+      "maxLength": 64,
+      "description": "Deployment environment, for example production, staging or development."
+    },
+    "server_name": {
+      "type": "string",
+      "maxLength": 200,
+      "description": "Host name or server that produced the event."
+    },
+    "sdk": {
+      "type": "object",
+      "description": "Name and version of the client SDK that produced the event.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "SDK package name, for example glitchport.unity."
+        },
+        "version": {
+          "type": "string",
+          "description": "SDK package version, for example 0.1.0."
+        }
+      }
+    },
+    "exception": {
+      "type": "array",
+      "maxItems": 10,
+      "description": "Exceptions ordered from the innermost cause (index 0) to the outermost observed exception (last item). The Relay keeps the first 10 entries when more are sent.",
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Exception type. Required and must not be blank."
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 8192,
+            "description": "Exception message or value."
+          },
+          "module": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Assembly, module or namespace that defines the exception."
+          },
+          "stacktrace": {
+            "type": "object",
+            "description": "Stack trace captured for this exception.",
+            "properties": {
+              "frames": {
+                "type": "array",
+                "maxItems": 250,
+                "description": "Stack frames ordered from the deepest call (index 0) to the shallowest; the last frame is the crash site. The Relay keeps the last 250 frames when more are sent.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "function": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "description": "Function or method name."
+                    },
+                    "module": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "description": "Module, assembly or namespace that contains the frame."
+                    },
+                    "filename": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "description": "Source file name as reported by the runtime."
+                    },
+                    "abs_path": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "description": "Absolute path of the source file, when available."
+                    },
+                    "context_line": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "description": "Source line at lineno, when available."
+                    },
+                    "lineno": {
+                      "type": "integer",
+                      "description": "1-based line number in filename."
+                    },
+                    "colno": {
+                      "type": "integer",
+                      "description": "1-based column number in filename."
+                    },
+                    "in_app": {
+                      "type": "boolean",
+                      "description": "True when the frame belongs to the game's own code rather than engine or framework code."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "tags": {
+      "type": "object",
+      "maxProperties": 50,
+      "description": "String key/value tags used for filtering and grouping. The Relay keeps the first 50 entries.",
+      "propertyNames": {
+        "maxLength": 32
+      },
+      "additionalProperties": {
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "user": {
+      "type": "object",
+      "description": "Information about the user affected by the event.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable user identifier."
+        },
+        "username": {
+          "type": "string",
+          "description": "User name."
+        },
+        "email": {
+          "type": "string",
+          "description": "User e-mail address."
+        },
+        "ip_address": {
+          "type": "string",
+          "description": "IPv4 or IPv6 address of the user, or the literal {{auto}} so the Relay can substitute the address of the request.",
+          "examples": ["{{auto}}", "203.0.113.5"],
+          "anyOf": [
+            {
+              "const": "{{auto}}"
+            },
+            {
+              "type": "string",
+              "format": "ipv4"
+            },
+            {
+              "type": "string",
+              "format": "ipv6"
+            }
+          ]
+        }
+      }
+    },
+    "contexts": {
+      "type": "object",
+      "description": "Free-form context namespaces such as os, runtime, device, gpu or game. The Relay enforces a maximum serialized size of 65536 bytes (64 KB) and omits contexts that exceed the limit; the event is still accepted."
+    },
+    "breadcrumbs": {
+      "type": "array",
+      "maxItems": 100,
+      "description": "Breadcrumbs in chronological order (oldest first). The Relay keeps the first 100 entries when more are sent.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Time at which the breadcrumb was recorded."
+          },
+          "category": {
+            "type": "string",
+            "description": "Breadcrumb category, for example scene, input or http."
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable breadcrumb message."
+          },
+          "level": {
+            "type": "string",
+            "enum": ["debug", "info", "warning", "error", "fatal"],
+            "description": "Severity of the breadcrumb."
+          },
+          "type": {
+            "type": "string",
+            "description": "Breadcrumb type, for example default or http."
+          },
+          "data": {
+            "description": "Free-form JSON data attached to the breadcrumb."
+          }
+        }
+      }
+    },
+    "fingerprint": {
+      "type": "array",
+      "maxItems": 10,
+      "description": "Custom grouping key. When present, the Processor groups the event by these strings instead of computing a fingerprint from the exception or message. The Relay keeps the first 10 entries.",
+      "items": {
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "extra": {
+      "type": "object",
+      "description": "Free-form extra data. The Relay enforces a maximum serialized size of 65536 bytes (64 KB) and omits extra data that exceeds the limit; the event is still accepted."
+    }
+  },
+  "anyOf": [
+    {
+      "required": ["message"]
+    },
+    {
+      "required": ["exception"]
+    }
+  ]
+}
