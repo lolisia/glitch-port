@@ -232,6 +232,18 @@ public sealed class ManagementIssueQueryTests
         Assert.Equal(JsonValueKind.Null, page.GetProperty("next_cursor").ValueKind);
     }
 
+    [Fact]
+    public async Task A_project_that_never_existed_returns_not_found()
+    {
+        using var api = new ManagementApiClient(_fixture);
+        using var response = await api.GetAsync("/api/manage/projects/987654321/issues");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+
+        var body = await ManagementApiData.ReadJsonAsync(response);
+        Assert.False(string.IsNullOrWhiteSpace(body.GetProperty("error").GetString()));
+    }
+
     private static string SingleTitle(JsonElement page)
     {
         var items = Items(page).ToList();

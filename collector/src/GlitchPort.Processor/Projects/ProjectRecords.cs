@@ -32,6 +32,25 @@ public sealed record ProjectKeyRecord(
     DateTimeOffset CreatedAt,
     DateTimeOffset? RevokedAt);
 
+/// <summary>
+/// An optional field in a partial update. It distinguishes an omitted field
+/// (keep the stored value) from an explicit <c>null</c> (clear the value).
+/// </summary>
+public readonly record struct OptionalField<T>(bool IsSpecified, T Value)
+{
+    /// <summary>The field was not present in the request; keep the stored value.</summary>
+    public static OptionalField<T> Unspecified => default;
+
+    /// <summary>The field was present, possibly with a <c>null</c> value.</summary>
+    public static OptionalField<T> Specified(T value) => new(true, value);
+}
+
+/// <summary>The fields of a project key that a partial update may change.</summary>
+public sealed record ProjectKeyUpdate(
+    OptionalField<string?> Label,
+    OptionalField<int?> RateLimitPerMinute,
+    OptionalField<bool> IsActive);
+
 /// <summary>The project returned by a create, with the key created alongside it.</summary>
 public sealed record CreatedProject(ProjectRecord Project, ProjectKeyRecord Key);
 

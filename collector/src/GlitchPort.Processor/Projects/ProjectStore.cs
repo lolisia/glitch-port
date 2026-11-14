@@ -57,6 +57,32 @@ public sealed class ProjectStore
         where id = @ProjectId
         """;
 
+    private const string GetProjectSummarySql = """
+        select p.id as "Id",
+               p.name as "Name",
+               p.slug as "Slug",
+               p.platform as "Platform",
+               p.created_at as "CreatedAt",
+               coalesce(issue_counts.unresolved_issue_count, 0) as "UnresolvedIssueCount",
+               coalesce(key_counts.active_key_count, 0) as "ActiveKeyCount"
+        from projects p
+        left join (
+            select project_id, count(*) as unresolved_issue_count
+            from issues
+            where status = 'unresolved'
+            group by project_id
+        ) as issue_counts on issue_counts.project_id = p.id
+        left join (
+            select project_id, count(*) as active_key_count
+            from project_keys
+            where is_active
+            group by project_id
+        ) as key_counts on key_counts.project_id = p.id
+        where p.id = @ProjectId
+        """;
+
+    private const string ProjectExistsSql = "select exists (select 1 from projects where id = @ProjectId)";
+
     private const string InsertProjectSql = """
         insert into projects (name, slug, platform)
         values (@Name, @Slug, @Platform)
@@ -114,6 +140,49 @@ public sealed class ProjectStore
             rate_limit_per_minute = coalesce(@RateLimitPerMinute, rate_limit_per_minute),
             is_active = coalesce(@IsActive, is_active)
         where id = @KeyId and project_id = @ProjectId
+        returning id as "Id",
+                  project_id as "ProjectId",
+                  public_key as "PublicKey",
+                  label as "Label",
+                  is_active as "IsActive",
+                  rate_limit_per_minute as "RateLimitPerMinute",
+                  created_at as "CreatedAt",
+                  revoked_at as "RevokedAt"
+        """;
+
+    // A partial update must be able to clear the nullable rate limit, which
+    // coalesce cannot express. The explicit "has" flags keep an omitted field
+    // apart from an explicit null, and toggling is_active also maintains
+    // revoked_at in the same statement.
+    private const string UpdateKeyByIdSql = """
+        update project_keys
+        set label = case when @HasLabel then @Label::text else label end,
+            rate_limit_per_minute = case
+                when @HasRateLimit then @RateLimitPerMinute::integer
+                else rate_limit_per_minute
+            end,
+            revoked_at = case
+                when not @HasIsActive then revoked_at
+                when @IsActive then null
+                else now()
+            end,
+            is_active = case when @HasIsActive then @IsActive else is_active end
+        where id = @KeyId
+        returning id as "Id",
+                  project_id as "ProjectId",
+                  public_key as "PublicKey",
+                  label as "Label",
+                  is_active as "IsActive",
+                  rate_limit_per_minute as "RateLimitPerMinute",
+                  created_at as "CreatedAt",
+                  revoked_at as "RevokedAt"
+        """;
+
+    private const string RevokeKeyByIdSql = """
+        update project_keys
+        set is_active = false,
+            revoked_at = now()
+        where id = @KeyId
         returning id as "Id",
                   project_id as "ProjectId",
                   public_key as "PublicKey",
@@ -214,6 +283,44 @@ public sealed class ProjectStore
             .ConfigureAwait(false);
 
         return row?.ToRecord();
+    }
+
+    /// <summary>
+    /// Returns the project with <paramref name="projectId"/> together with its
+    /// unresolved issue and active key counts, or <c>null</c> when it does not
+    /// exist.
+    /// </summary>
+    public async Task<ProjectSummary?> GetSummaryAsync(
+        long projectId,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = await _dataSource
+            .OpenConnectionAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var row = await connection
+            .QuerySingleOrDefaultAsync<ProjectSummaryRow>(new CommandDefinition(
+                GetProjectSummarySql,
+                new { ProjectId = projectId },
+                cancellationToken: cancellationToken))
+            .ConfigureAwait(false);
+
+        return row?.ToSummary();
+    }
+
+    /// <summary>Checks whether a project with <paramref name="projectId"/> exists.</summary>
+    public async Task<bool> ExistsAsync(long projectId, CancellationToken cancellationToken)
+    {
+        await using var connection = await _dataSource
+            .OpenConnectionAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return await connection
+            .ExecuteScalarAsync<bool>(new CommandDefinition(
+                ProjectExistsSql,
+                new { ProjectId = projectId },
+                cancellationToken: cancellationToken))
+            .ConfigureAwait(false);
     }
 
     /// <summary>
@@ -400,6 +507,64 @@ public sealed class ProjectStore
                     RateLimitPerMinute = rateLimitPerMinute,
                     IsActive = isActive,
                 },
+                cancellationToken: cancellationToken))
+            .ConfigureAwait(false);
+
+        return row?.ToRecord();
+    }
+
+    /// <summary>
+    /// Changes the fields of a key selected by its id alone. Fields that are
+    /// not specified keep their stored value; specifying
+    /// <see cref="OptionalField{T}.Value"/> as <c>null</c> clears a nullable
+    /// column. Toggling <see cref="ProjectKeyUpdate.IsActive"/> also maintains
+    /// <c>revoked_at</c>.
+    /// </summary>
+    /// <returns>The updated key, or <c>null</c> when it does not exist.</returns>
+    public async Task<ProjectKeyRecord?> UpdateKeyAsync(
+        long keyId,
+        ProjectKeyUpdate update,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+
+        await using var connection = await _dataSource
+            .OpenConnectionAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var row = await connection
+            .QuerySingleOrDefaultAsync<ProjectKeyRow>(new CommandDefinition(
+                UpdateKeyByIdSql,
+                new
+                {
+                    KeyId = keyId,
+                    HasLabel = update.Label.IsSpecified,
+                    Label = update.Label.Value,
+                    HasRateLimit = update.RateLimitPerMinute.IsSpecified,
+                    RateLimitPerMinute = update.RateLimitPerMinute.Value,
+                    HasIsActive = update.IsActive.IsSpecified,
+                    IsActive = update.IsActive.Value,
+                },
+                cancellationToken: cancellationToken))
+            .ConfigureAwait(false);
+
+        return row?.ToRecord();
+    }
+
+    /// <summary>
+    /// Revokes a key selected by its id alone, keeping its row.
+    /// </summary>
+    /// <returns>The revoked key, or <c>null</c> when it does not exist.</returns>
+    public async Task<ProjectKeyRecord?> RevokeKeyAsync(long keyId, CancellationToken cancellationToken)
+    {
+        await using var connection = await _dataSource
+            .OpenConnectionAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var row = await connection
+            .QuerySingleOrDefaultAsync<ProjectKeyRow>(new CommandDefinition(
+                RevokeKeyByIdSql,
+                new { KeyId = keyId },
                 cancellationToken: cancellationToken))
             .ConfigureAwait(false);
 

@@ -54,6 +54,7 @@ app.UseCors(CorsPolicyName);
 app.MapGet("/healthz", () => Results.Ok());
 app.MapEnvelopeEndpoints();
 app.MapMessageEndpoints();
+app.MapProjectConfigEndpoints();
 app.MapManagementEndpoints();
 
 // The schema must be ready before the server accepts its first request.
