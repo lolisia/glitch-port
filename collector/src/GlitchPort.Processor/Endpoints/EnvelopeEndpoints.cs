@@ -21,7 +21,7 @@ internal static class EnvelopeEndpoints
 
     private static async Task<IResult> StoreEnvelopesAsync(
         HttpRequest request,
-        MessageStore store,
+        EventStore store,
         IOptions<ProcessorOptions> options,
         CancellationToken cancellationToken)
     {
@@ -48,7 +48,7 @@ internal static class EnvelopeEndpoints
             return Results.BadRequest();
         }
 
-        var stored = await store.InsertAsync(envelopes, cancellationToken).ConfigureAwait(false);
+        var stored = await store.StoreAsync(envelopes, cancellationToken).ConfigureAwait(false);
 
         return Results.Json(
             new StoredEnvelopesResponse(stored),

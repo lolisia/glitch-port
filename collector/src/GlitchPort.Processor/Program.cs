@@ -36,6 +36,7 @@ builder.Services.AddSingleton(static services =>
     return NpgsqlDataSource.Create(connectionString);
 });
 builder.Services.AddSingleton<MessageStore>();
+builder.Services.AddSingleton<EventStore>();
 
 var app = builder.Build();
 
