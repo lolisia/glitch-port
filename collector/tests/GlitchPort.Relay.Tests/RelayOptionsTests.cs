@@ -16,6 +16,12 @@ public sealed class RelayOptionsTests
         Assert.Equal(string.Empty, options.InternalSharedSecret);
         Assert.Empty(options.Projects);
         Assert.Equal(TimeSpan.FromSeconds(RelayOptions.DefaultTimeoutSeconds), options.Timeout);
+        Assert.Equal(
+            RelayOptions.DefaultConfigRefreshSeconds,
+            options.ConfigRefreshSeconds);
+        Assert.Equal(
+            RelayOptions.DefaultUnknownKeyCacheSeconds,
+            options.UnknownKeyCacheSeconds);
     }
 
     [Theory]
@@ -36,6 +42,79 @@ public sealed class RelayOptionsTests
         Assert.Equal(TimeSpan.FromSeconds(RelayOptions.DefaultTimeoutSeconds), options.Timeout);
     }
 
+    [Theory]
+    [InlineData("not-a-number")]
+    [InlineData("0")]
+    [InlineData("-5")]
+    [InlineData("1.5")]
+    public void FromConfiguration_WithInvalidConfigRefreshSeconds_UsesDefault(string value)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Relay:ConfigRefreshSeconds"] = value,
+            })
+            .Build();
+
+        var options = RelayOptions.FromConfiguration(configuration);
+
+        Assert.Equal(
+            RelayOptions.DefaultConfigRefreshSeconds,
+            options.ConfigRefreshSeconds);
+    }
+
+    [Theory]
+    [InlineData("not-a-number")]
+    [InlineData("-1")]
+    [InlineData("0.5")]
+    public void FromConfiguration_WithInvalidUnknownKeyCacheSeconds_UsesDefault(string value)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Relay:UnknownKeyCacheSeconds"] = value,
+            })
+            .Build();
+
+        var options = RelayOptions.FromConfiguration(configuration);
+
+        Assert.Equal(
+            RelayOptions.DefaultUnknownKeyCacheSeconds,
+            options.UnknownKeyCacheSeconds);
+    }
+
+    [Fact]
+    public void FromConfiguration_PreservesDisabledUnknownKeyCache()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Relay:UnknownKeyCacheSeconds"] = "0",
+            })
+            .Build();
+
+        var options = RelayOptions.FromConfiguration(configuration);
+
+        Assert.Equal(0, options.UnknownKeyCacheSeconds);
+    }
+
+    [Fact]
+    public void FromConfiguration_BindsRefreshSettings()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Relay:ConfigRefreshSeconds"] = "5",
+                ["Relay:UnknownKeyCacheSeconds"] = "120",
+            })
+            .Build();
+
+        var options = RelayOptions.FromConfiguration(configuration);
+
+        Assert.Equal(5, options.ConfigRefreshSeconds);
+        Assert.Equal(120, options.UnknownKeyCacheSeconds);
+    }
+
     [Fact]
     public void FromConfiguration_BindsProjectsEndpointsAndSecret()
     {
@@ -49,6 +128,8 @@ public sealed class RelayOptionsTests
                 ["Relay:ProcessorEndpoints:1"] = "http://processor-b:5090",
                 ["Relay:InternalSharedSecret"] = "shared-secret",
                 ["Relay:Timeout"] = "2.5",
+                ["Relay:ConfigRefreshSeconds"] = "3",
+                ["Relay:UnknownKeyCacheSeconds"] = "7",
             })
             .Build();
 
@@ -59,6 +140,8 @@ public sealed class RelayOptionsTests
             options.ProcessorEndpoints);
         Assert.Equal("shared-secret", options.InternalSharedSecret);
         Assert.Equal(TimeSpan.FromSeconds(2.5), options.Timeout);
+        Assert.Equal(3, options.ConfigRefreshSeconds);
+        Assert.Equal(7, options.UnknownKeyCacheSeconds);
         Assert.Equal(new[] { "first-key", "second-key" }, options.Projects[1]);
         Assert.Equal(new[] { "other-key" }, options.Projects[7]);
     }

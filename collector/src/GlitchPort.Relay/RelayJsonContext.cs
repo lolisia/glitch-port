@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using GlitchPort.Relay.Config;
 
 namespace GlitchPort.Relay;
 
@@ -17,6 +18,7 @@ namespace GlitchPort.Relay;
 [JsonSerializable(typeof(IngestResponse))]
 [JsonSerializable(typeof(ErrorResponse))]
 [JsonSerializable(typeof(HealthResponse))]
+[JsonSerializable(typeof(ProjectConfigResponse))]
 internal sealed partial class RelayJsonContext : JsonSerializerContext
 {
 }
@@ -40,4 +42,24 @@ internal sealed class HealthResponse
 {
     /// <summary>Health status of the Relay.</summary>
     public string Status { get; init; } = "ok";
+
+    /// <summary>State of the Processor project configuration.</summary>
+    public HealthConfigResponse Config { get; init; } = new();
+}
+
+/// <summary>Project-configuration section of the health response.</summary>
+internal sealed class HealthConfigResponse
+{
+    /// <summary>Either <c>static</c> or <c>processor</c>.</summary>
+    public string Source { get; init; } = "static";
+
+    /// <summary>
+    /// ISO 8601 UTC timestamp of the last successful refresh, or
+    /// <see langword="null"/> when no refresh has succeeded yet.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? LastRefresh { get; init; }
+
+    /// <summary>Union of the static and cached project ids.</summary>
+    public int ProjectCount { get; init; }
 }

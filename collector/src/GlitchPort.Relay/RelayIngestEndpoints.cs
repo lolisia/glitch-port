@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using GlitchPort.Collector.Contracts;
+using GlitchPort.Relay.Config;
 
 namespace GlitchPort.Relay;
 
@@ -16,14 +17,14 @@ internal static class RelayIngestEndpoints
     public static Task<IResult> HandleEventAsync(
         long projectId,
         HttpContext httpContext,
-        RelayOptions options,
+        ProjectConfigProvider projectConfigs,
         IEnvelopePublisher publisher,
         ILogger<Program> logger,
         CancellationToken cancellationToken) =>
         HandleAsync(
             projectId,
             httpContext,
-            options,
+            projectConfigs,
             publisher,
             logger,
             isLegacyMessage: false,
@@ -33,14 +34,14 @@ internal static class RelayIngestEndpoints
     public static Task<IResult> HandleMessageAsync(
         long projectId,
         HttpContext httpContext,
-        RelayOptions options,
+        ProjectConfigProvider projectConfigs,
         IEnvelopePublisher publisher,
         ILogger<Program> logger,
         CancellationToken cancellationToken) =>
         HandleAsync(
             projectId,
             httpContext,
-            options,
+            projectConfigs,
             publisher,
             logger,
             isLegacyMessage: true,
@@ -49,18 +50,19 @@ internal static class RelayIngestEndpoints
     private static async Task<IResult> HandleAsync(
         long projectId,
         HttpContext httpContext,
-        RelayOptions options,
+        ProjectConfigProvider projectConfigs,
         IEnvelopePublisher publisher,
         ILogger<Program> logger,
         bool isLegacyMessage,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(httpContext);
-        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(projectConfigs);
         ArgumentNullException.ThrowIfNull(publisher);
         ArgumentNullException.ThrowIfNull(logger);
 
-        if (!HasValidPublicKey(httpContext.Request, projectId, options))
+        var authorization = Authorize(httpContext.Request, projectId, projectConfigs);
+        if (authorization is null)
         {
             // Never log the supplied key or the configured keys.
             logger.LogWarning(
@@ -169,21 +171,22 @@ internal static class RelayIngestEndpoints
             : address.ToString();
     }
 
-    private static bool HasValidPublicKey(HttpRequest request, long projectId, RelayOptions options)
+    private static PublicKeyAuthorization? Authorize(
+        HttpRequest request,
+        long projectId,
+        ProjectConfigProvider projectConfigs)
     {
         if (!request.Headers.TryGetValue(RelayConstants.PublicKeyHeader, out var headerValues))
         {
-            return false;
+            return null;
         }
 
         var providedKey = headerValues.ToString();
         if (string.IsNullOrEmpty(providedKey))
         {
-            return false;
+            return null;
         }
 
-        return options.Projects.TryGetValue(projectId, out var projectKeys)
-            && projectKeys is not null
-            && projectKeys.Contains(providedKey, StringComparer.Ordinal);
+        return projectConfigs.Authorize(projectId, providedKey);
     }
 }
