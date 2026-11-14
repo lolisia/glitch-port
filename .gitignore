@@ -21,3 +21,6 @@ obj/
 node_modules/
 dist/
 dashboard/.vite/
+
+# Local relay output (file relay default: logs/glitchport)
+logs/
