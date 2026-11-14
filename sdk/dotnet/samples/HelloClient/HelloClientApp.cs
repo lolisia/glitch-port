@@ -8,7 +8,8 @@ namespace GlitchPort.HelloClient
 {
     /// <summary>
     /// The testable body of the hello sample: resolves the message and DSN, captures
-    /// the message through <see cref="GlitchPortClient"/> and reports the outcome.
+    /// the message through <see cref="GlitchPortClient"/>, flushes the relays and
+    /// reports the outcome.
     /// </summary>
     internal static class HelloClientApp
     {
@@ -22,8 +23,8 @@ namespace GlitchPort.HelloClient
         internal const string DsnEnvironmentVariable = "GLITCHPORT_DSN";
 
         /// <summary>
-        /// Captures the requested message and writes either <c>event_id: &lt;guid&gt;</c>
-        /// or a single-line <c>error: &lt;message&gt;</c> line.
+        /// Captures the requested message, flushes the relays and writes either
+        /// <c>event_id: &lt;guid&gt;</c> or a single-line <c>error: ...</c> line.
         /// </summary>
         /// <param name="args">Command-line arguments; <c>args[0]</c> is the message.</param>
         /// <param name="stdout">The writer that receives the event id on success.</param>
@@ -33,7 +34,7 @@ namespace GlitchPort.HelloClient
         /// Creates the client to use. Tests override this to supply a fake transport;
         /// production code leaves it <see langword="null"/>.
         /// </param>
-        /// <returns>0 when the message was captured; otherwise 1.</returns>
+        /// <returns>0 when every relay delivered the message; otherwise 1.</returns>
         internal static async Task<int> RunAsync(
             string[] args,
             TextWriter stdout,
@@ -57,7 +58,16 @@ namespace GlitchPort.HelloClient
                     .ConfigureAwait(false);
 
                 stdout.WriteLine("event_id: " + eventId.ToString("D", CultureInfo.InvariantCulture));
-                return 0;
+
+                var report = await client.FlushAsync().ConfigureAwait(false);
+                if (report.AllSucceeded)
+                {
+                    return 0;
+                }
+
+                var failure = FirstFailure(report);
+                stderr.WriteLine("error: relay " + failure.Name + " failed: " + DescribeFailure(failure));
+                return 1;
             }
             catch (Exception exception)
             {
@@ -82,6 +92,29 @@ namespace GlitchPort.HelloClient
             return new GlitchPortClient(options);
         }
 
+        private static RelayDeliveryResult FirstFailure(DeliveryReport report)
+        {
+            for (var i = 0; i < report.Relays.Count; i++)
+            {
+                if (!report.Relays[i].Succeeded)
+                {
+                    return report.Relays[i];
+                }
+            }
+
+            return new RelayDeliveryResult("unknown", "unknown", 0, 1, 0, "no relay reported");
+        }
+
+        private static string DescribeFailure(RelayDeliveryResult result)
+        {
+            var detail = string.IsNullOrWhiteSpace(result.LastError)
+                ? "failed=" + result.Failed.ToString(CultureInfo.InvariantCulture)
+                    + " dropped=" + result.Dropped.ToString(CultureInfo.InvariantCulture)
+                : result.LastError!;
+
+            return FoldToSingleLine(detail);
+        }
+
         /// <summary>Renders an exception as a single line that always includes its message.</summary>
         private static string Describe(Exception exception)
         {
@@ -89,9 +122,13 @@ namespace GlitchPort.HelloClient
                 ? exception.GetType().Name
                 : exception.Message;
 
-            // The sample contract is one line: fold any line breaks the exception
-            // message may contain instead of splitting the error across lines.
-            return message
+            return FoldToSingleLine(message);
+        }
+
+        /// <summary>Folds any line breaks so every diagnostic stays on one line.</summary>
+        private static string FoldToSingleLine(string value)
+        {
+            return value
                 .Replace("\r", " ", StringComparison.Ordinal)
                 .Replace("\n", " ", StringComparison.Ordinal);
         }

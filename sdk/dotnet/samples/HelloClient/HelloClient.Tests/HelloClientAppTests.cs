@@ -55,7 +55,7 @@ namespace GlitchPort.HelloClient.Tests
         }
 
         [Fact]
-        public async Task RunAsync_WhenRelayRejectsMessage_WritesSingleLineErrorAndReturnsOne()
+        public async Task RunAsync_WhenRelayRejectsMessage_ReportsFlushFailureAndReturnsOne()
         {
             await WithDsnAsync(null, async () =>
             {
@@ -63,10 +63,15 @@ namespace GlitchPort.HelloClient.Tests
                 var result = await RunAsync(Array.Empty<string>(), handler);
 
                 Assert.Equal(1, result.ExitCode);
-                Assert.Equal(string.Empty, result.Stdout);
+
+                // Capture succeeds and prints the event id; the failure is reported by
+                // the flush that follows.
+                var stdoutLine = result.Stdout.TrimEnd('\r', '\n');
+                Assert.StartsWith("event_id: ", stdoutLine, StringComparison.Ordinal);
+                Assert.True(Guid.TryParse(stdoutLine.Substring("event_id: ".Length), out _));
 
                 var errorLine = result.Stderr.TrimEnd('\r', '\n');
-                Assert.StartsWith("error: ", errorLine, StringComparison.Ordinal);
+                Assert.StartsWith("error: relay http failed: ", errorLine, StringComparison.Ordinal);
                 Assert.Contains("500", errorLine, StringComparison.Ordinal);
                 Assert.DoesNotContain("\r", errorLine, StringComparison.Ordinal);
                 Assert.DoesNotContain("\n", errorLine, StringComparison.Ordinal);

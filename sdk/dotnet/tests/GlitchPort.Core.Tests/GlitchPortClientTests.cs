@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Http;
@@ -24,8 +25,16 @@ namespace GlitchPort.Tests
             var before = DateTimeOffset.UtcNow;
 
             var eventId = await client.CaptureMessageAsync("hello");
+            var report = await client.FlushAsync();
 
             Assert.NotEqual(Guid.Empty, eventId);
+            Assert.True(report.AllSucceeded);
+            var relayResult = Assert.Single(report.Relays);
+            Assert.Equal("http", relayResult.Name);
+            Assert.Equal(1, relayResult.Delivered);
+            Assert.Equal(0, relayResult.Failed);
+            Assert.Equal(0, relayResult.Dropped);
+
             Assert.Equal(HttpMethod.Post, handler.Method);
 
             Assert.NotNull(handler.RequestUri);
@@ -63,6 +72,20 @@ namespace GlitchPort.Tests
         }
 
         [Fact]
+        public async Task CaptureMessageAsync_WithLevelOverload_WritesLevelToPayload()
+        {
+            using var handler = new RecordingHttpMessageHandler();
+            using var httpClient = new HttpClient(handler);
+            using var client = CreateClient(httpClient);
+
+            await client.CaptureMessageAsync("boom", Level.Error);
+            await client.FlushAsync();
+
+            using var document = JsonDocument.Parse(handler.Body!);
+            Assert.Equal("error", document.RootElement.GetProperty("level").GetString());
+        }
+
+        [Fact]
         public async Task CaptureMessageAsync_EscapesJsonSpecialCharactersAndKeepsUnicode()
         {
             var message = "quote:\" backslash:\\ newline:\n tab:\t backspace:\b formfeed:\f return:\r control:\u0001 emoji:\U0001F3AE";
@@ -71,6 +94,7 @@ namespace GlitchPort.Tests
             using var client = CreateClient(httpClient);
 
             await client.CaptureMessageAsync(message);
+            await client.FlushAsync();
 
             Assert.NotNull(handler.Body);
             var body = handler.Body!;
@@ -109,6 +133,7 @@ namespace GlitchPort.Tests
             using var client = CreateClient(httpClient);
 
             await client.CaptureMessageAsync("hello");
+            await client.FlushAsync();
 
             using var document = JsonDocument.Parse(handler.Body!);
             Assert.Equal(expectedVersion, document.RootElement.GetProperty("sdk").GetProperty("version").GetString());
@@ -129,6 +154,7 @@ namespace GlitchPort.Tests
                 httpClient);
 
             await client.CaptureMessageAsync("hello");
+            await client.FlushAsync();
 
             using var document = JsonDocument.Parse(handler.Body!);
             var sdk = document.RootElement.GetProperty("sdk");
@@ -146,6 +172,7 @@ namespace GlitchPort.Tests
                 httpClient);
 
             await client.CaptureMessageAsync("hello");
+            await client.FlushAsync();
 
             Assert.NotNull(handler.RequestUri);
             Assert.Equal(80, handler.RequestUri!.Port);
@@ -153,19 +180,27 @@ namespace GlitchPort.Tests
         }
 
         [Fact]
-        public async Task CaptureMessageAsync_NonSuccessStatus_ThrowsGlitchPortException()
+        public async Task CaptureMessageAsync_NonSuccessStatus_ReportsFailureInFlushReport()
         {
             using var handler = new RecordingHttpMessageHandler(HttpStatusCode.InternalServerError, "relay exploded");
             using var httpClient = new HttpClient(handler);
             using var client = CreateClient(httpClient);
 
-            var exception = await Assert.ThrowsAsync<GlitchPortException>(
-                () => client.CaptureMessageAsync("hello"));
+            var eventId = await client.CaptureMessageAsync("hello");
 
-            Assert.Equal(HttpStatusCode.InternalServerError, exception.StatusCode);
-            Assert.Equal("relay exploded", exception.ResponseBody);
-            Assert.NotNull(exception.RequestUri);
-            Assert.Equal("/api/1/messages", exception.RequestUri!.AbsolutePath);
+            Assert.NotEqual(Guid.Empty, eventId);
+
+            var report = await client.FlushAsync();
+            var result = Assert.Single(report.Relays);
+
+            Assert.Equal("http", result.Name);
+            Assert.Equal(0, result.Delivered);
+            Assert.Equal(1, result.Failed);
+            Assert.Equal(0, result.Dropped);
+            Assert.False(result.Succeeded);
+            Assert.False(report.AllSucceeded);
+            Assert.Contains("500", result.LastError, StringComparison.Ordinal);
+            Assert.Contains("relay exploded", result.LastError, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -181,6 +216,92 @@ namespace GlitchPort.Tests
                 () => client.CaptureMessageAsync("hello", cancellation.Token));
 
             Assert.Null(handler.Body);
+        }
+
+        [Fact]
+        public async Task CaptureMessageAsync_ReturnsBeforeTheRequestCompletes()
+        {
+            using var handler = new BlockingHttpMessageHandler();
+            using var httpClient = new HttpClient(handler);
+            using var client = CreateClient(httpClient);
+
+            var capture = client.CaptureMessageAsync("hello");
+            var winner = await Task.WhenAny(capture, Task.Delay(TimeSpan.FromSeconds(5)));
+
+            Assert.Same(capture, winner);
+            Assert.NotEqual(Guid.Empty, await capture);
+
+            await handler.Started.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(1, handler.Attempts);
+
+            handler.Release();
+
+            var report = await client.FlushAsync();
+            Assert.True(report.AllSucceeded);
+            Assert.Equal(1, Assert.Single(report.Relays).Delivered);
+        }
+
+        [Fact]
+        public async Task CaptureMessageAsync_WithHigherMinLevel_DoesNotReachTheRelay()
+        {
+            using var handler = new RecordingHttpMessageHandler();
+            using var httpClient = new HttpClient(handler);
+            using var client = new GlitchPortClient(
+                new GlitchPortOptions
+                {
+                    Relays =
+                    {
+                        Relay.Http(ValidDsn, options => options.MinLevel = Level.Error),
+                    },
+                },
+                httpClient);
+
+            await client.CaptureMessageAsync("info only");
+            await client.CaptureMessageAsync("boom", Level.Error);
+
+            var report = await client.FlushAsync();
+
+            Assert.True(report.AllSucceeded);
+            Assert.Equal(1, Assert.Single(report.Relays).Delivered);
+
+            using var document = JsonDocument.Parse(handler.Body!);
+            Assert.Equal("boom", document.RootElement.GetProperty("message").GetString());
+        }
+
+        [Fact]
+        public async Task Dispose_FlushesPendingEvents()
+        {
+            using var handler = new RecordingHttpMessageHandler();
+            using var httpClient = new HttpClient(handler);
+            var client = CreateClient(httpClient);
+
+            await client.CaptureMessageAsync("hello");
+            client.Dispose();
+
+            Assert.NotNull(handler.Body);
+            using var document = JsonDocument.Parse(handler.Body!);
+            Assert.Equal("hello", document.RootElement.GetProperty("message").GetString());
+        }
+
+        [Fact]
+        public async Task Dispose_ReturnsEvenWhenARelayIsStalled()
+        {
+            using var handler = new BlockingHttpMessageHandler();
+            using var httpClient = new HttpClient(handler);
+            var client = CreateClient(httpClient);
+
+            await client.CaptureMessageAsync("hello");
+            await handler.Started.WaitAsync(TimeSpan.FromSeconds(5));
+
+            var stopwatch = Stopwatch.StartNew();
+            client.Dispose();
+            stopwatch.Stop();
+
+            Assert.True(
+                stopwatch.Elapsed < TimeSpan.FromSeconds(5),
+                "Dispose blocked for " + stopwatch.Elapsed + ".");
+
+            handler.Release();
         }
 
         [Fact]
@@ -215,9 +336,42 @@ namespace GlitchPort.Tests
         }
 
         [Fact]
-        public void Constructor_WithoutDsn_ThrowsArgumentException()
+        public void Constructor_WithoutRelays_ThrowsArgumentException()
         {
             Assert.Throws<ArgumentException>(() => new GlitchPortClient(new GlitchPortOptions()));
+        }
+
+        [Fact]
+        public void Constructor_WithOnlyDisabledRelays_ThrowsArgumentException()
+        {
+            var options = new GlitchPortOptions();
+            options.Relays.Add(Relay.Http(ValidDsn, relayOptions => relayOptions.Enabled = false));
+
+            Assert.Throws<ArgumentException>(() => new GlitchPortClient(options));
+        }
+
+        [Fact]
+        public void Constructor_ExposesConfiguredRelaysInOrder()
+        {
+            using var handler = new RecordingHttpMessageHandler();
+            using var httpClient = new HttpClient(handler);
+            using var client = new GlitchPortClient(
+                new GlitchPortOptions
+                {
+                    Dsn = Dsn.Parse(ValidDsn),
+                    Relays =
+                    {
+                        Relay.Http("http://other-key@relay.example.com:5080/2", options => options.Name = "backup"),
+                        Relay.Http("http://third-key@relay.example.com:5080/3", options => options.Enabled = false),
+                    },
+                },
+                httpClient);
+
+            Assert.Equal(2, client.Relays.Count);
+            Assert.Equal("http", client.Relays[0].Name);
+            Assert.Equal("http", client.Relays[0].Type);
+            Assert.Equal("backup", client.Relays[1].Name);
+            Assert.Equal("http", client.Relays[1].Type);
         }
 
         private static GlitchPortClient CreateClient(HttpClient httpClient)
