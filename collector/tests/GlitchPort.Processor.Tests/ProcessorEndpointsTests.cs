@@ -70,7 +70,7 @@ public sealed class ProcessorEndpointsTests
         var envelope = new Envelope
         {
             EventId = Guid.NewGuid(),
-            ProjectId = 99,
+            ProjectId = TestData.DefaultProjectId,
             ReceivedAt = new DateTimeOffset(2026, 5, 1, 9, 0, 0, TimeSpan.FromHours(9)),
             Endpoint = "POST /api/1/messages",
             Message = "minimal envelope",

@@ -3,7 +3,9 @@ using GlitchPort.Processor.Data;
 using GlitchPort.Processor.Endpoints;
 using GlitchPort.Processor.Management;
 using GlitchPort.Processor.Migrations;
+using GlitchPort.Processor.Projects;
 using Microsoft.AspNetCore.Cors.Infrastructure;
+using Microsoft.Extensions.Options;
 using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -42,6 +44,8 @@ builder.Services.AddSingleton<ManagementEventStore>();
 builder.Services.AddSingleton<ManagementIssueStore>();
 builder.Services.AddSingleton<ManagementLabelStore>();
 builder.Services.AddSingleton<ManagementStatsStore>();
+builder.Services.AddSingleton<PublicKeyGenerator>();
+builder.Services.AddSingleton<ProjectStore>();
 
 var app = builder.Build();
 
@@ -56,6 +60,14 @@ app.MapManagementEndpoints();
 await DatabaseMigrator.ApplyAsync(
     app.Configuration.GetConnectionString("Postgres")
         ?? throw new InvalidOperationException("ConnectionStrings:Postgres is not configured."),
+    logger: app.Logger,
+    cancellationToken: app.Lifetime.ApplicationStopping).ConfigureAwait(false);
+
+// Configured projects (development uses project 1 with the well-known
+// dev-public-key) are created exactly once and only when they are missing.
+await ProjectBootstrapper.BootstrapAsync(
+    app.Services.GetRequiredService<NpgsqlDataSource>(),
+    app.Services.GetRequiredService<IOptions<ProcessorOptions>>().Value.Bootstrap.Projects,
     logger: app.Logger,
     cancellationToken: app.Lifetime.ApplicationStopping).ConfigureAwait(false);
 
