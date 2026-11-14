@@ -162,6 +162,15 @@ to be read and rendered, and a full stdin pipe can never block the relay. A
 directly started renderer with no redirected standard input keeps reading the
 new console exactly as before.
 
+**Output encoding.** On Windows, when standard output is a real console, both
+`TerminalWindow.Inherit` and `TerminalWindow.New` write UTF-16 through
+`WriteConsoleW`, so characters such as `═` (U+2550), `·` (U+00B7) and non-ASCII
+event messages display correctly regardless of the console's active output code
+page. The renderer never calls `SetConsoleOutputCP` and never changes
+`Console.OutputEncoding`, so `TerminalWindow.Inherit` does not modify the parent
+game or server console. When standard output is redirected to a pipe or a file,
+or on platforms other than Windows, output is UTF-8 without a BOM.
+
 On Linux and macOS `TerminalWindow.New` is not supported: those platforms have
 no analogous per-process console. The renderer prints exactly one warning to
 standard error:
