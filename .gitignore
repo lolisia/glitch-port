@@ -24,3 +24,20 @@ dashboard/.vite/
 
 # Local relay output (file relay default: logs/glitchport)
 logs/
+
+# Unity SDK: only the generated native terminal publish is kept out of git.
+# The managed GlitchPort.Core plugin binaries in Runtime/Plugins are committed
+# (with fixed-GUID metas) so a fresh checkout can run the package tests and the
+# build script's --check guard against stale plugins.
+sdk/unity/com.glitchport.unity/Tools~/
+
+# Unity test project: editor-generated caches, logs and IDE project files.
+# Assets/ is deliberately not ignored: the e2e task adds test assets there.
+sdk/unity/TestProject/Library/
+sdk/unity/TestProject/Temp/
+sdk/unity/TestProject/Logs/
+sdk/unity/TestProject/UserSettings/
+sdk/unity/TestProject/obj/
+sdk/unity/TestProject/Build/
+sdk/unity/TestProject/*.csproj
+sdk/unity/TestProject/*.sln

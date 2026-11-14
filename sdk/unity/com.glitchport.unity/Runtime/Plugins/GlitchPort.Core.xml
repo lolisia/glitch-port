@@ -1,0 +1,1038 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>GlitchPort.Core</name>
+    </assembly>
+    <members>
+        <member name="T:GlitchPort.Dsn">
+            <summary>
+            A parsed Data Source Name (DSN) that identifies a glitch-port project and
+            the relay that accepts its events.
+            </summary>
+            <remarks>
+            The accepted form is <c>http://{publicKey}@{host}:{port}/{projectId}</c>; the
+            port segment is optional. The public key is the URI userinfo and the project
+            id is the last path segment.
+            </remarks>
+        </member>
+        <member name="P:GlitchPort.Dsn.PublicKey">
+            <summary>Gets the public key that authenticates events for the project.</summary>
+        </member>
+        <member name="P:GlitchPort.Dsn.ProjectId">
+            <summary>Gets the numeric project id.</summary>
+        </member>
+        <member name="P:GlitchPort.Dsn.RelayBaseUri">
+            <summary>
+            Gets the relay base URI built from the DSN's scheme, host and port. The
+            public key userinfo and any path prefix are stripped, and the underlying
+            authority string (see <see cref="P:System.Uri.OriginalString"/>) has no trailing
+            slash, so ingest endpoints can be appended as absolute paths (for example
+            <c>/api/{projectId}/messages</c>).
+            </summary>
+        </member>
+        <member name="M:GlitchPort.Dsn.Parse(System.String)">
+            <summary>Parses a DSN.</summary>
+            <param name="dsn">The DSN string.</param>
+            <returns>The parsed DSN.</returns>
+            <exception cref="T:System.FormatException">The DSN is missing, malformed, or lacks a required component.</exception>
+        </member>
+        <member name="M:GlitchPort.Dsn.TryParse(System.String,GlitchPort.Dsn@)">
+            <summary>Attempts to parse a DSN without throwing.</summary>
+            <param name="dsn">The DSN string.</param>
+            <param name="value">The parsed DSN, or <see langword="null"/> when parsing fails.</param>
+            <returns><see langword="true"/> when <paramref name="dsn"/> is a valid DSN; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="T:GlitchPort.CapturedEvent">
+            <summary>
+            A single captured event plus its pre-serialized JSON body. Every relay
+            forwards the same <see cref="P:GlitchPort.CapturedEvent.Json"/> string.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.CapturedEvent.#ctor(System.Guid,System.DateTimeOffset,GlitchPort.Level,System.String,System.String,System.String,System.String)">
+            <summary>Creates a captured event.</summary>
+            <param name="eventId">The unique event id.</param>
+            <param name="timestamp">The capture timestamp; stored in UTC.</param>
+            <param name="level">The event severity.</param>
+            <param name="message">The captured message.</param>
+            <param name="sdkName">The SDK name reported to relays.</param>
+            <param name="sdkVersion">The SDK version reported to relays.</param>
+            <param name="json">The serialized event JSON shared by every relay.</param>
+        </member>
+        <member name="P:GlitchPort.CapturedEvent.EventId">
+            <summary>Gets the unique event id.</summary>
+        </member>
+        <member name="P:GlitchPort.CapturedEvent.Timestamp">
+            <summary>Gets the capture timestamp in UTC.</summary>
+        </member>
+        <member name="P:GlitchPort.CapturedEvent.Level">
+            <summary>Gets the event severity.</summary>
+        </member>
+        <member name="P:GlitchPort.CapturedEvent.Message">
+            <summary>Gets the captured message.</summary>
+        </member>
+        <member name="P:GlitchPort.CapturedEvent.SdkName">
+            <summary>Gets the SDK name reported to relays.</summary>
+        </member>
+        <member name="P:GlitchPort.CapturedEvent.SdkVersion">
+            <summary>Gets the SDK version reported to relays.</summary>
+        </member>
+        <member name="P:GlitchPort.CapturedEvent.Json">
+            <summary>Gets the serialized event JSON that every relay forwards.</summary>
+        </member>
+        <member name="T:GlitchPort.EventFormatter">
+            <summary>
+            Renders <see cref="T:GlitchPort.CapturedEvent"/> instances as terminal-friendly text.
+            The output never ends with a newline.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.EventFormatter.FormatCompact(GlitchPort.CapturedEvent,System.Boolean)">
+            <summary>
+            Formats an event as a single compact line:
+            <c>{local time} {LEVEL} {message}  (id {short id})</c>.
+            Continuation lines of a multi-line message are indented by two spaces
+            and the event id is appended to the last line.
+            </summary>
+            <param name="e">The event to format.</param>
+            <param name="color">When <see langword="true"/>, wraps only the level token in ANSI SGR codes.</param>
+            <returns>The formatted event, without a trailing newline.</returns>
+        </member>
+        <member name="M:GlitchPort.EventFormatter.FormatPretty(GlitchPort.CapturedEvent,System.Boolean)">
+            <summary>
+            Formats an event over multiple lines: the first line starts with the
+            local time and level, the last line is
+            <c>  sdk={name}/{version} · id {short id}</c>. Continuation lines of a
+            multi-line message are indented by two spaces.
+            </summary>
+            <param name="e">The event to format.</param>
+            <param name="color">When <see langword="true"/>, wraps only the level token in ANSI SGR codes.</param>
+            <returns>The formatted event, without a trailing newline.</returns>
+        </member>
+        <member name="M:GlitchPort.EventFormatter.FormatHeader(System.String,System.Int32,System.DateTimeOffset)">
+            <summary>
+            Formats the terminal session header:
+            <c>═══ glitch-port terminal ═══ {appName} (pid {pid}) · {local time} · protocol 1</c>.
+            </summary>
+            <param name="appName">The application name shown in the header.</param>
+            <param name="pid">The pid of the process that owns the terminal.</param>
+            <param name="startedAt">The session start timestamp; rendered in local time.</param>
+            <returns>The header line, without a trailing newline.</returns>
+        </member>
+        <member name="M:GlitchPort.EventFormatter.FormatLevel(GlitchPort.Level,System.Boolean)">
+            <summary>
+            Renders the level name upper-cased and padded to five characters, wrapped
+            in the level's ANSI SGR codes when <paramref name="color"/> is set.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.EventFormatter.AppendMessage(System.Text.StringBuilder,System.String)">
+            <summary>Appends a message, indenting every line after the first by two spaces.</summary>
+        </member>
+        <member name="M:GlitchPort.EventFormatter.ShortEventId(System.Guid)">
+            <summary>Returns the first eight lower-case hex characters of the event id.</summary>
+        </member>
+        <member name="T:GlitchPort.GlitchPortClient">
+            <summary>
+            Captures messages and fans them out to independent relays. Capture only
+            enqueues the event and returns immediately; delivery errors are reported by
+            <see cref="M:GlitchPort.GlitchPortClient.FlushAsync(System.Nullable{System.TimeSpan})"/> instead of thrown from capture.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.GlitchPortClient.#ctor(GlitchPort.GlitchPortOptions,System.Net.Http.HttpClient)">
+            <summary>Creates a client for the configured relays.</summary>
+            <param name="options">
+            The client options. At least one relay must be configured: either
+            <see cref="P:GlitchPort.GlitchPortOptions.Dsn"/> or an enabled
+            <see cref="P:GlitchPort.GlitchPortOptions.Relays"/> entry.
+            </param>
+            <param name="httpClient">
+            An optional <see cref="T:System.Net.Http.HttpClient"/> shared by every HTTP relay. When
+            supplied, the client uses it and never disposes it; otherwise the client
+            creates and owns a private instance.
+            </param>
+            <exception cref="T:System.ArgumentException">No relay is configured.</exception>
+        </member>
+        <member name="P:GlitchPort.GlitchPortClient.Relays">
+            <summary>Gets the relay instances created for this client, in fan-out order.</summary>
+        </member>
+        <member name="M:GlitchPort.GlitchPortClient.CaptureMessageAsync(System.String,System.Threading.CancellationToken)">
+            <summary>Captures a message at <see cref="F:GlitchPort.Level.Info"/>.</summary>
+            <param name="message">The message text.</param>
+            <param name="ct">A token that cancels the capture before it is queued.</param>
+            <returns>The generated event id.</returns>
+        </member>
+        <member name="M:GlitchPort.GlitchPortClient.CaptureMessageAsync(System.String,GlitchPort.Level,System.Threading.CancellationToken)">
+            <summary>
+            Captures a message at the given level. The returned task completes as
+            soon as the event is queued; it never waits for the network.
+            </summary>
+            <param name="message">The message text.</param>
+            <param name="level">The event severity.</param>
+            <param name="ct">A token that cancels the capture before it is queued.</param>
+            <returns>The generated event id.</returns>
+        </member>
+        <member name="M:GlitchPort.GlitchPortClient.FlushAsync(System.Nullable{System.TimeSpan})">
+            <summary>
+            Flushes every relay and returns one delivery result per relay.
+            </summary>
+            <param name="timeout">The flush timeout per relay. Defaults to 5 seconds.</param>
+            <returns>The combined delivery report.</returns>
+        </member>
+        <member name="M:GlitchPort.GlitchPortClient.Dispose">
+            <summary>
+            Flushes for at most two seconds, then disposes every relay. An injected
+            <see cref="T:System.Net.Http.HttpClient"/> is left untouched. The method is idempotent and
+            never throws.
+            </summary>
+        </member>
+        <member name="T:GlitchPort.GlitchPortException">
+            <summary>Thrown when the relay rejects a captured event with a non-success HTTP status.</summary>
+        </member>
+        <member name="M:GlitchPort.GlitchPortException.#ctor(System.String,System.Net.HttpStatusCode,System.String,System.Uri,System.Exception)">
+            <summary>Creates a new exception describing a failed relay request.</summary>
+            <param name="message">The human-readable error message.</param>
+            <param name="statusCode">The HTTP status code returned by the relay.</param>
+            <param name="responseBody">The response body returned by the relay, if any.</param>
+            <param name="requestUri">The URI of the failed request, when available.</param>
+            <param name="innerException">An optional inner exception.</param>
+        </member>
+        <member name="P:GlitchPort.GlitchPortException.StatusCode">
+            <summary>Gets the HTTP status code returned by the relay.</summary>
+        </member>
+        <member name="P:GlitchPort.GlitchPortException.ResponseBody">
+            <summary>Gets the response body returned by the relay.</summary>
+        </member>
+        <member name="P:GlitchPort.GlitchPortException.RequestUri">
+            <summary>Gets the URI of the failed request, when available.</summary>
+        </member>
+        <member name="T:GlitchPort.GlitchPortOptions">
+            <summary>Options that configure a <see cref="T:GlitchPort.GlitchPortClient"/>.</summary>
+        </member>
+        <member name="F:GlitchPort.GlitchPortOptions.DefaultSdkName">
+            <summary>The SDK name reported in the <c>sdk.name</c> payload field.</summary>
+        </member>
+        <member name="P:GlitchPort.GlitchPortOptions.Dsn">
+            <summary>
+            Gets or sets the DSN that identifies the relay and project. When set, the
+            client adds an implicit HTTP relay named <c>http</c> in front of the
+            entries in <see cref="P:GlitchPort.GlitchPortOptions.Relays"/>.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.GlitchPortOptions.Relays">
+            <summary>
+            Gets the additional relays to create. Entries with
+            <see cref="P:GlitchPort.RelayDefinition.Enabled"/> set to <see langword="false"/> are
+            skipped; the remaining entries are created in order.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.GlitchPortOptions.SdkName">
+            <summary>
+            Gets or sets the SDK name reported to the relay. Defaults to
+            <see cref="F:GlitchPort.GlitchPortOptions.DefaultSdkName"/>.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.GlitchPortOptions.SdkVersion">
+            <summary>
+            Gets or sets the SDK version reported to the relay. When <see langword="null"/>
+            the client uses the informational version of the GlitchPort.Core assembly.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.GlitchPortOptions.FromEnvironment">
+            <summary>
+            Creates options from the <c>GLITCHPORT_DSN</c> environment variable.
+            </summary>
+            <remarks>
+            The environment variable holds a semicolon separated relay
+            configuration string, for example
+            <c>http://key@host:5080/1;terminal:?format=compact</c>. When the
+            variable is missing or blank, the returned options contain no relays.
+            <see cref="P:GlitchPort.GlitchPortOptions.Dsn"/> is never set: every relay, including the HTTP one, is
+            described by an explicit entry in <see cref="P:GlitchPort.GlitchPortOptions.Relays"/>.
+            </remarks>
+            <returns>The options read from the environment.</returns>
+            <exception cref="T:System.FormatException">A relay in <c>GLITCHPORT_DSN</c> is invalid.</exception>
+        </member>
+        <member name="T:GlitchPort.JsonPayloadWriter">
+            <summary>
+            Hand-built JSON writer for the ingest payload.
+            </summary>
+            <remarks>
+            The SDK must not depend on System.Text.Json or any other serialization
+            package. Strings are escaped by hand (quotes, backslashes, the short C#
+            control escapes and <c>\uXXXX</c> for the remaining control characters);
+            non-ASCII text is written as-is and therefore ends up as raw UTF-8 when the
+            request content is encoded.
+            </remarks>
+        </member>
+        <member name="M:GlitchPort.JsonPayloadWriter.CreateMessagePayload(System.Guid,System.DateTimeOffset,System.String,System.String,System.String)">
+            <summary>Builds the <c>application/json</c> body for a captured message.</summary>
+        </member>
+        <member name="M:GlitchPort.JsonPayloadWriter.CreateMessagePayload(System.Guid,System.DateTimeOffset,GlitchPort.Level,System.String,System.String,System.String)">
+            <summary>Builds the <c>application/json</c> body for a captured message with an explicit level.</summary>
+        </member>
+        <member name="M:GlitchPort.JsonPayloadWriter.AppendString(System.Text.StringBuilder,System.String)">
+            <summary>Appends a JSON string literal, including its surrounding quotes.</summary>
+        </member>
+        <member name="T:GlitchPort.RelayDeliveryResult">
+            <summary>Counters for one relay at the time of a flush.</summary>
+        </member>
+        <member name="M:GlitchPort.RelayDeliveryResult.#ctor(System.String,System.String,System.Int64,System.Int64,System.Int64,System.String)">
+            <summary>Creates a delivery result.</summary>
+            <param name="name">The relay name.</param>
+            <param name="type">The relay type.</param>
+            <param name="delivered">The number of events delivered so far.</param>
+            <param name="failed">The number of events that failed to deliver.</param>
+            <param name="dropped">The number of events dropped because the queue was full.</param>
+            <param name="lastError">The most recent error, when any.</param>
+        </member>
+        <member name="P:GlitchPort.RelayDeliveryResult.Name">
+            <summary>Gets the relay name.</summary>
+        </member>
+        <member name="P:GlitchPort.RelayDeliveryResult.Type">
+            <summary>Gets the relay type.</summary>
+        </member>
+        <member name="P:GlitchPort.RelayDeliveryResult.Delivered">
+            <summary>Gets the number of events the relay delivered successfully.</summary>
+        </member>
+        <member name="P:GlitchPort.RelayDeliveryResult.Failed">
+            <summary>Gets the number of events the relay failed to deliver.</summary>
+        </member>
+        <member name="P:GlitchPort.RelayDeliveryResult.Dropped">
+            <summary>Gets the number of events dropped because the queue was full.</summary>
+        </member>
+        <member name="P:GlitchPort.RelayDeliveryResult.LastError">
+            <summary>Gets the most recent delivery error, when any.</summary>
+        </member>
+        <member name="P:GlitchPort.RelayDeliveryResult.Succeeded">
+            <summary>Gets a value indicating whether nothing failed and nothing was dropped.</summary>
+        </member>
+        <member name="T:GlitchPort.DeliveryReport">
+            <summary>The per-relay results of a single <see cref="M:GlitchPort.GlitchPortClient.FlushAsync(System.Nullable{System.TimeSpan})"/> call.</summary>
+        </member>
+        <member name="M:GlitchPort.DeliveryReport.#ctor(System.Collections.Generic.IReadOnlyList{GlitchPort.RelayDeliveryResult})">
+            <summary>Creates a report from the results of every relay.</summary>
+            <param name="relays">The per-relay results.</param>
+        </member>
+        <member name="P:GlitchPort.DeliveryReport.Relays">
+            <summary>Gets one result per relay, in relay order.</summary>
+        </member>
+        <member name="P:GlitchPort.DeliveryReport.AllSucceeded">
+            <summary>
+            Gets a value indicating whether every relay succeeded. An empty relay
+            list counts as success.
+            </summary>
+        </member>
+        <member name="T:GlitchPort.FileRelay">
+            <summary>
+            Writes captured events to rotating local log files. Every relay instance
+            owns exactly one file at a time and only appends to files it created
+            itself, so no cross-process locking is required.
+            </summary>
+            <remarks>
+            Events are buffered by the underlying <see cref="T:System.IO.FileStream"/> and flushed
+            on a timer, immediately after an <see cref="F:GlitchPort.Level.Error"/> or
+            <see cref="F:GlitchPort.Level.Fatal"/> event, and whenever the relay is flushed or
+            disposed. Any I/O failure disables the relay: later events are counted as
+            failed by <see cref="T:GlitchPort.QueuedRelay"/> instead of throwing at the capture site.
+            </remarks>
+        </member>
+        <member name="M:GlitchPort.FileRelay.#ctor(GlitchPort.FileRelayOptions)">
+            <summary>Creates a file relay.</summary>
+            <param name="options">The relay options.</param>
+            <exception cref="T:System.ArgumentNullException"><paramref name="options"/> is <see langword="null"/>.</exception>
+        </member>
+        <member name="M:GlitchPort.FileRelay.Dispose">
+            <summary>
+            Releases the relay: queued events are drained, buffered writes are
+            flushed and the active file handle is closed.
+            </summary>
+            <remarks>
+            The base <see cref="M:GlitchPort.QueuedRelay.Dispose"/> is not virtual, so
+            <see cref="M:System.IDisposable.Dispose"/> is re-implemented to run this cleanup
+            for every dispatch path (a <c>using</c> statement, an
+            <see cref="T:GlitchPort.IRelay"/> reference or a directly typed variable).
+            </remarks>
+        </member>
+        <member name="M:GlitchPort.FileRelay.Handle(GlitchPort.CapturedEvent)">
+            <inheritdoc/>
+        </member>
+        <member name="M:GlitchPort.FileRelay.FlushBuffer">
+            <inheritdoc/>
+        </member>
+        <member name="M:GlitchPort.FileRelay.RunRetentionOnceLocked">
+            <summary>
+            Runs retention at most once per relay, on the worker thread. It is
+            triggered by the first event and by an explicit flush, whichever comes
+            first, so an idle relay that is only flushed still applies the limits.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.FileRelay.RunRetentionLocked">
+            <summary>
+            Deletes old log files once. Runs on the worker thread with
+            <see cref="F:GlitchPort.FileRelay._gate"/> held and never throws: retention problems must not
+            affect event delivery.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.FileRelay.IsOwnedFileName(System.String)">
+            <summary>
+            Matches only <c>glitchport-*-*.ndjson</c> and <c>glitchport-*-*.log</c>.
+            Everything else in the directory belongs to someone else.
+            </summary>
+        </member>
+        <member name="T:GlitchPort.FileRelayDefinition">
+            <summary>A relay definition that writes events to rotating local files.</summary>
+        </member>
+        <member name="M:GlitchPort.FileRelayDefinition.#ctor(System.Action{GlitchPort.FileRelayOptions})">
+            <summary>Creates a file relay definition.</summary>
+            <param name="configure">An optional callback that tweaks the relay options.</param>
+        </member>
+        <member name="P:GlitchPort.FileRelayDefinition.Type">
+            <inheritdoc/>
+        </member>
+        <member name="P:GlitchPort.FileRelayDefinition.Options">
+            <inheritdoc/>
+        </member>
+        <member name="T:GlitchPort.Relay">
+            <summary>Factories for the built-in relay types.</summary>
+            <summary>Factories for the built-in relay types.</summary>
+        </member>
+        <member name="M:GlitchPort.Relay.File(System.Action{GlitchPort.FileRelayOptions})">
+            <summary>Creates a definition for the local file relay.</summary>
+            <param name="configure">An optional callback that tweaks the relay options.</param>
+            <returns>The relay definition.</returns>
+        </member>
+        <member name="M:GlitchPort.Relay.Http(System.String,System.Action{GlitchPort.HttpRelayOptions})">
+            <summary>Creates an HTTP relay definition for a DSN string.</summary>
+            <param name="dsn">The DSN that identifies the relay and project.</param>
+            <param name="configure">An optional callback that tweaks the relay options.</param>
+            <returns>The relay definition.</returns>
+            <exception cref="T:System.FormatException"><paramref name="dsn"/> is not a valid DSN.</exception>
+        </member>
+        <member name="M:GlitchPort.Relay.Terminal(System.Action{GlitchPort.TerminalRelayOptions})">
+            <summary>Creates a terminal relay definition that renders events in a local console.</summary>
+            <param name="configure">An optional callback that tweaks the relay options.</param>
+            <returns>The relay definition.</returns>
+        </member>
+        <member name="T:GlitchPort.FileFormat">
+            <summary>The on-disk representation of the events a file relay writes.</summary>
+        </member>
+        <member name="F:GlitchPort.FileFormat.Ndjson">
+            <summary>One JSON document per line (newline-delimited JSON).</summary>
+        </member>
+        <member name="F:GlitchPort.FileFormat.Text">
+            <summary>Human-readable text, one formatted event per line.</summary>
+        </member>
+        <member name="T:GlitchPort.FileRelayOptions">
+            <summary>Options for the file relay.</summary>
+        </member>
+        <member name="P:GlitchPort.FileRelayOptions.Directory">
+            <summary>
+            Gets or sets the directory that receives the log files. Relative paths
+            are resolved against the current working directory when the relay is
+            created. Defaults to <c>logs/glitchport</c>.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.FileRelayOptions.Format">
+            <summary>Gets or sets the file format. Defaults to <see cref="F:GlitchPort.FileFormat.Ndjson"/>.</summary>
+        </member>
+        <member name="P:GlitchPort.FileRelayOptions.MaxFileSizeMb">
+            <summary>
+            Gets or sets the size at which a new file is started. Defaults to 10 MB.
+            A value of zero or less starts a new file for every event.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.FileRelayOptions.MaxAgeDays">
+            <summary>
+            Gets or sets the age in days after which log files are deleted when the
+            relay starts. Zero disables age based retention. Defaults to 7 days.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.FileRelayOptions.MaxTotalSizeMb">
+            <summary>
+            Gets or sets the total size in megabytes that log files may occupy.
+            Older files are deleted first. Zero disables the limit. Defaults to 200 MB.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.FileRelayOptions.MaxFiles">
+            <summary>
+            Gets or sets the maximum number of log files that are kept. Older files
+            are deleted first. Zero disables the limit. Defaults to 100 files.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.FileRelayOptions.FlushIntervalMs">
+            <summary>
+            Gets or sets how often, in milliseconds, buffered writes are flushed to
+            disk while events are being logged. Defaults to 1000 ms.
+            </summary>
+        </member>
+        <member name="T:GlitchPort.HttpRelay">
+            <summary>
+            Sends captured events to a glitch-port relay with
+            <c>POST /api/{projectId}/messages</c>. Delivery happens on the base class
+            worker thread; a failed attempt is retried once before it is counted as
+            failed.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.HttpRelay.#ctor(GlitchPort.Dsn,GlitchPort.HttpRelayOptions,System.Net.Http.HttpClient)">
+            <summary>Creates an HTTP relay.</summary>
+            <param name="dsn">The parsed DSN that identifies the relay and project.</param>
+            <param name="options">The relay options.</param>
+            <param name="httpClient">The shared <see cref="T:System.Net.Http.HttpClient"/> used to send events.</param>
+        </member>
+        <member name="M:GlitchPort.HttpRelay.Handle(GlitchPort.CapturedEvent)">
+            <inheritdoc/>
+        </member>
+        <member name="T:GlitchPort.IRelay">
+            <summary>
+            A destination that accepts captured events and delivers them outside the
+            caller's thread. Implementations must never block the caller of
+            <see cref="M:GlitchPort.IRelay.TryEnqueue(GlitchPort.CapturedEvent)"/> and must never let a delivery failure escape
+            <see cref="M:GlitchPort.IRelay.FlushAsync(System.TimeSpan)"/>.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.IRelay.Name">
+            <summary>Gets the configured relay name, for example <c>http</c>.</summary>
+        </member>
+        <member name="P:GlitchPort.IRelay.Type">
+            <summary>Gets the relay type, for example <c>http</c>.</summary>
+        </member>
+        <member name="P:GlitchPort.IRelay.MinLevel">
+            <summary>Gets the minimum level an event must have to reach this relay.</summary>
+        </member>
+        <member name="M:GlitchPort.IRelay.TryEnqueue(GlitchPort.CapturedEvent)">
+            <summary>
+            Tries to queue an event without blocking.
+            </summary>
+            <param name="e">The event to queue.</param>
+            <returns>
+            <see langword="true"/> when the relay accepted the event; otherwise
+            <see langword="false"/> (the relay is disabled or its queue is full).
+            </returns>
+        </member>
+        <member name="M:GlitchPort.IRelay.FlushAsync(System.TimeSpan)">
+            <summary>
+            Flushes everything queued before this call and returns a snapshot of the
+            relay counters. The returned task must complete within
+            <paramref name="timeout"/>.
+            </summary>
+            <param name="timeout">The maximum time to spend draining the queue.</param>
+            <returns>The delivery result of this relay.</returns>
+        </member>
+        <member name="T:GlitchPort.Level">
+            <summary>Severity of a captured event.</summary>
+        </member>
+        <member name="F:GlitchPort.Level.Debug">
+            <summary>Verbose diagnostic information.</summary>
+        </member>
+        <member name="F:GlitchPort.Level.Info">
+            <summary>Informational message.</summary>
+        </member>
+        <member name="F:GlitchPort.Level.Warning">
+            <summary>Something unexpected that does not stop the game.</summary>
+        </member>
+        <member name="F:GlitchPort.Level.Error">
+            <summary>A recoverable or handled error.</summary>
+        </member>
+        <member name="F:GlitchPort.Level.Fatal">
+            <summary>A fatal error, typically a crash.</summary>
+        </member>
+        <member name="T:GlitchPort.LevelNames">
+            <summary>
+            Converts <see cref="T:GlitchPort.Level"/> values to and from the lower-case names used by
+            the event JSON (<c>debug</c>, <c>info</c>, <c>warning</c>, <c>error</c>,
+            <c>fatal</c>).
+            </summary>
+        </member>
+        <member name="M:GlitchPort.LevelNames.ToJson(GlitchPort.Level)">
+            <summary>Returns the JSON name of <paramref name="level"/>.</summary>
+            <param name="level">The level to convert.</param>
+            <returns>The lower-case JSON name, for example <c>warning</c>.</returns>
+            <exception cref="T:System.ArgumentOutOfRangeException"><paramref name="level"/> is not a defined level.</exception>
+        </member>
+        <member name="M:GlitchPort.LevelNames.TryParse(System.String,GlitchPort.Level@)">
+            <summary>
+            Parses a JSON level name, ignoring case.
+            </summary>
+            <param name="value">The level name, for example <c>Warning</c>.</param>
+            <param name="level">The parsed level when the method returns <see langword="true"/>; otherwise the default value.</param>
+            <returns><see langword="true"/> when <paramref name="value"/> is a known level name; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="T:GlitchPort.QueuedRelay">
+            <summary>
+            Base class for relays that hand events to one dedicated background worker
+            through a bounded FIFO queue. Enqueueing never blocks; delivery, retries
+            and error handling all happen on the worker thread.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.QueuedRelay.#ctor(System.String,System.String,GlitchPort.Level,System.Int32)">
+            <summary>Creates a queued relay. The worker thread starts on first use.</summary>
+            <param name="name">The relay name.</param>
+            <param name="type">The relay type.</param>
+            <param name="minLevel">The minimum event level the relay receives.</param>
+            <param name="queueCapacity">The maximum number of queued events.</param>
+        </member>
+        <member name="P:GlitchPort.QueuedRelay.Name">
+            <inheritdoc/>
+        </member>
+        <member name="P:GlitchPort.QueuedRelay.Type">
+            <inheritdoc/>
+        </member>
+        <member name="P:GlitchPort.QueuedRelay.MinLevel">
+            <inheritdoc/>
+        </member>
+        <member name="P:GlitchPort.QueuedRelay.IsDisabled">
+            <summary>
+            Gets a value indicating whether the relay stopped accepting new events
+            (for example after an unrecoverable write error).
+            </summary>
+        </member>
+        <member name="M:GlitchPort.QueuedRelay.TryEnqueue(GlitchPort.CapturedEvent)">
+            <inheritdoc/>
+        </member>
+        <member name="M:GlitchPort.QueuedRelay.FlushAsync(System.TimeSpan)">
+            <inheritdoc/>
+        </member>
+        <member name="M:GlitchPort.QueuedRelay.Dispose">
+            <summary>
+            Releases the relay. The worker drains the events already accepted, calls
+            <see cref="M:GlitchPort.QueuedRelay.FlushBuffer"/> and exits; the method never blocks for more
+            than roughly one second because the worker is a background thread.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.QueuedRelay.Handle(GlitchPort.CapturedEvent)">
+            <summary>Processes one event on the worker thread.</summary>
+            <param name="e">The event to deliver.</param>
+        </member>
+        <member name="M:GlitchPort.QueuedRelay.FlushBuffer">
+            <summary>Flushes any internal buffer on the worker thread. Defaults to a no-op.</summary>
+        </member>
+        <member name="M:GlitchPort.QueuedRelay.MarkDelivered(System.Int64)">
+            <summary>Records <paramref name="count"/> successfully delivered events.</summary>
+            <param name="count">The number of events; defaults to one.</param>
+        </member>
+        <member name="M:GlitchPort.QueuedRelay.MarkFailed(System.String,System.Int64)">
+            <summary>Records <paramref name="count"/> failed events and remembers the error.</summary>
+            <param name="error">A short error description.</param>
+            <param name="count">The number of events; defaults to one.</param>
+        </member>
+        <member name="M:GlitchPort.QueuedRelay.Disable(System.String)">
+            <summary>Stops accepting new events and records the reason.</summary>
+            <param name="error">A short error description.</param>
+        </member>
+        <member name="T:GlitchPort.RelayErrorText">
+            <summary>Helpers for turning exceptions and response bodies into short, single-line errors.</summary>
+        </member>
+        <member name="T:GlitchPort.RelayConfigParser">
+            <summary>
+            Parses the semicolon separated relay configuration strings understood by
+            <see cref="M:GlitchPort.GlitchPortOptions.FromEnvironment"/>.
+            </summary>
+            <remarks>
+            Each non-empty item is one relay and may use one of the following forms:
+            <list type="bullet">
+            <item><description><c>http://key@host:port/projectId?min_level=error&amp;name=main</c></description></item>
+            <item><description><c>terminal:?window=new&amp;format=pretty&amp;min_level=debug&amp;name=term&amp;path=...</c></description></item>
+            <item><description><c>file:?dir=logs&amp;format=ndjson&amp;max_file_size_mb=10&amp;min_level=info&amp;name=file</c></description></item>
+            </list>
+            </remarks>
+        </member>
+        <member name="M:GlitchPort.RelayConfigParser.Parse(System.String)">
+            <summary>
+            Parses a semicolon separated relay configuration string.
+            </summary>
+            <param name="value">The configuration string. Items are trimmed and empty items are ignored.</param>
+            <returns>The enabled relay definitions in input order.</returns>
+            <exception cref="T:System.ArgumentNullException"><paramref name="value"/> is <see langword="null"/>.</exception>
+            <exception cref="T:System.FormatException">An item is not a valid relay configuration. The message contains the 1-based item index and the reason.</exception>
+        </member>
+        <member name="T:GlitchPort.RelayDefinition">
+            <summary>
+            Describes a relay to create when a <see cref="T:GlitchPort.GlitchPortClient"/> is
+            constructed. A definition owns the relay's options and knows how to build
+            the actual <see cref="T:GlitchPort.IRelay"/> instance.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.RelayDefinition.Type">
+            <summary>Gets the relay type, for example <c>http</c>.</summary>
+        </member>
+        <member name="P:GlitchPort.RelayDefinition.Options">
+            <summary>Gets the options shared by every relay type.</summary>
+        </member>
+        <member name="P:GlitchPort.RelayDefinition.Name">
+            <summary>
+            Gets or sets the relay name. Defaults to <see cref="P:GlitchPort.RelayDefinition.Type"/> when no name
+            was configured.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.RelayDefinition.Enabled">
+            <summary>Gets or sets a value indicating whether the relay is created.</summary>
+        </member>
+        <member name="P:GlitchPort.RelayDefinition.MinLevel">
+            <summary>Gets or sets the minimum event level the relay receives.</summary>
+        </member>
+        <member name="T:GlitchPort.RelayCreationContext">
+            <summary>State shared while relay instances are created for one client.</summary>
+        </member>
+        <member name="T:GlitchPort.HttpRelayDefinition">
+            <summary>A relay definition that posts events to a glitch-port relay over HTTP.</summary>
+        </member>
+        <member name="M:GlitchPort.HttpRelayDefinition.#ctor(GlitchPort.Dsn,System.Action{GlitchPort.HttpRelayOptions})">
+            <summary>Creates an HTTP relay definition from a parsed DSN.</summary>
+            <param name="dsn">The parsed DSN that identifies the relay and project.</param>
+            <param name="configure">An optional callback that tweaks the relay options.</param>
+        </member>
+        <member name="M:GlitchPort.HttpRelayDefinition.#ctor(GlitchPort.Dsn,GlitchPort.HttpRelayOptions)">
+            <summary>
+            Creates a definition from an already built options instance. Used by
+            <see cref="T:GlitchPort.GlitchPortClient"/> for the implicit relay derived from
+            <see cref="P:GlitchPort.GlitchPortOptions.Dsn"/>.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.HttpRelayDefinition.Type">
+            <inheritdoc/>
+        </member>
+        <member name="P:GlitchPort.HttpRelayDefinition.Options">
+            <inheritdoc/>
+        </member>
+        <member name="T:GlitchPort.RelayFanout">
+            <summary>
+            Fans events out to a set of independent relays and collects their delivery
+            results. One slow or failing relay never blocks the caller or the other
+            relays.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.RelayFanout.#ctor(System.Collections.Generic.IReadOnlyList{GlitchPort.IRelay})">
+            <summary>Creates a fan-out over the given relays.</summary>
+            <param name="relays">The relays to fan out to. The list is copied.</param>
+        </member>
+        <member name="P:GlitchPort.RelayFanout.Relays">
+            <summary>Gets the relays in fan-out order.</summary>
+        </member>
+        <member name="M:GlitchPort.RelayFanout.Enqueue(GlitchPort.CapturedEvent)">
+            <summary>
+            Enqueues an event to every relay whose <see cref="P:GlitchPort.IRelay.MinLevel"/> is
+            at or below the event level.
+            </summary>
+            <param name="e">The event to enqueue.</param>
+            <returns><see langword="true"/> when at least one relay accepted the event.</returns>
+        </member>
+        <member name="M:GlitchPort.RelayFanout.FlushAsync(System.TimeSpan)">
+            <summary>
+            Flushes every relay concurrently and returns one result per relay.
+            A relay whose flush throws is reported as failed instead of failing the
+            whole report.
+            </summary>
+            <param name="timeout">The maximum time each relay may spend flushing.</param>
+            <returns>The combined delivery report.</returns>
+        </member>
+        <member name="M:GlitchPort.RelayFanout.Dispose">
+            <summary>Disposes every relay, ignoring errors from individual relays.</summary>
+        </member>
+        <member name="T:GlitchPort.RelayOptions">
+            <summary>Options shared by every relay type.</summary>
+        </member>
+        <member name="P:GlitchPort.RelayOptions.Name">
+            <summary>
+            Gets or sets the relay name. When <see langword="null"/> the relay uses
+            its type name.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.RelayOptions.Enabled">
+            <summary>Gets or sets a value indicating whether the relay is registered. Defaults to <see langword="true"/>.</summary>
+        </member>
+        <member name="P:GlitchPort.RelayOptions.MinLevel">
+            <summary>Gets or sets the minimum event level the relay receives. Defaults to <see cref="F:GlitchPort.Level.Debug"/>.</summary>
+        </member>
+        <member name="P:GlitchPort.RelayOptions.QueueCapacity">
+            <summary>Gets or sets the maximum number of queued events. Defaults to 1000.</summary>
+        </member>
+        <member name="T:GlitchPort.HttpRelayOptions">
+            <summary>Options for the HTTP relay.</summary>
+        </member>
+        <member name="T:GlitchPort.TerminalProcessLocator">
+            <summary>
+            Resolves the <c>glitchport-terminal</c> executable used by the terminal relay.
+            </summary>
+            <remarks>
+            Candidates are tried in order and the first existing file wins:
+            <list type="number">
+            <item><see cref="P:GlitchPort.TerminalRelayOptions.ExecutablePath"/>;</item>
+            <item>the <c>GLITCHPORT_TERMINAL_PATH</c> environment variable;</item>
+            <item><c>AppContext.BaseDirectory/glitchport-terminal(.exe)</c>;</item>
+            <item><c>AppContext.BaseDirectory/runtimes/&lt;rid&gt;/native/glitchport-terminal(.exe)</c>.</item>
+            </list>
+            </remarks>
+        </member>
+        <member name="F:GlitchPort.TerminalProcessLocator.ExecutableName">
+            <summary>The executable file name without its platform suffix.</summary>
+        </member>
+        <member name="F:GlitchPort.TerminalProcessLocator.EnvironmentVariableName">
+            <summary>The environment variable consulted after the explicit option.</summary>
+        </member>
+        <member name="M:GlitchPort.TerminalProcessLocator.Resolve(GlitchPort.TerminalRelayOptions)">
+            <summary>
+            Resolves the executable, or returns <see langword="null"/> when no
+            candidate exists.
+            </summary>
+            <param name="options">The terminal relay options.</param>
+        </member>
+        <member name="M:GlitchPort.TerminalProcessLocator.GetSearchLocations(GlitchPort.TerminalRelayOptions)">
+            <summary>
+            Returns the executable candidates in resolution order. Unset option and
+            environment values are omitted. Used for the "not found" error message.
+            </summary>
+            <param name="options">The terminal relay options.</param>
+        </member>
+        <member name="M:GlitchPort.TerminalProcessLocator.GetExecutableSuffix">
+            <summary>Returns <c>.exe</c> on Windows and an empty string elsewhere.</summary>
+        </member>
+        <member name="M:GlitchPort.TerminalProcessLocator.GetRuntimeIdentifier">
+            <summary>
+            Builds a .NET runtime identifier such as <c>win-x64</c> or
+            <c>osx-arm64</c>, or <see langword="null"/> for an unknown platform.
+            </summary>
+        </member>
+        <member name="T:GlitchPort.TerminalRelay">
+            <summary>
+            Starts <c>glitchport-terminal</c> as a child process on the first captured
+            event and streams the line protocol to its standard input. The child is
+            finished at most once: a broken pipe disables the relay instead of starting
+            a second renderer.
+            </summary>
+            <remarks>
+            <para>
+            Protocol (standard input, UTF-8 without BOM, one JSON object per line):
+            <code>
+            {"type":"hello","protocol":1,"parent_pid":N,"app":"..."}
+            {"type":"event","payload":{...}}
+            </code>
+            </para>
+            <para>
+            The relay state lock is never held while writing to the child's stdin or
+            while starting/killing the child. <see cref="P:GlitchPort.TerminalRelay.ProcessId"/> and
+            <see cref="P:GlitchPort.TerminalRelay.ExecutablePath"/> are lock-free snapshots, so they cannot block
+            behind a pipe write.
+            </para>
+            <para>
+            <see cref="M:GlitchPort.TerminalRelay.Dispose"/> is idempotent and bounded: the queued relay waits at
+            most about one second for its worker, and the child cleanup is limited to
+            roughly two seconds (EOF grace period, kill and a bounded wait for the
+            stdin writer to close). A renderer that stops reading stdin therefore
+            cannot hang <see cref="M:GlitchPort.GlitchPortClient.Dispose"/> or process exit.
+            </para>
+            <para>
+            On Windows the child is assigned to a job object limited with
+            <c>JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE</c>, so it dies with the parent
+            process even when the parent crashes.
+            </para>
+            </remarks>
+        </member>
+        <member name="F:GlitchPort.TerminalRelay.ChildGracefulShutdownMilliseconds">
+            <summary>
+            How long to give the child to exit after its stdin was closed (EOF)
+            before it is killed.
+            </summary>
+        </member>
+        <member name="F:GlitchPort.TerminalRelay.ChildKillTimeoutMilliseconds">
+            <summary>How long to wait for the process after it was killed.</summary>
+        </member>
+        <member name="F:GlitchPort.TerminalRelay.WriterCloseGraceMilliseconds">
+            <summary>
+            How long <see cref="M:GlitchPort.TerminalRelay.ReleaseChild(System.Diagnostics.Process,System.IO.StreamWriter,System.IntPtr)"/> waits for the writer close helper
+            before it decides that a pipe write is in flight and kills the child.
+            </summary>
+        </member>
+        <member name="F:GlitchPort.TerminalRelay.WriterCloseAfterKillMilliseconds">
+            <summary>
+            How long to wait for the writer to close after the child was killed.
+            Killing the child breaks the pipe and unblocks an in-flight write, so
+            the close normally finishes immediately.
+            </summary>
+        </member>
+        <member name="F:GlitchPort.TerminalRelay.ConcurrentShutdownWaitMilliseconds">
+            <summary>
+            How long a concurrent <see cref="M:GlitchPort.TerminalRelay.ShutdownChild"/> caller waits for the
+            thread that is already releasing the child. Slightly longer than the
+            worst-case cleanup below, but still bounded.
+            </summary>
+        </member>
+        <member name="F:GlitchPort.TerminalRelay._childGate">
+            <summary>Guards the child fields and the shutdown flags. Never held during pipe I/O.</summary>
+        </member>
+        <member name="F:GlitchPort.TerminalRelay._writeGate">
+            <summary>Serializes hello/event writes and the closing of the stdin writer.</summary>
+        </member>
+        <member name="F:GlitchPort.TerminalRelay._startGate">
+            <summary>Makes sure at most one child is started.</summary>
+        </member>
+        <member name="M:GlitchPort.TerminalRelay.#ctor(GlitchPort.TerminalRelayOptions)">
+            <summary>Creates a terminal relay. The child process starts on the first event.</summary>
+            <param name="options">The relay options.</param>
+            <exception cref="T:System.ArgumentNullException"><paramref name="options"/> is <see langword="null"/>.</exception>
+        </member>
+        <member name="P:GlitchPort.TerminalRelay.ProcessId">
+            <summary>
+            Gets the process id of the child renderer, or <see langword="null"/>
+            until it has been started.
+            </summary>
+            <remarks>
+            The getter is a lock-free snapshot: it never waits for a write to the
+            child's stdin, even when the pipe is full.
+            </remarks>
+        </member>
+        <member name="P:GlitchPort.TerminalRelay.ExecutablePath">
+            <summary>
+            Gets the renderer executable resolved at construction (or on the first
+            start attempt), or <see langword="null"/> when no candidate exists.
+            </summary>
+            <remarks>
+            The getter is a lock-free snapshot: it never waits for a write to the
+            child's stdin, even when the pipe is full.
+            </remarks>
+        </member>
+        <member name="M:GlitchPort.TerminalRelay.Dispose">
+            <summary>
+            Flushes the queue, closes the child's standard input (which makes the
+            renderer exit by itself), waits less than a second and then kills it.
+            The method is idempotent and returns within a bounded budget.
+            </summary>
+            <remarks>
+            <see cref="M:GlitchPort.QueuedRelay.Dispose"/> is not virtual. Hiding it and
+            re-implementing <see cref="T:System.IDisposable"/> makes sure the child is also
+            released when the relay is reached through <see cref="T:GlitchPort.IRelay"/> (the
+            path used by <see cref="T:GlitchPort.GlitchPortClient"/> and <see cref="T:GlitchPort.RelayFanout"/>).
+            </remarks>
+        </member>
+        <member name="M:GlitchPort.TerminalRelay.Handle(GlitchPort.CapturedEvent)">
+            <inheritdoc/>
+        </member>
+        <member name="M:GlitchPort.TerminalRelay.GetWriter">
+            <summary>
+            Returns the writer for this event, starting the child if necessary.
+            Never called with the state lock held.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.TerminalRelay.TryStartChild">
+            <summary>
+            Starts the child and publishes it. The hello line is written after the
+            state lock has been released, so a full stdin pipe can never block the
+            relay state or the accessors.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.TerminalRelay.WriteProtocolLine(System.IO.StreamWriter,System.String)">
+            <summary>
+            Writes one protocol line. The write gate serializes protocol writes with
+            the shutdown code that closes the writer, so a write that blocks on a
+            full pipe can always be interrupted by killing the child.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.TerminalRelay.AppendQuotedArgument(System.Text.StringBuilder,System.String)">
+            <summary>
+            Appends one argument using the Windows command line quoting rules (the
+            same algorithm .NET uses to split <see cref="P:System.Diagnostics.ProcessStartInfo.Arguments"/>
+            on every platform).
+            </summary>
+        </member>
+        <member name="M:GlitchPort.TerminalRelay.ShutdownChild">
+            <summary>
+            Releases the child at most once. Concurrent callers wait for the first
+            caller, but only for a bounded amount of time.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.TerminalRelay.ReleaseChild(System.Diagnostics.Process,System.IO.StreamWriter,System.IntPtr)">
+            <summary>
+            Closes the stdin writer, kills the child if it does not exit, and never
+            blocks indefinitely on a pipe write that is in flight.
+            </summary>
+        </member>
+        <member name="T:GlitchPort.TerminalRelayDefinition">
+            <summary>A relay definition for the local terminal renderer.</summary>
+        </member>
+        <member name="M:GlitchPort.TerminalRelayDefinition.#ctor(System.Action{GlitchPort.TerminalRelayOptions})">
+            <summary>Creates a terminal relay definition.</summary>
+            <param name="configure">An optional callback that tweaks the relay options.</param>
+        </member>
+        <member name="P:GlitchPort.TerminalRelayDefinition.Type">
+            <inheritdoc/>
+        </member>
+        <member name="P:GlitchPort.TerminalRelayDefinition.Options">
+            <inheritdoc/>
+        </member>
+        <member name="T:GlitchPort.TerminalWindow">
+            <summary>How the terminal renderer obtains its console window.</summary>
+        </member>
+        <member name="F:GlitchPort.TerminalWindow.Inherit">
+            <summary>Use the console inherited from the parent process.</summary>
+        </member>
+        <member name="F:GlitchPort.TerminalWindow.New">
+            <summary>Open a fresh console window (Windows only).</summary>
+        </member>
+        <member name="T:GlitchPort.TerminalFormat">
+            <summary>Event rendering format understood by <c>glitchport-terminal</c>.</summary>
+        </member>
+        <member name="F:GlitchPort.TerminalFormat.Pretty">
+            <summary>Multi-line event rendering.</summary>
+        </member>
+        <member name="F:GlitchPort.TerminalFormat.Compact">
+            <summary>One line per event.</summary>
+        </member>
+        <member name="F:GlitchPort.TerminalFormat.Json">
+            <summary>The raw event payload.</summary>
+        </member>
+        <member name="T:GlitchPort.TerminalRelayOptions">
+            <summary>Options for the local terminal relay.</summary>
+            <remarks>
+            The relay starts <c>glitchport-terminal</c> as a child process on the first
+            captured event and writes the line protocol to its standard input.
+            </remarks>
+        </member>
+        <member name="M:GlitchPort.TerminalRelayOptions.#ctor">
+            <summary>Creates the default terminal relay options.</summary>
+        </member>
+        <member name="P:GlitchPort.TerminalRelayOptions.ExecutablePath">
+            <summary>
+            Gets or sets the path to the <c>glitchport-terminal</c> executable. When
+            <see langword="null"/> the relay falls back to
+            <c>GLITCHPORT_TERMINAL_PATH</c> and then to the application directory.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.TerminalRelayOptions.Window">
+            <summary>Gets or sets the window mode. Defaults to <see cref="F:GlitchPort.TerminalWindow.Inherit"/>.</summary>
+        </member>
+        <member name="P:GlitchPort.TerminalRelayOptions.Format">
+            <summary>Gets or sets the output format. Defaults to <see cref="F:GlitchPort.TerminalFormat.Pretty"/>.</summary>
+        </member>
+        <member name="P:GlitchPort.TerminalRelayOptions.AppName">
+            <summary>
+            Gets or sets the application name shown by the terminal. Defaults to the
+            current process name.
+            </summary>
+        </member>
+        <member name="T:GlitchPort.WindowsJobObject">
+            <summary>
+            Windows job object helpers that tie the lifetime of the terminal child to
+            this process. Every member is best effort: a failure is ignored and never
+            thrown, because the relay must keep working without the job object.
+            </summary>
+        </member>
+        <member name="F:GlitchPort.WindowsJobObject.JobObjectLimitKillOnJobClose">
+            <summary>
+            <c>JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE</c>: closing the last handle to the
+            job terminates every process assigned to it.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.WindowsJobObject.TryCreate(System.Diagnostics.Process)">
+            <summary>
+            Creates a job object limited with <see cref="F:GlitchPort.WindowsJobObject.JobObjectLimitKillOnJobClose"/>
+            and assigns <paramref name="process"/> to it.
+            </summary>
+            <param name="process">The already started child process.</param>
+            <returns>
+            The job handle that must be closed with <see cref="M:GlitchPort.WindowsJobObject.Close(System.IntPtr)"/>, or
+            <see cref="F:System.IntPtr.Zero"/> when the job could not be created or assigned.
+            </returns>
+        </member>
+        <member name="M:GlitchPort.WindowsJobObject.Close(System.IntPtr)">
+            <summary>Closes a job handle created by <see cref="M:GlitchPort.WindowsJobObject.TryCreate(System.Diagnostics.Process)"/>; never throws.</summary>
+            <param name="jobHandle">The job handle, or <see cref="F:System.IntPtr.Zero"/>.</param>
+        </member>
+    </members>
+</doc>

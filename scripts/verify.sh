@@ -3,6 +3,8 @@
 # Repository verification entry point.
 #
 #   1. dotnet build -c Release   every *.csproj under sdk/ and collector/
+#      (projects under sdk/unity/ are owned by scripts/build-unity-plugins.sh
+#      and scripts/unity-test.sh and are never built here)
 #   2. dotnet test  -c Release --no-build   every *.Tests.csproj under the same roots
 #   3. npm ci (when needed) + npm run build   in dashboard/, when dashboard/package.json exists
 #
@@ -38,7 +40,10 @@ find_projects() {
     return 0
   fi
 
-  find "${dotnet_roots[@]}" -type f -name "$pattern" | sort
+  # Unity batch mode generates *.csproj/*.sln files inside the test project;
+  # they must not be picked up by the regular .NET build/test pass.
+  find "${dotnet_roots[@]}" -type f -name "$pattern" \
+    -not -path 'sdk/unity/*' -not -path '*/sdk/unity/*' | sort
 }
 
 build_projects="$(find_projects '*.csproj')"

@@ -1,0 +1,16 @@
+{
+  "name": "com.glitchport.unity",
+  "displayName": "Glitch Port",
+  "version": "0.1.0",
+  "unity": "2022.3",
+  "description": "Unity client SDK for glitch-port: capture game errors and crashes and deliver them to a glitch-port collector.",
+  "documentationUrl": "https://github.com/lolisia/glitch-port/blob/main/documents/sdk-unity.md",
+  "keywords": [
+    "glitch-port",
+    "error-reporting",
+    "crash-reporting"
+  ],
+  "author": {
+    "name": "glitch-port"
+  }
+}
