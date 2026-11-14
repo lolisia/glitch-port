@@ -11,7 +11,8 @@ export const adminToken =
 
 export async function fetchMessages(): Promise<Message[]> {
   const response = await fetch(apiBase + '/api/manage/messages?limit=100', {
-    headers: { Authorization: 'Bearer ' + adminToken },
+    // An empty token allows a same-origin authenticated gateway to supply it.
+    headers: adminToken ? { Authorization: 'Bearer ' + adminToken } : {},
   });
 
   if (!response.ok) {
