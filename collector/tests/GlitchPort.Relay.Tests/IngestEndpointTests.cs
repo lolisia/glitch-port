@@ -212,6 +212,33 @@ public sealed class IngestEndpointTests
     }
 
     [Fact]
+    public async Task PostMessage_WithSdkEventIncludingLevelField_ReturnsAccepted()
+    {
+        var eventId = Guid.NewGuid();
+        var publisher = new RecordingEnvelopePublisher();
+        using var factory = new RelayApplicationFactory(publisher);
+        using var client = factory.CreateClient();
+
+        var json = JsonSerializer.Serialize(new
+        {
+            event_id = eventId,
+            timestamp = "2026-11-14T15:02:14.010Z",
+            level = "warning",
+            message = "boom",
+            sdk = new { name = "glitchport.dotnet", version = "0.1.0" },
+        });
+
+        using var request = CreatePostRequest(json);
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+
+        var envelope = Assert.Single(publisher.Envelopes);
+        Assert.Equal("boom", envelope.Message);
+        Assert.Equal(eventId, envelope.EventId);
+    }
+
+    [Fact]
     public async Task PostMessage_WhenPublisherThrowsEnvelopePublishException_ReturnsServiceUnavailable()
     {
         var publisher = new ThrowingEnvelopePublisher(
