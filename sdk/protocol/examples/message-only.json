@@ -1,0 +1,20 @@
+{
+  "timestamp": "2026-11-14T09:30:00.000Z",
+  "level": "info",
+  "platform": "dotnet",
+  "logger": "GameServer.Matchmaking",
+  "message": "Matchmaking queue reached 100 waiting players",
+  "release": "game-server@1.4.0",
+  "environment": "production",
+  "server_name": "matchmaking-01",
+  "sdk": {
+    "name": "glitchport.dotnet",
+    "version": "0.1.0"
+  },
+  "tags": {
+    "region": "eu-west-1"
+  },
+  "extra": {
+    "waiting_players": 100
+  }
+}
