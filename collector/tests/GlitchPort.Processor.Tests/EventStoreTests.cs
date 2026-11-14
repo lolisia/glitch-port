@@ -203,6 +203,134 @@ public sealed class EventStoreTests
     }
 
     [Fact]
+    public async Task A_late_older_event_keeps_the_release_and_environment_of_the_newest_event()
+    {
+        var projectId = TestData.NextProjectId();
+        var olderTimestamp = BaseTime.AddMinutes(-30);
+        var newerTimestamp = BaseTime.AddHours(1);
+
+        using var client = _fixture.CreateClient();
+
+        using var newerResponse = await TestData.PostEnvelopesAsync(
+            client,
+            ProcessorApplicationFactory.InternalSharedSecret,
+            [
+                TestData.CreatePayloadEnvelope(
+                    Guid.NewGuid(),
+                    projectId,
+                    BaseTime.AddHours(2),
+                    TestData.CreateExceptionPayload(
+                        release: "star-raiders@2.0.0",
+                        environment: "staging",
+                        timestamp: newerTimestamp)),
+            ]);
+        Assert.Equal(1, await TestData.ReadStoredAsync(newerResponse));
+
+        // The event arrives after the newer one and is stored later, but its
+        // timestamp is older. It must not roll the issue back to its release
+        // or environment.
+        using var olderResponse = await TestData.PostEnvelopesAsync(
+            client,
+            ProcessorApplicationFactory.InternalSharedSecret,
+            [
+                TestData.CreatePayloadEnvelope(
+                    Guid.NewGuid(),
+                    projectId,
+                    BaseTime.AddHours(3),
+                    TestData.CreateExceptionPayload(
+                        release: "star-raiders@1.0.0",
+                        environment: "production",
+                        timestamp: olderTimestamp)),
+            ]);
+        Assert.Equal(1, await TestData.ReadStoredAsync(olderResponse));
+
+        var afterLateEvent = await TestDatabase.GetIssueAsync(_fixture.ConnectionString, projectId);
+
+        Assert.Equal(2, afterLateEvent.EventCount);
+        Assert.Equal(olderTimestamp, afterLateEvent.FirstSeen);
+        Assert.Equal(newerTimestamp, afterLateEvent.LastSeen);
+        Assert.Equal("star-raiders@2.0.0", afterLateEvent.LastRelease);
+        Assert.Equal("staging", afterLateEvent.LastEnvironment);
+        Assert.Equal("error", afterLateEvent.Level);
+        Assert.Equal("unresolved", afterLateEvent.Status);
+
+        // A genuinely newer event still advances the release and environment.
+        using var newestResponse = await TestData.PostEnvelopesAsync(
+            client,
+            ProcessorApplicationFactory.InternalSharedSecret,
+            [
+                TestData.CreatePayloadEnvelope(
+                    Guid.NewGuid(),
+                    projectId,
+                    BaseTime.AddHours(5),
+                    TestData.CreateExceptionPayload(
+                        release: "star-raiders@3.0.0",
+                        environment: "canary",
+                        timestamp: BaseTime.AddHours(4))),
+            ]);
+        Assert.Equal(1, await TestData.ReadStoredAsync(newestResponse));
+
+        var afterNewestEvent = await TestDatabase.GetIssueAsync(_fixture.ConnectionString, projectId);
+
+        Assert.Equal(3, afterNewestEvent.EventCount);
+        Assert.Equal(olderTimestamp, afterNewestEvent.FirstSeen);
+        Assert.Equal(BaseTime.AddHours(4), afterNewestEvent.LastSeen);
+        Assert.Equal("star-raiders@3.0.0", afterNewestEvent.LastRelease);
+        Assert.Equal("canary", afterNewestEvent.LastEnvironment);
+    }
+
+    [Fact]
+    public async Task A_late_older_event_still_reopens_a_resolved_issue()
+    {
+        var projectId = TestData.NextProjectId();
+
+        using var client = _fixture.CreateClient();
+
+        using var newerResponse = await TestData.PostEnvelopesAsync(
+            client,
+            ProcessorApplicationFactory.InternalSharedSecret,
+            [
+                TestData.CreatePayloadEnvelope(
+                    Guid.NewGuid(),
+                    projectId,
+                    BaseTime.AddHours(2),
+                    TestData.CreateExceptionPayload(
+                        release: "star-raiders@2.0.0",
+                        environment: "staging",
+                        timestamp: BaseTime.AddHours(1))),
+            ]);
+        Assert.Equal(1, await TestData.ReadStoredAsync(newerResponse));
+
+        await TestDatabase.ExecuteAsync(
+            _fixture.ConnectionString,
+            $"update issues set status = 'resolved' where project_id = {projectId}");
+
+        using var olderResponse = await TestData.PostEnvelopesAsync(
+            client,
+            ProcessorApplicationFactory.InternalSharedSecret,
+            [
+                TestData.CreatePayloadEnvelope(
+                    Guid.NewGuid(),
+                    projectId,
+                    BaseTime.AddHours(3),
+                    TestData.CreateExceptionPayload(
+                        release: "star-raiders@1.0.0",
+                        environment: "production",
+                        timestamp: BaseTime)),
+            ]);
+        Assert.Equal(1, await TestData.ReadStoredAsync(olderResponse));
+
+        var issue = await TestDatabase.GetIssueAsync(_fixture.ConnectionString, projectId);
+
+        Assert.Equal("unresolved", issue.Status);
+        Assert.Equal(2, issue.EventCount);
+        Assert.Equal(BaseTime, issue.FirstSeen);
+        Assert.Equal(BaseTime.AddHours(1), issue.LastSeen);
+        Assert.Equal("star-raiders@2.0.0", issue.LastRelease);
+        Assert.Equal("staging", issue.LastEnvironment);
+    }
+
+    [Fact]
     public async Task Level_is_raised_to_the_most_severe_event_and_never_lowered()
     {
         var projectId = TestData.NextProjectId();

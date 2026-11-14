@@ -61,13 +61,24 @@ public sealed class EventStore
         returning id
         """;
 
+    // Every set expression reads the row as it was before the update, so the
+    // last_seen compared below is the issue's previous one. A batch whose
+    // newest event is older than the issue's last_seen is a late arrival and
+    // must not overwrite the release/environment of a newer event that was
+    // stored earlier.
     private const string UpdateIssueSql = """
         update issues
         set event_count = event_count + @EventCount,
             first_seen = least(first_seen, @FirstSeen),
             last_seen = greatest(last_seen, @LastSeen),
-            last_release = @LastRelease,
-            last_environment = @LastEnvironment,
+            last_release = case
+                when @LastSeen >= last_seen then @LastRelease
+                else last_release
+            end,
+            last_environment = case
+                when @LastSeen >= last_seen then @LastEnvironment
+                else last_environment
+            end,
             level = case
                 when @LevelSeverity > case level
                     when 'fatal' then 4
@@ -472,6 +483,9 @@ public sealed class EventStore
     /// Updates only the issues that gained rows: count and seen timestamps,
     /// the release and environment of the most recent event, a severity that
     /// never decreases, and <c>resolved</c> to <c>unresolved</c> reopening.
+    /// The release and environment only move forward: a late-arriving event
+    /// older than the issue's <c>last_seen</c> leaves the values stored for
+    /// the newer event untouched.
     /// </summary>
     private static async Task UpdateIssuesAsync(
         NpgsqlConnection connection,
