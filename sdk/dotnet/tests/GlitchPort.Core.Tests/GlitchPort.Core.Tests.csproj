@@ -18,6 +18,18 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <PackageReference Include="JsonSchema.Net" Version="8.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The protocol schema is the single source of truth shared by every SDK and
+      the collector; the serializer tests validate the emitted events against it.
+    -->
+    <None
+      Include="..\..\..\protocol\event.v1.schema.json"
+      Link="protocol\event.v1.schema.json"
+      CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
