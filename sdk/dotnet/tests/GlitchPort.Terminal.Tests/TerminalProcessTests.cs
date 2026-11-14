@@ -107,6 +107,95 @@ namespace GlitchPort.Terminal.Tests
             Assert.Contains("hello", result.StandardOutput);
         }
 
+        [Fact]
+        public async Task RedirectedStandardOutput_WritesUtf8WithoutBomAndPreservesUnicode()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                // Console detection uses the Windows GetConsoleMode API; the UTF-8
+                // no-BOM fallback itself is covered by ConsoleOutputTests on every
+                // platform.
+                return;
+            }
+
+            const string payload =
+                "{\"event_id\":\"3b7e0c11-1111-2222-3333-444455556666\",\"timestamp\":\"2026-11-14T15:02:14.010Z\",\"level\":\"info\",\"message\":\"안녕 hello\",\"sdk\":{\"name\":\"glitchport.dotnet\",\"version\":\"0.1.0\"}}";
+
+            var startInfo = CreateStartInfo(new[] { "--window", "inherit", "--format", "compact", "--app", AppName });
+            startInfo.StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
+            using var process = new Process { StartInfo = startInfo };
+
+            if (!process.Start())
+            {
+                throw new XunitException("The glitchport-terminal process did not start.");
+            }
+
+            // Read raw bytes: decoding through the StandardOutput string reader
+            // would hide a UTF-16 or BOM-prefixed stream and let a wrong console
+            // output path pass.
+            Task<byte[]> standardOutput = ReadAllBytesAsync(process.StandardOutput.BaseStream);
+            Task<string> standardError = process.StandardError.ReadToEndAsync();
+
+            try
+            {
+                // The renderer always decodes stdin as UTF-8, so the protocol
+                // input must not depend on the platform's default input encoding.
+                var input = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)
+                    .GetBytes(HelloLine() + "\n" + EventLine(payload) + "\n");
+
+                await process.StandardInput.BaseStream.WriteAsync(input);
+                await process.StandardInput.BaseStream.FlushAsync();
+
+                // EOF is what makes the renderer drain the protocol and return 0.
+                process.StandardInput.Close();
+
+                if (!await WaitForExitAsync(process, ExitTimeout))
+                {
+                    Kill(process);
+
+                    string partialError = await TryReadAsync(standardError);
+
+                    throw new XunitException(
+                        "glitchport-terminal did not exit within "
+                        + ExitTimeout.TotalSeconds.ToString("0", CultureInfo.InvariantCulture)
+                        + " seconds with a redirected standard output; stderr: '"
+                        + partialError
+                        + "'");
+                }
+
+                byte[] bytes = await standardOutput;
+
+                // With standard output redirected, GetConsoleMode fails for the
+                // pipe handle, so ConsoleOutput.TryCreateForStandardOutput() must
+                // return null and the renderer must use the UTF-8 StreamWriter.
+                // This test is the observable equivalent of that null check: a
+                // stray WriteConsoleW path would fail or emit nothing, and the
+                // strict UTF-8 decode rejects UTF-16 or BOM-prefixed bytes.
+                string output = new UTF8Encoding(
+                    encoderShouldEmitUTF8Identifier: false,
+                    throwOnInvalidBytes: true).GetString(bytes);
+
+                Assert.Equal(0, process.ExitCode);
+                Assert.Equal(string.Empty, await standardError);
+                Assert.False(HasUtf8Bom(bytes));
+                Assert.True(
+                    ContainsSequence(bytes, new byte[] { 0xE2, 0x95, 0x90 }),
+                    "The raw standard output did not contain the UTF-8 encoding of U+2550.");
+                Assert.Contains("═", output, StringComparison.Ordinal);
+                Assert.Contains('·', output);
+                Assert.Contains("안녕 hello", output, StringComparison.Ordinal);
+                Assert.DoesNotContain('\uFFFD', output);
+            }
+            finally
+            {
+                if (!HasExited(process))
+                {
+                    Kill(process);
+                }
+            }
+        }
+
         private static async Task<RenderResult> RunAsync(string[] arguments, string standardInput)
         {
             using var process = new Process { StartInfo = CreateStartInfo(arguments) };
@@ -230,6 +319,23 @@ namespace GlitchPort.Terminal.Tests
             {
                 return "<unavailable>";
             }
+        }
+
+        private static async Task<byte[]> ReadAllBytesAsync(Stream stream)
+        {
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer).ConfigureAwait(false);
+            return buffer.ToArray();
+        }
+
+        private static bool HasUtf8Bom(byte[] bytes)
+        {
+            return bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
+        }
+
+        private static bool ContainsSequence(byte[] bytes, byte[] sequence)
+        {
+            return bytes.AsSpan().IndexOf(sequence) >= 0;
         }
 
         private static bool HasExited(Process process)

@@ -53,7 +53,7 @@ namespace GlitchPort.Terminal
             // writer is created against the current standard handles. A preserved
             // input stream skips the new console's stdin entirely.
             using var input = CreateInput(preservedInput ?? Console.OpenStandardInput());
-            using var output = CreateOutput(Console.OpenStandardOutput());
+            using var output = ConsoleOutput.Create(Console.OpenStandardOutput(), ConsoleOutput.TryCreateForStandardOutput());
 
             return await TerminalHost.RunAsync(input, output, options, CancellationToken.None).ConfigureAwait(false);
         }
@@ -91,14 +91,7 @@ namespace GlitchPort.Terminal
         }
 
         /// <summary>Creates the UTF-8 (no BOM) standard output writer.</summary>
-        internal static TextWriter CreateOutput(Stream stream)
-        {
-            ArgumentNullException.ThrowIfNull(stream);
-            return new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))
-            {
-                AutoFlush = true,
-            };
-        }
+        internal static TextWriter CreateOutput(Stream stream) => ConsoleOutput.Create(stream, consoleSink: null);
 
         /// <summary>Parses the command line; on failure <paramref name="error"/> explains why.</summary>
         internal static bool TryParseArguments(
