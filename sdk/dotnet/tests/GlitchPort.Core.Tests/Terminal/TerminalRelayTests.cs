@@ -209,57 +209,13 @@ namespace GlitchPort.Tests
         [Fact]
         public async Task Relay_StartsTheChildLazilyAndDeliversQueuedEvents()
         {
-            var shell = FindShell();
+            using var recording = TestTerminalChild.Create();
             var relay = new TerminalRelay(new TerminalRelayOptions
             {
-                ExecutablePath = shell,
+                ExecutablePath = recording.ExecutablePath,
                 AppName = "glitchport relay tests",
                 Format = TerminalFormat.Compact,
                 Window = TerminalWindow.Inherit,
-            });
-
-            int? childProcessId = null;
-
-            try
-            {
-                // The executable is known, but the child only starts with the first
-                // event.
-                Assert.Null(relay.ProcessId);
-                Assert.Equal(shell, relay.ExecutablePath);
-
-                Assert.True(relay.TryEnqueue(RelayTestData.CreateEvent(message: "first")));
-                Assert.True(relay.TryEnqueue(RelayTestData.CreateEvent(message: "second")));
-
-                Assert.True(
-                    await WaitUntilAsync(() => relay.ProcessId is not null, TimeSpan.FromSeconds(5)),
-                    "the terminal child did not start within five seconds.");
-
-                childProcessId = relay.ProcessId;
-                Assert.NotNull(childProcessId);
-                Assert.Equal(shell, relay.ExecutablePath);
-                Assert.True(IsProcessAlive(childProcessId.Value));
-
-                var result = await relay.FlushAsync(TimeSpan.FromSeconds(15));
-
-                Assert.Equal(2L, result.Delivered);
-                Assert.Equal(0L, result.Failed);
-                Assert.True(result.Succeeded, result.LastError);
-            }
-            finally
-            {
-                relay.Dispose();
-                KillIfAlive(childProcessId ?? relay.ProcessId);
-            }
-        }
-
-        [Fact]
-        public async Task Dispose_ClosesStandardInputAndStopsTheChild()
-        {
-            var shell = FindShell();
-            var relay = new TerminalRelay(new TerminalRelayOptions
-            {
-                ExecutablePath = shell,
-                AppName = "dispose tests",
             });
 
             int? childProcessId = null;
@@ -267,10 +223,68 @@ namespace GlitchPort.Tests
 
             try
             {
+                // The executable is known, but the child only starts with the first
+                // event.
+                Assert.Null(relay.ProcessId);
+                Assert.Equal(recording.ExecutablePath, relay.ExecutablePath);
+
+                Assert.True(relay.TryEnqueue(RelayTestData.CreateEvent(message: "first")));
+                Assert.True(relay.TryEnqueue(RelayTestData.CreateEvent(message: "second")));
+
+                Assert.True(
+                    await TerminalTestProcess.WaitUntilAsync(
+                        () => relay.ProcessId is not null,
+                        TimeSpan.FromSeconds(5)),
+                    "the terminal child did not start within five seconds.");
+
+                childProcessId = relay.ProcessId;
+                Assert.NotNull(childProcessId);
+                Assert.Equal(recording.ExecutablePath, relay.ExecutablePath);
+                Assert.True(TerminalTestProcess.IsProcessAlive(childProcessId.Value));
+
+                var result = await relay.FlushAsync(TimeSpan.FromSeconds(15));
+
+                Assert.Equal(2L, result.Delivered);
+                Assert.Equal(0L, result.Failed);
+                Assert.True(result.Succeeded, result.LastError);
+
+                // The fake renderer ignores its arguments but records them; the
+                // wire-level assertions live in TerminalRelayWireTests.
+                Assert.True(
+                    await TestTerminalChild.WaitForStartAsync(recording, TimeSpan.FromSeconds(5)),
+                    "the fake terminal child did not record its start.");
+                Assert.Single(recording.ReadStartedProcessIds());
+            }
+            finally
+            {
+                relay.Dispose();
+                stopped = childProcessId is not null && !TerminalTestProcess.IsProcessAlive(childProcessId.Value);
+                TerminalTestProcess.KillIfAlive(childProcessId ?? relay.ProcessId);
+            }
+
+            Assert.True(stopped, "Dispose left the terminal child running.");
+        }
+
+        [Fact]
+        public async Task Dispose_ClosesStandardInputAndStopsTheChild()
+        {
+            using var recording = TestTerminalChild.Create();
+            var relay = new TerminalRelay(new TerminalRelayOptions
+            {
+                ExecutablePath = recording.ExecutablePath,
+                AppName = "dispose tests",
+            });
+
+            int? childProcessId = null;
+
+            try
+            {
                 Assert.True(relay.TryEnqueue(RelayTestData.CreateEvent()));
 
                 Assert.True(
-                    await WaitUntilAsync(() => relay.ProcessId is not null, TimeSpan.FromSeconds(5)),
+                    await TerminalTestProcess.WaitUntilAsync(
+                        () => relay.ProcessId is not null,
+                        TimeSpan.FromSeconds(5)),
                     "the terminal child did not start within five seconds.");
 
                 childProcessId = relay.ProcessId;
@@ -282,18 +296,21 @@ namespace GlitchPort.Tests
             finally
             {
                 relay.Dispose();
-                stopped = childProcessId is not null && !IsProcessAlive(childProcessId.Value);
-                KillIfAlive(childProcessId ?? relay.ProcessId);
+                TerminalTestProcess.KillIfAlive(childProcessId ?? relay.ProcessId);
             }
 
-            Assert.True(stopped, "Dispose left the terminal child running.");
+            Assert.NotNull(childProcessId);
+            Assert.True(
+                await TerminalTestProcess.WaitForExitAsync(childProcessId!.Value, TimeSpan.FromSeconds(5)),
+                "Dispose left the terminal child running.");
+            Assert.Single(recording.ReadStartedProcessIds());
         }
 
         [Fact]
         public async Task BrokenPipe_DisablesTheRelayWithoutStartingASecondChild()
         {
-            var shell = FindShell();
-            var relay = new TerminalRelay(new TerminalRelayOptions { ExecutablePath = shell });
+            using var recording = TestTerminalChild.Create();
+            var relay = new TerminalRelay(new TerminalRelayOptions { ExecutablePath = recording.ExecutablePath });
             int? childProcessId = null;
 
             try
@@ -301,7 +318,9 @@ namespace GlitchPort.Tests
                 Assert.True(relay.TryEnqueue(RelayTestData.CreateEvent(message: "before the crash")));
 
                 Assert.True(
-                    await WaitUntilAsync(() => relay.ProcessId is not null, TimeSpan.FromSeconds(5)),
+                    await TerminalTestProcess.WaitUntilAsync(
+                        () => relay.ProcessId is not null,
+                        TimeSpan.FromSeconds(5)),
                     "the terminal child did not start within five seconds.");
 
                 childProcessId = relay.ProcessId;
@@ -309,6 +328,13 @@ namespace GlitchPort.Tests
 
                 var first = await relay.FlushAsync(TimeSpan.FromSeconds(15));
                 Assert.Equal(1L, first.Delivered);
+
+                // Let the child really start before killing it; the relay reaches
+                // "delivered" as soon as the pipe accepted the bytes, which can be
+                // earlier than the child's first instruction.
+                Assert.True(
+                    await TestTerminalChild.WaitForStartAsync(recording, TimeSpan.FromSeconds(10)),
+                    "the fake terminal child did not record its start.");
 
                 using (var child = Process.GetProcessById(childProcessId.Value))
                 {
@@ -328,21 +354,24 @@ namespace GlitchPort.Tests
                 Assert.NotNull(result.LastError);
                 Assert.Equal(childProcessId, relay.ProcessId);
                 Assert.False(relay.TryEnqueue(RelayTestData.CreateEvent()));
+
+                await Task.Delay(200);
+                Assert.Single(recording.ReadStartedProcessIds());
             }
             finally
             {
                 relay.Dispose();
-                KillIfAlive(childProcessId);
+                TerminalTestProcess.KillIfAlive(childProcessId);
             }
         }
 
         [Fact]
         public async Task RelayTerminal_ThroughTheClient_StopsTheChildWhenTheClientIsDisposed()
         {
-            var shell = FindShell();
+            using var recording = TestTerminalChild.Create();
             var definition = Relay.Terminal(options =>
             {
-                options.ExecutablePath = shell;
+                options.ExecutablePath = recording.ExecutablePath;
                 options.Name = "term";
                 options.MinLevel = Level.Warning;
                 options.Format = TerminalFormat.Json;
@@ -351,7 +380,6 @@ namespace GlitchPort.Tests
 
             var client = new GlitchPortClient(new GlitchPortOptions { Relays = { definition } });
             int? childProcessId = null;
-            var stopped = false;
 
             try
             {
@@ -364,12 +392,14 @@ namespace GlitchPort.Tests
                 await client.CaptureMessageAsync("terminal warning", Level.Warning);
 
                 Assert.True(
-                    await WaitUntilAsync(() => relay.ProcessId is not null, TimeSpan.FromSeconds(5)),
+                    await TerminalTestProcess.WaitUntilAsync(
+                        () => relay.ProcessId is not null,
+                        TimeSpan.FromSeconds(5)),
                     "the terminal child did not start within five seconds.");
 
                 childProcessId = relay.ProcessId;
                 Assert.NotNull(childProcessId);
-                Assert.Equal(shell, relay.ExecutablePath);
+                Assert.Equal(recording.ExecutablePath, relay.ExecutablePath);
 
                 var report = await client.FlushAsync(TimeSpan.FromSeconds(15));
                 Assert.True(report.AllSucceeded, report.Relays[0].LastError);
@@ -377,11 +407,14 @@ namespace GlitchPort.Tests
             finally
             {
                 client.Dispose();
-                stopped = childProcessId is not null && !IsProcessAlive(childProcessId.Value);
-                KillIfAlive(childProcessId);
+                TerminalTestProcess.KillIfAlive(childProcessId);
             }
 
-            Assert.True(stopped, "the client did not stop the terminal child.");
+            Assert.NotNull(childProcessId);
+            Assert.True(
+                await TerminalTestProcess.WaitForExitAsync(childProcessId!.Value, TimeSpan.FromSeconds(5)),
+                "the client did not stop the terminal child.");
+            Assert.Single(recording.ReadStartedProcessIds());
         }
 
         private static async Task<(string? ExecutablePath, RelayDeliveryResult Result)> RunRelayAsync(
@@ -393,81 +426,6 @@ namespace GlitchPort.Tests
 
             var result = await relay.FlushAsync(TimeSpan.FromSeconds(15));
             return (relay.ExecutablePath, result);
-        }
-
-        private static async Task<bool> WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
-        {
-            var deadline = DateTime.UtcNow + timeout;
-
-            while (DateTime.UtcNow < deadline)
-            {
-                if (condition())
-                {
-                    return true;
-                }
-
-                await Task.Delay(20).ConfigureAwait(false);
-            }
-
-            return condition();
-        }
-
-        private static bool IsProcessAlive(int processId)
-        {
-            try
-            {
-                using var process = Process.GetProcessById(processId);
-                return !process.HasExited;
-            }
-            catch (ArgumentException)
-            {
-                return false;
-            }
-            catch (InvalidOperationException)
-            {
-                return false;
-            }
-        }
-
-        private static void KillIfAlive(int? processId)
-        {
-            if (processId is null)
-            {
-                return;
-            }
-
-            try
-            {
-                using var process = Process.GetProcessById(processId.Value);
-                if (!process.HasExited)
-                {
-                    process.Kill();
-                }
-            }
-            catch (Exception)
-            {
-                // Cleanup must never fail a test; the assertion above reports leaks.
-            }
-        }
-
-        private static string FindShell()
-        {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                var commandProcessor = Environment.GetEnvironmentVariable("ComSpec");
-                if (!string.IsNullOrWhiteSpace(commandProcessor) && File.Exists(commandProcessor))
-                {
-                    return commandProcessor!;
-                }
-
-                var systemDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System);
-                var cmd = Path.Combine(systemDirectory, "cmd.exe");
-                Assert.True(File.Exists(cmd), "cmd.exe was not found.");
-                return cmd;
-            }
-
-            Assert.True(File.Exists("/bin/sh"), "/bin/sh was not found.");
-            return "/bin/sh";
         }
 
         private static string GetExecutableSuffix()

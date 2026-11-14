@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A test-owned stand-in for glitchport-terminal.
+
+    GlitchPort.Core.Tests copies the build output of this project next to the
+    test assembly (see the CopyTestTerminalChild target) and points
+    TerminalRelayOptions.ExecutablePath at the copy. The child ignores the
+    terminal-only command line arguments, records them, and records the raw
+    bytes of its standard input so the tests can assert the exact wire protocol
+    on Windows and Linux without a shell.
+
+    Keep this project free of references to the SDK and of test framework
+    packages: it is started as a real executable, not loaded into the tests.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>GlitchPort.TestTerminalChild</AssemblyName>
+    <RootNamespace>GlitchPort.TestTerminalChild</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+</Project>

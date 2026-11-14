@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Threading;
 
 namespace GlitchPort
 {
@@ -13,34 +14,88 @@ namespace GlitchPort
     /// a second renderer.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Protocol (standard input, UTF-8 without BOM, one JSON object per line):
     /// <code>
     /// {"type":"hello","protocol":1,"parent_pid":N,"app":"..."}
     /// {"type":"event","payload":{...}}
     /// </code>
+    /// </para>
+    /// <para>
+    /// The relay state lock is never held while writing to the child's stdin or
+    /// while starting/killing the child. <see cref="ProcessId"/> and
+    /// <see cref="ExecutablePath"/> are lock-free snapshots, so they cannot block
+    /// behind a pipe write.
+    /// </para>
+    /// <para>
+    /// <see cref="Dispose"/> is idempotent and bounded: the queued relay waits at
+    /// most about one second for its worker, and the child cleanup is limited to
+    /// roughly two seconds (EOF grace period, kill and a bounded wait for the
+    /// stdin writer to close). A renderer that stops reading stdin therefore
+    /// cannot hang <see cref="GlitchPortClient.Dispose"/> or process exit.
+    /// </para>
+    /// <para>
     /// On Windows the child is assigned to a job object limited with
     /// <c>JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE</c>, so it dies with the parent
     /// process even when the parent crashes.
+    /// </para>
     /// </remarks>
     public sealed class TerminalRelay : QueuedRelay, IDisposable
     {
         private const string TypeName = "terminal";
         private const string DefaultName = "terminal";
         private const string DisabledMessage = "The terminal relay is disabled.";
-        private const int ChildShutdownTimeoutMilliseconds = 2000;
+
+        /// <summary>
+        /// How long to give the child to exit after its stdin was closed (EOF)
+        /// before it is killed.
+        /// </summary>
+        private const int ChildGracefulShutdownMilliseconds = 750;
+
+        /// <summary>How long to wait for the process after it was killed.</summary>
+        private const int ChildKillTimeoutMilliseconds = 500;
+
+        /// <summary>
+        /// How long <see cref="ReleaseChild"/> waits for the writer close helper
+        /// before it decides that a pipe write is in flight and kills the child.
+        /// </summary>
+        private const int WriterCloseGraceMilliseconds = 200;
+
+        /// <summary>
+        /// How long to wait for the writer to close after the child was killed.
+        /// Killing the child breaks the pipe and unblocks an in-flight write, so
+        /// the close normally finishes immediately.
+        /// </summary>
+        private const int WriterCloseAfterKillMilliseconds = 500;
+
+        /// <summary>
+        /// How long a concurrent <see cref="ShutdownChild"/> caller waits for the
+        /// thread that is already releasing the child. Slightly longer than the
+        /// worst-case cleanup below, but still bounded.
+        /// </summary>
+        private const int ConcurrentShutdownWaitMilliseconds = 2500;
 
         private readonly TerminalRelayOptions _options;
+
+        /// <summary>Guards the child fields and the shutdown flags. Never held during pipe I/O.</summary>
         private readonly object _childGate = new object();
+
+        /// <summary>Serializes hello/event writes and the closing of the stdin writer.</summary>
+        private readonly object _writeGate = new object();
+
+        /// <summary>Makes sure at most one child is started.</summary>
+        private readonly object _startGate = new object();
+
+        private readonly ManualResetEventSlim _shutdownCompleted = new ManualResetEventSlim(false);
         private readonly int _parentProcessId;
 
         private Process? _process;
         private StreamWriter? _writer;
         private IntPtr _jobHandle;
         private string? _executablePath;
-        private int? _processId;
+        private int _processId = -1;
         private string? _failureText;
         private bool _shutdown;
-        private bool _shutdownCompleted;
 
         /// <summary>Creates a terminal relay. The child process starts on the first event.</summary>
         /// <param name="options">The relay options.</param>
@@ -65,35 +120,33 @@ namespace GlitchPort
         /// Gets the process id of the child renderer, or <see langword="null"/>
         /// until it has been started.
         /// </summary>
+        /// <remarks>
+        /// The getter is a lock-free snapshot: it never waits for a write to the
+        /// child's stdin, even when the pipe is full.
+        /// </remarks>
         public int? ProcessId
         {
             get
             {
-                lock (_childGate)
-                {
-                    return _processId;
-                }
+                var processId = Volatile.Read(ref _processId);
+                return processId < 0 ? (int?)null : processId;
             }
         }
 
         /// <summary>
-        /// Gets the renderer executable resolved at construction, or
-        /// <see langword="null"/> when no candidate exists.
+        /// Gets the renderer executable resolved at construction (or on the first
+        /// start attempt), or <see langword="null"/> when no candidate exists.
         /// </summary>
-        public string? ExecutablePath
-        {
-            get
-            {
-                lock (_childGate)
-                {
-                    return _executablePath;
-                }
-            }
-        }
+        /// <remarks>
+        /// The getter is a lock-free snapshot: it never waits for a write to the
+        /// child's stdin, even when the pipe is full.
+        /// </remarks>
+        public string? ExecutablePath => Volatile.Read(ref _executablePath);
 
         /// <summary>
         /// Flushes the queue, closes the child's standard input (which makes the
-        /// renderer exit by itself), waits up to two seconds and then kills it.
+        /// renderer exit by itself), waits less than a second and then kills it.
+        /// The method is idempotent and returns within a bounded budget.
         /// </summary>
         /// <remarks>
         /// <see cref="QueuedRelay.Dispose"/> is not virtual. Hiding it and
@@ -122,32 +175,30 @@ namespace GlitchPort
         /// <inheritdoc/>
         protected override void Handle(CapturedEvent e)
         {
+            if (Volatile.Read(ref _shutdown) || IsDisabled)
+            {
+                MarkFailed(_failureText ?? DisabledMessage);
+                return;
+            }
+
+            var writer = GetWriter();
+
+            if (writer is null)
+            {
+                MarkFailed(_failureText ?? DisabledMessage);
+                return;
+            }
+
             string? writeError = null;
 
-            lock (_childGate)
+            try
             {
-                if (_shutdown || IsDisabled)
-                {
-                    MarkFailed(_failureText ?? DisabledMessage);
-                    return;
-                }
-
-                if (_writer is null && !TryStartLocked(out var startError))
-                {
-                    MarkFailed(startError ?? DisabledMessage);
-                    return;
-                }
-
-                try
-                {
-                    _writer!.WriteLine(BuildEventLine(e.Json));
-                }
-                catch (Exception ex)
-                {
-                    writeError = "The terminal process is no longer accepting events: "
-                        + RelayErrorText.Describe(ex);
-                    _failureText = writeError;
-                }
+                WriteProtocolLine(writer, BuildEventLine(e.Json));
+            }
+            catch (Exception ex)
+            {
+                writeError = "The terminal process is no longer accepting events: "
+                    + RelayErrorText.Describe(ex);
             }
 
             if (writeError is null)
@@ -158,90 +209,187 @@ namespace GlitchPort
 
             // The child is gone (or its window was closed). Disable the relay and
             // release the process; never start a replacement.
+            _failureText = writeError;
             Disable(writeError);
             ShutdownChild();
             MarkFailed(writeError);
         }
 
-        /// <summary>Starts the child and writes the hello line. Called under the child gate.</summary>
-        private bool TryStartLocked(out string? error)
+        /// <summary>
+        /// Returns the writer for this event, starting the child if necessary.
+        /// Never called with the state lock held.
+        /// </summary>
+        private StreamWriter? GetWriter()
         {
-            var executablePath = TerminalProcessLocator.Resolve(_options);
-            _executablePath = executablePath;
-
-            if (executablePath is null)
+            lock (_childGate)
             {
-                error = "glitchport-terminal was not found. Searched: "
-                    + string.Join("; ", TerminalProcessLocator.GetSearchLocations(_options));
-
-                _failureText = error;
-                Disable(error);
-                return false;
-            }
-
-            var appName = ResolveAppName();
-            Process? process = null;
-            StreamWriter? writer = null;
-            var jobHandle = IntPtr.Zero;
-
-            try
-            {
-                var startInfo = new ProcessStartInfo
+                if (Volatile.Read(ref _shutdown))
                 {
-                    FileName = executablePath,
-                    Arguments = BuildArguments(appName),
-                    UseShellExecute = false,
-                    RedirectStandardInput = true,
-                    RedirectStandardOutput = false,
-                    RedirectStandardError = false,
-                    CreateNoWindow = false,
-                };
-
-                process = new Process { StartInfo = startInfo };
-
-                if (!process.Start())
-                {
-                    throw new InvalidOperationException("The terminal process did not start.");
+                    return null;
                 }
 
-                jobHandle = WindowsJobObject.TryCreate(process);
-
-                writer = new StreamWriter(
-                    process.StandardInput.BaseStream,
-                    new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))
+                if (_writer is not null)
                 {
-                    AutoFlush = true,
-                    NewLine = "\n",
-                };
-
-                writer.WriteLine(BuildHelloLine(appName));
-
-                _process = process;
-                _writer = writer;
-                _jobHandle = jobHandle;
-                _processId = process.Id;
-
-                // Ownership moved to the relay; do not clean up in the catch.
-                process = null;
-                writer = null;
-                jobHandle = IntPtr.Zero;
-
-                error = null;
-                return true;
+                    return _writer;
+                }
             }
-            catch (Exception ex)
-            {
-                // Covers Process.Start failures (missing loader, invalid image,
-                // PlatformNotSupportedException, ...). Nothing escapes the relay.
-                error = "The terminal process could not be started from '"
-                    + executablePath
-                    + "': "
-                    + RelayErrorText.Describe(ex);
 
-                _failureText = error;
-                Disable(error);
-                CleanUpFailedStart(process, writer, jobHandle);
-                return false;
+            return TryStartChild();
+        }
+
+        /// <summary>
+        /// Starts the child and publishes it. The hello line is written after the
+        /// state lock has been released, so a full stdin pipe can never block the
+        /// relay state or the accessors.
+        /// </summary>
+        private StreamWriter? TryStartChild()
+        {
+            lock (_startGate)
+            {
+                lock (_childGate)
+                {
+                    if (Volatile.Read(ref _shutdown))
+                    {
+                        return null;
+                    }
+
+                    if (_writer is not null)
+                    {
+                        return _writer;
+                    }
+                }
+
+                var executablePath = TerminalProcessLocator.Resolve(_options);
+                Volatile.Write(ref _executablePath, executablePath);
+
+                if (executablePath is null)
+                {
+                    var notFound = "glitchport-terminal was not found. Searched: "
+                        + string.Join("; ", TerminalProcessLocator.GetSearchLocations(_options));
+
+                    _failureText = notFound;
+                    Disable(notFound);
+                    return null;
+                }
+
+                var appName = ResolveAppName();
+                Process? process = null;
+                StreamWriter? streamWriter = null;
+                var jobHandle = IntPtr.Zero;
+
+                try
+                {
+                    var startInfo = new ProcessStartInfo
+                    {
+                        FileName = executablePath,
+                        Arguments = BuildArguments(appName),
+                        UseShellExecute = false,
+                        RedirectStandardInput = true,
+                        RedirectStandardOutput = false,
+                        RedirectStandardError = false,
+                        CreateNoWindow = false,
+                    };
+
+                    process = new Process { StartInfo = startInfo };
+
+                    if (!process.Start())
+                    {
+                        throw new InvalidOperationException("The terminal process did not start.");
+                    }
+
+                    jobHandle = WindowsJobObject.TryCreate(process);
+
+                    streamWriter = new StreamWriter(
+                        process.StandardInput.BaseStream,
+                        new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))
+                    {
+                        AutoFlush = true,
+                        NewLine = "\n",
+                    };
+                }
+                catch (Exception ex)
+                {
+                    // Covers Process.Start failures (missing loader, invalid image,
+                    // PlatformNotSupportedException, ...). Nothing escapes the relay.
+                    var startError = "The terminal process could not be started from '"
+                        + executablePath
+                        + "': "
+                        + RelayErrorText.Describe(ex);
+
+                    _failureText = startError;
+                    Disable(startError);
+                    CleanUpFailedStart(process, streamWriter, jobHandle);
+                    return null;
+                }
+
+                StreamWriter publishedWriter;
+                var abortStart = false;
+
+                lock (_childGate)
+                {
+                    if (Volatile.Read(ref _shutdown))
+                    {
+                        // Dispose won the race with the start. Publish nothing and
+                        // release the child outside the lock below.
+                        abortStart = true;
+                        publishedWriter = null!;
+                    }
+                    else
+                    {
+                        publishedWriter = streamWriter;
+                        _process = process;
+                        _writer = streamWriter;
+                        _jobHandle = jobHandle;
+                        Volatile.Write(ref _processId, process!.Id);
+
+                        // Ownership moved to the relay; do not clean up in the catch.
+                        process = null;
+                        streamWriter = null;
+                        jobHandle = IntPtr.Zero;
+                    }
+                }
+
+                if (abortStart)
+                {
+                    CleanUpFailedStart(process, streamWriter, jobHandle);
+                    return null;
+                }
+
+                try
+                {
+                    // The hello line is protocol data, so it is written through the
+                    // same serialized (and checked) path as event lines.
+                    WriteProtocolLine(publishedWriter, BuildHelloLine(appName));
+                    return publishedWriter;
+                }
+                catch (Exception ex)
+                {
+                    var helloError = "The terminal process is no longer accepting events: "
+                        + RelayErrorText.Describe(ex);
+
+                    _failureText = helloError;
+                    Disable(helloError);
+                    ShutdownChild();
+                    return null;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Writes one protocol line. The write gate serializes protocol writes with
+        /// the shutdown code that closes the writer, so a write that blocks on a
+        /// full pipe can always be interrupted by killing the child.
+        /// </summary>
+        private void WriteProtocolLine(StreamWriter writer, string line)
+        {
+            lock (_writeGate)
+            {
+                if (Volatile.Read(ref _shutdown))
+                {
+                    throw new ObjectDisposedException(nameof(TerminalRelay));
+                }
+
+                writer.WriteLine(line);
             }
         }
 
@@ -407,19 +555,150 @@ namespace GlitchPort
 
             if (process is not null)
             {
+                KillAndWait(process);
+
                 try
                 {
-                    if (!process.HasExited)
-                    {
-                        process.Kill();
-                        process.WaitForExit(ChildShutdownTimeoutMilliseconds);
-                    }
+                    process.Dispose();
                 }
                 catch (Exception)
                 {
-                    // The process may have exited between the checks.
+                    // Best effort.
                 }
-                finally
+            }
+
+            WindowsJobObject.Close(jobHandle);
+        }
+
+        /// <summary>
+        /// Releases the child at most once. Concurrent callers wait for the first
+        /// caller, but only for a bounded amount of time.
+        /// </summary>
+        private void ShutdownChild()
+        {
+            Process? process;
+            StreamWriter? writer;
+            IntPtr jobHandle;
+            bool alreadyShuttingDown;
+
+            lock (_childGate)
+            {
+                alreadyShuttingDown = Volatile.Read(ref _shutdown);
+
+                if (alreadyShuttingDown)
+                {
+                    process = null;
+                    writer = null;
+                    jobHandle = IntPtr.Zero;
+                }
+                else
+                {
+                    Volatile.Write(ref _shutdown, true);
+                    process = _process;
+                    writer = _writer;
+                    jobHandle = _jobHandle;
+
+                    _process = null;
+                    _writer = null;
+                    _jobHandle = IntPtr.Zero;
+                }
+            }
+
+            if (alreadyShuttingDown)
+            {
+                // Another thread (normally a Dispose racing with the worker after a
+                // broken pipe) owns the cleanup. Wait so Dispose does not return
+                // while the child is still alive, but never indefinitely.
+                _shutdownCompleted.Wait(ConcurrentShutdownWaitMilliseconds);
+                return;
+            }
+
+            try
+            {
+                ReleaseChild(process, writer, jobHandle);
+            }
+            finally
+            {
+                _shutdownCompleted.Set();
+            }
+        }
+
+        /// <summary>
+        /// Closes the stdin writer, kills the child if it does not exit, and never
+        /// blocks indefinitely on a pipe write that is in flight.
+        /// </summary>
+        private void ReleaseChild(Process? process, StreamWriter? writer, IntPtr jobHandle)
+        {
+            var writerClosed = new ManualResetEventSlim(false);
+
+            if (writer is not null)
+            {
+                // The relay worker may be blocked inside WriteLine because the
+                // renderer stopped reading. Closing the writer from a dedicated
+                // background thread keeps this method bounded; killing the child
+                // below breaks the pipe and lets the write (and the close) finish.
+                var closer = new Thread(() =>
+                {
+                    try
+                    {
+                        lock (_writeGate)
+                        {
+                            writer.Dispose();
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        // A broken pipe is the expected shutdown path.
+                    }
+                    finally
+                    {
+                        writerClosed.Set();
+                    }
+                })
+                {
+                    IsBackground = true,
+                    Name = "glitchport terminal stdin close",
+                };
+
+                closer.Start();
+            }
+            else
+            {
+                writerClosed.Set();
+            }
+
+            try
+            {
+                // A reading renderer sees EOF, prints the remaining events and
+                // exits within the grace period.
+                var closed = writerClosed.Wait(WriterCloseGraceMilliseconds);
+
+                if (process is not null)
+                {
+                    var exited = TryWaitForExit(
+                        process,
+                        closed ? ChildGracefulShutdownMilliseconds : 0);
+
+                    if (!exited)
+                    {
+                        KillAndWait(process);
+                    }
+                }
+
+                if (!closed)
+                {
+                    // The child is gone, so the in-flight write must fail now. Give
+                    // the close helper a bounded chance to finish; if the OS still
+                    // does not release the thread, Dispose returns anyway (the
+                    // helper is a background thread).
+                    writerClosed.Wait(WriterCloseAfterKillMilliseconds);
+                }
+            }
+            finally
+            {
+                WindowsJobObject.Close(jobHandle);
+
+                if (process is not null)
                 {
                     try
                     {
@@ -431,106 +710,36 @@ namespace GlitchPort
                     }
                 }
             }
-
-            WindowsJobObject.Close(jobHandle);
         }
 
-        private void ShutdownChild()
+        private static void KillAndWait(Process process)
         {
-            Process? process;
-            StreamWriter? writer;
-            IntPtr jobHandle;
-
-            lock (_childGate)
-            {
-                if (_shutdown)
-                {
-                    // Another thread (normally the worker after a broken pipe) is
-                    // already releasing the child; wait for it so Dispose never
-                    // returns while the process is still alive.
-                    while (!_shutdownCompleted)
-                    {
-                        Monitor.Wait(_childGate);
-                    }
-
-                    return;
-                }
-
-                _shutdown = true;
-                process = _process;
-                writer = _writer;
-                jobHandle = _jobHandle;
-                _process = null;
-                _writer = null;
-                _jobHandle = IntPtr.Zero;
-            }
-
             try
             {
-                if (writer is not null)
+                if (!process.HasExited)
                 {
-                    // EOF makes glitchport-terminal print the remaining events and exit.
-                    try
-                    {
-                        writer.Dispose();
-                    }
-                    catch (Exception)
-                    {
-                        // A broken pipe is the expected shutdown path.
-                    }
+                    process.Kill();
                 }
-
-                if (process is not null)
-                {
-                    try
-                    {
-                        if (!process.WaitForExit(ChildShutdownTimeoutMilliseconds))
-                        {
-                            try
-                            {
-                                process.Kill();
-                            }
-                            catch (Exception)
-                            {
-                                // The process may have exited just after the wait.
-                            }
-
-                            try
-                            {
-                                process.WaitForExit(ChildShutdownTimeoutMilliseconds);
-                            }
-                            catch (Exception)
-                            {
-                                // Nothing useful can be done with a process that cannot be waited on.
-                            }
-                        }
-                    }
-                    catch (Exception)
-                    {
-                        // Waiting on an inaccessible process must not break Dispose.
-                    }
-                    finally
-                    {
-                        try
-                        {
-                            process.Dispose();
-                        }
-                        catch (Exception)
-                        {
-                            // Best effort.
-                        }
-                    }
-                }
-
-                WindowsJobObject.Close(jobHandle);
             }
-            finally
+            catch (Exception)
             {
-                lock (_childGate)
-                {
-                    _shutdownCompleted = true;
-                    Monitor.PulseAll(_childGate);
-                }
+                // The process may have exited (or become inaccessible) just now.
+            }
+
+            TryWaitForExit(process, ChildKillTimeoutMilliseconds);
+        }
+
+        private static bool TryWaitForExit(Process process, int milliseconds)
+        {
+            try
+            {
+                return process.WaitForExit(milliseconds);
+            }
+            catch (Exception)
+            {
+                // Waiting on an inaccessible process must not break Dispose; report
+                // "not exited" so the caller still tries to kill it.
+                return false;
             }
         }
     }
