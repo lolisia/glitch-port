@@ -1,0 +1,16 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
+ARG COMPONENT
+WORKDIR /src
+COPY Directory.Build.props ./
+COPY collector/src/ collector/src/
+RUN dotnet publish collector/src/GlitchPort.${COMPONENT}/GlitchPort.${COMPONENT}.csproj -c Release -o /out --no-self-contained
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine
+ARG COMPONENT
+ENV ASPNETCORE_HTTP_PORTS=8080 ASPNETCORE_ENVIRONMENT=Production DOTNET_GCHeapHardLimit=0x5000000
+WORKDIR /app
+COPY --from=build /out/ ./
+RUN printf '#!/bin/sh\nexec dotnet /app/GlitchPort.%s.dll\n' "$COMPONENT" > /app/start.sh && chmod 755 /app/start.sh
+USER $APP_UID
+EXPOSE 8080
+ENTRYPOINT ["/app/start.sh"]

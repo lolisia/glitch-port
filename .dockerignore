@@ -1,0 +1,16 @@
+**
+!Directory.Build.props
+!collector/
+!collector/src/
+!collector/src/**
+!dashboard/
+!dashboard/**
+!deploy/
+!deploy/lightsail/
+!deploy/lightsail/**
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/.env*
+**/secrets

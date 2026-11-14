@@ -1,0 +1,63 @@
+name: glitch-port
+x-runtime: &runtime
+  restart: unless-stopped
+  cpus: 0.25
+  pids_limit: 128
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: { max-size: "5m", max-file: "3" }
+services:
+  postgres:
+    <<: *runtime
+    image: postgres:17-alpine
+    mem_limit: 192m
+    environment:
+      POSTGRES_USER: glitchport
+      POSTGRES_DB: glitchport
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=30"]
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U glitchport -d glitchport"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+  processor:
+    <<: *runtime
+    image: glitch-port-processor:${GLITCHPORT_IMAGE_TAG:?required}
+    mem_limit: 192m
+    environment:
+      ConnectionStrings__Postgres: Host=postgres;Database=glitchport;Username=glitchport;Password=${POSTGRES_PASSWORD};Maximum Pool Size=10
+      Processor__InternalSharedSecret: ${INTERNAL_SHARED_SECRET:?required}
+      Processor__AdminToken: ${PROCESSOR_ADMIN_TOKEN:?required}
+    depends_on:
+      postgres: { condition: service_healthy }
+  relay:
+    <<: *runtime
+    image: glitch-port-relay:${GLITCHPORT_IMAGE_TAG:?required}
+    mem_limit: 128m
+    environment:
+      Relay__ProcessorEndpoints__0: http://processor:8080
+      Relay__InternalSharedSecret: ${INTERNAL_SHARED_SECRET:?required}
+      Relay__Projects__1__0: ${INGEST_PUBLIC_KEY:?required}
+    depends_on: [processor]
+  dashboard:
+    <<: *runtime
+    image: glitch-port-dashboard:${GLITCHPORT_IMAGE_TAG:?required}
+    mem_limit: 64m
+    read_only: true
+    tmpfs: [/etc/nginx/conf.d, /var/cache/nginx, /var/run]
+    environment:
+      GLITCHPORT_HOST: ${GLITCHPORT_HOST:?required}
+      PROCESSOR_ADMIN_TOKEN: ${PROCESSOR_ADMIN_TOKEN:?required}
+    ports: ["8443:8443"]
+    volumes:
+      - ./secrets/dashboard.htpasswd:/run/secrets/dashboard.htpasswd:ro
+      - caddy-certificates:/certificates:ro
+    depends_on: [relay, processor]
+volumes:
+  postgres-data:
+  caddy-certificates:
+    external: true
+    name: rmd-worker_caddy-data

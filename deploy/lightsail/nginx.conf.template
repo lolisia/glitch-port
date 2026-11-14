@@ -1,0 +1,36 @@
+limit_req_zone $binary_remote_addr zone=ingest:1m rate=10r/s;
+server {
+    listen 8443 ssl;
+    server_name ${GLITCHPORT_HOST};
+    ssl_certificate /certificates/caddy/certificates/acme-v02.api.letsencrypt.org-directory/${GLITCHPORT_HOST}/${GLITCHPORT_HOST}.crt;
+    ssl_certificate_key /certificates/caddy/certificates/acme-v02.api.letsencrypt.org-directory/${GLITCHPORT_HOST}/${GLITCHPORT_HOST}.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    server_tokens off;
+    client_max_body_size 128k;
+    root /usr/share/nginx/html;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy no-referrer always;
+    add_header Cache-Control no-store always;
+    auth_basic "glitch-port";
+    auth_basic_user_file /run/secrets/dashboard.htpasswd;
+
+    location = /healthz { auth_basic off; access_log off; proxy_pass http://relay:8080/healthz; }
+    location ~ ^/api/[0-9]+/messages$ {
+        auth_basic off;
+        limit_req zone=ingest burst=20 nodelay;
+        limit_req_status 429;
+        limit_except POST { deny all; }
+        proxy_set_header Authorization "";
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_pass http://relay:8080;
+    }
+    location = /api/manage/messages {
+        limit_except GET { deny all; }
+        proxy_set_header Authorization "Bearer ${PROCESSOR_ADMIN_TOKEN}";
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_pass http://processor:8080;
+    }
+    location /api/ { return 404; }
+    location /internal/ { return 404; }
+    location / { try_files $uri $uri/ /index.html; }
+}

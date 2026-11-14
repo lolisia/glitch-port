@@ -1,0 +1,9 @@
+[Unit]
+Description=Reload glitch-port gateway after certificate renewal
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/glitch-port
+ExecStart=/usr/bin/docker compose -f compose.yml exec -T dashboard nginx -s reload
