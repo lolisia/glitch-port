@@ -11,6 +11,9 @@ The repository currently contains:
 - the **.NET SDK** (`GlitchPort.Core`), which sends every event to one or more
   **relays** — the remote collector (`http`), a live console window
   (`terminal`) and local log files (`file`);
+- the **Unity SDK** (`com.glitchport.unity`), a UPM package that wraps
+  `GlitchPort.Core`, initializes itself from a single DSN and reports Unity
+  logs, exceptions and manual captures through the same relays;
 - a minimal **dashboard** that lists the received messages;
 - the **HelloClient** sample and end-to-end scripts for both paths.
 
@@ -51,11 +54,17 @@ Dashboard :5173
 | SDK core           | `sdk/dotnet/src/GlitchPort.Core`         | –         | `GlitchPortClient`, relays (`http`, `terminal`, `file`), formatting. `netstandard2.1`, no package dependencies. |
 | Terminal renderer  | `sdk/dotnet/tools/GlitchPort.Terminal`   | –         | `glitchport-terminal` executable started by the `terminal` relay. |
 | Sample             | `sdk/dotnet/samples/HelloClient`         | –         | Console app used by both end-to-end checks.                  |
+| Unity SDK          | `sdk/unity/com.glitchport.unity`         | –         | UPM package (`com.glitchport.unity`) with automatic initialization, log capture and relay defaults. See [documents/sdk-unity.md](documents/sdk-unity.md). |
+| Unity test project | `sdk/unity/TestProject`                  | –         | Unity 6000.6.8f1 project used by `scripts/unity-test.sh` and `scripts/e2e-unity.sh`. |
 
 ## Prerequisites
 
 - .NET 10 SDK
 - Node.js 22 (with npm)
+- Unity 6000.6.8f1 — optional; only `scripts/unity-test.sh` and
+  `scripts/e2e-unity.sh` need it, and both skip with exit code 0 when the
+  editor recorded in `sdk/unity/TestProject/ProjectSettings/ProjectVersion.txt`
+  is not installed
 - Docker with Compose v2 (Docker Desktop on Windows/macOS) — only for the
   collector path (`scripts/e2e-hello.sh`)
 
@@ -66,7 +75,9 @@ involved, for PowerShell as well.
 ## Verify and end-to-end checks
 
 ```bash
-# Builds every project under sdk/ and collector/, runs all tests and builds the dashboard.
+# Builds every .NET project under sdk/ and collector/, runs all tests, builds
+# the dashboard, checks the bundled Unity Core DLL and runs the Unity
+# EditMode/PlayMode tests (Unity steps skip when the editor is not installed).
 bash scripts/verify.sh
 
 # Collector path: boots PostgreSQL, Processor and Relay, sends "hello" through
@@ -77,6 +88,16 @@ bash scripts/e2e-hello.sh
 # rendered output and the NDJSON file, then force-kills the sample and asserts
 # that the terminal child process exits too. No Docker or network needed.
 bash scripts/e2e-local-relays.sh
+
+# Unity tests: runs the package's EditMode and PlayMode suites in batch mode.
+# Skips with exit code 0 when Unity is not installed.
+bash scripts/unity-test.sh
+
+# Unity e2e: builds a Windows development player with the e2e scene, runs it
+# headlessly with GLITCHPORT_DSN=file:?dir=..., and asserts automatic
+# initialization, Unity log capture and the quit-time flush. Windows Git Bash
+# with Unity only; skipped everywhere else.
+bash scripts/e2e-unity.sh
 ```
 
 All scripts work from any directory and exit non-zero on the first failure.
@@ -186,6 +207,29 @@ throw on delivery failures. Use `FlushAsync()` to get per-relay results. Every
 option, parameter, default and the terminal/file behaviour in detail are
 documented in [documents/sdk-dotnet-relays.md](documents/sdk-dotnet-relays.md).
 
+## Unity SDK
+
+`sdk/unity/com.glitchport.unity` is a Unity package (`com.glitchport.unity`,
+Unity 2022.3+) that wraps `GlitchPort.Core`. Add it with the Unity Package
+Manager from the git URL
+`https://github.com/lolisia/glitch-port.git?path=sdk/unity/com.glitchport.unity`
+or from a local checkout with `file:<path>/sdk/unity/com.glitchport.unity`.
+
+Create `Assets/GlitchPort/Resources/GlitchPortSettings.asset` (Project Settings
+> Glitch Port creates it) and set `Dsn` to
+`http://<publicKey>@<host>:<port>/<projectId>`. No code is needed: the SDK
+initializes before the first scene loads, captures Unity errors and exceptions,
+and flushes on quit. In the editor and development builds the file relay is
+enabled too, and on Windows the terminal window opens when its executable was
+prepared with `scripts/build-unity-plugins.sh`. `GLITCHPORT_DSN` overrides the
+asset settings, which is how `scripts/e2e-unity.sh` runs a real player against a
+file relay.
+
+See [documents/sdk-unity.md](documents/sdk-unity.md) for installation, every
+setting and default, the relay rules per editor/development/release/platform,
+the manual `GlitchPortUnity` API and the constraints (WebGL is unsupported;
+IL2CPP, mobile and console builds are unverified).
+
 ## Collector configuration
 
 Development values live in the environment-specific app settings:
@@ -213,10 +257,12 @@ reuse them in production.
 collector/          Relay, Processor and shared transport/contracts (.NET 10)
 dashboard/          React + Vite dashboard
 documents/          Published SDK/API documentation
-scripts/            verify.sh, e2e-hello.sh, e2e-local-relays.sh
+scripts/            verify.sh, e2e-hello.sh, e2e-local-relays.sh, unity-test.sh,
+                    e2e-unity.sh, build-unity-plugins.sh
 sdk/dotnet/src/     GlitchPort.Core (SDK core and relays)
 sdk/dotnet/tools/   GlitchPort.Terminal (glitchport-terminal renderer)
 sdk/dotnet/samples/ HelloClient sample
 sdk/dotnet/tests/   SDK and renderer tests
+sdk/unity/          com.glitchport.unity UPM package and the TestProject
 docker-compose.yml  Local PostgreSQL for development and e2e
 ```

@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "com.glitchport.unity": "file:../../com.glitchport.unity",
+    "com.unity.test-framework": "1.5.1"
+  },
+  "testables": [
+    "com.glitchport.unity"
+  ]
+}
