@@ -1,50 +1,30 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace GlitchPort.Relay;
 
 /// <summary>
 /// JSON contract for the public Relay API. All payloads are snake_case on the
-/// wire.
+/// wire and every type that is written to a response or envelope payload is
+/// produced by the source generator, so the Relay stays reflection-free and
+/// AOT-compatible.
 /// </summary>
-[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
-[JsonSerializable(typeof(IngestMessageRequest))]
-[JsonSerializable(typeof(IngestMessageResponse))]
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(JsonElement))]
+[JsonSerializable(typeof(EventV1Payload))]
+[JsonSerializable(typeof(IngestResponse))]
 [JsonSerializable(typeof(ErrorResponse))]
 [JsonSerializable(typeof(HealthResponse))]
 internal sealed partial class RelayJsonContext : JsonSerializerContext
 {
 }
 
-/// <summary>Request body accepted by <c>POST /api/{projectId}/messages</c>.</summary>
-internal sealed class IngestMessageRequest
-{
-    /// <summary>Optional client-generated event id. Generated when absent.</summary>
-    public Guid? EventId { get; set; }
-
-    /// <summary>Optional client timestamp, in ISO-8601 format.</summary>
-    public DateTimeOffset? Timestamp { get; set; }
-
-    /// <summary>Required event message.</summary>
-    public string? Message { get; set; }
-
-    /// <summary>Optional description of the client SDK that sent the event.</summary>
-    public SdkInfo? Sdk { get; set; }
-}
-
-/// <summary>SDK identification sent with an event.</summary>
-internal sealed class SdkInfo
-{
-    /// <summary>SDK name, for example <c>glitchport-unreal</c>.</summary>
-    public string? Name { get; set; }
-
-    /// <summary>SDK version, for example <c>1.2.3</c>.</summary>
-    public string? Version { get; set; }
-}
-
 /// <summary>Response body for an accepted event.</summary>
-internal sealed class IngestMessageResponse
+internal sealed class IngestResponse
 {
-    /// <summary>Id of the accepted event.</summary>
+    /// <summary>Id of the accepted event, as a canonical lowercase UUID.</summary>
     public Guid Id { get; init; }
 }
 
