@@ -6,6 +6,11 @@ captures into glitch-port events. Once a DSN is configured, the package
 initializes itself before the first scene loads, captures errors automatically
 and flushes on quit — no game code is required.
 
+Every event reports `platform` `unity`, `sdk.name` `glitchport.unity` and the
+package version as `sdk.version`. Exceptions are sent as structured
+`exception` objects with their inner-exception chain and stack frames, and the
+SDK adds device contexts, tags and lifecycle breadcrumbs to each event.
+
 The package targets Unity 2022.3 and later and is verified on Unity 6000.6.8f1.
 It is shipped as source plus a precompiled `netstandard2.1` Core DLL
 (`Runtime/Plugins/GlitchPort.Core.dll`) and has no other package dependencies.
@@ -75,22 +80,35 @@ SDK initializes before the first scene loads and starts reporting.
 
 ### Settings
 
-| Field              | Default  | Meaning                                                                                         |
-| ------------------ | -------- | ----------------------------------------------------------------------------------------------- |
-| `Enabled`          | `true`   | Master switch. When `false`, nothing initializes, not even with `GLITCHPORT_DSN`.                |
-| `Dsn`              | `""`     | Remote relay DSN. An empty value disables HTTP delivery but keeps the local relays usable.       |
-| `AutoInitialize`   | `true`   | Initialize automatically before the first scene loads.                                          |
-| `HttpMinLevel`     | `Error`  | Minimum level sent to the HTTP relay.                                                           |
-| `CaptureExceptions`| `true`   | Capture `LogType.Exception` messages as `error` events.                                         |
-| `CaptureErrors`    | `true`   | Capture `LogType.Error` and `LogType.Assert` messages as `error` events.                        |
-| `CaptureWarnings`  | `false`  | Capture `LogType.Warning` messages as `warning` events.                                         |
-| `CaptureLogs`      | `false`  | Capture `LogType.Log` messages as `debug` events.                                               |
-| `TerminalMode`     | `Auto`   | `Auto`, `On` or `Off` for the local terminal relay. `Auto` follows the rules below.             |
-| `TerminalWindow`   | `New`    | `New` opens a separate console window; `Inherit` writes to the current console.                 |
-| `FileMode`         | `Auto`   | `Auto`, `On` or `Off` for the local file relay.                                                 |
-| `FileDirectory`    | `""`     | File relay directory. Empty uses `Application.persistentDataPath/glitchport/logs`.              |
-| `FileMinLevel`     | `Debug`  | Minimum level written to the file relay (NDJSON, one event per line).                           |
-| `DebugLogging`     | `false`  | Print SDK diagnostics (`[GlitchPort] ...`) to the Unity console.                                |
+| Field                        | Default | Meaning                                                                                                                                            |
+| ---------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Enabled`                    | `true`  | Master switch. When `false`, nothing initializes, not even with `GLITCHPORT_DSN`.                                                                  |
+| `Dsn`                        | `""`    | Remote relay DSN. An empty value disables HTTP delivery but keeps the local relays usable.                                                         |
+| `AutoInitialize`             | `true`  | Initialize automatically before the first scene loads.                                                                                             |
+| `HttpMinLevel`               | `Error` | Minimum level sent to the HTTP relay.                                                                                                              |
+| `Release`                    | `""`    | Release identifier copied onto every event. Empty uses `Application.productName@Application.version`, for example `Star Raiders@1.2.3`.            |
+| `Environment`                | `""`    | Deployment environment copied onto every event. Empty uses `editor` in the editor, `development` in development builds and `production` otherwise. |
+| `SendDefaultPii`             | `false` | Enables the hashed device user id described in [Contexts and tags](#contexts-and-tags). No other personal data is collected automatically.         |
+| `MaxBreadcrumbs`             | `100`   | Maximum number of breadcrumbs kept for each event; the newest entries win.                                                                         |
+| `SampleRate`                 | `1.0`   | Fraction of events that is sent, from `0` to `1`; values outside the range are clamped. `1.0` sends every event, `0` sends none.                   |
+| `CaptureExceptions`          | `true`  | Capture `LogType.Exception` messages as structured exception events.                                                                               |
+| `CaptureErrors`              | `true`  | Capture `LogType.Error` and `LogType.Assert` messages.                                                                                             |
+| `CaptureWarnings`            | `false` | Capture `LogType.Warning` messages as `warning` events.                                                                                            |
+| `CaptureLogs`                | `false` | Capture `LogType.Log` messages as `debug` events.                                                                                                  |
+| `CaptureBreadcrumbsFromLogs` | `true`  | Record warning and log messages as `log` breadcrumbs even when `CaptureWarnings`/`CaptureLogs` are off.                                            |
+| `TerminalMode`               | `Auto`  | `Auto`, `On` or `Off` for the local terminal relay. `Auto` follows the rules below.                                                                |
+| `TerminalWindow`             | `New`   | `New` opens a separate console window; `Inherit` writes to the current console.                                                                    |
+| `FileMode`                   | `Auto`  | `Auto`, `On` or `Off` for the local file relay.                                                                                                    |
+| `FileDirectory`              | `""`    | File relay directory. Empty uses `Application.persistentDataPath/glitchport/logs`.                                                                 |
+| `FileMinLevel`               | `Debug` | Minimum level written to the file relay (NDJSON, one event per line).                                                                              |
+| `DebugLogging`               | `false` | Print SDK diagnostics (`[GlitchPort] ...`) to the Unity console.                                                                                   |
+
+`SendDefaultPii` has exactly one effect in the Unity SDK: when it is `true`, the
+SDK adds a `user` object whose `id` is derived from the device (see
+[Contexts and tags](#contexts-and-tags)). The SDK never reads a user name,
+e-mail address or IP address; a `user` set through `SetUser` is sent as the game
+supplied it, and the Core client still removes `user.ip_address` unless
+`SendDefaultPii` is enabled.
 
 ## What happens automatically
 
@@ -103,9 +121,15 @@ SDK initializes before the first scene loads and starts reporting.
 - A `SubsystemRegistration` hook disposes a client left over from a previous
   Play session when **Enter Play Mode Options** disables the domain reload.
 - `GlitchPortUnity.Init()` builds the relay list from the settings asset,
-  `GLITCHPORT_DSN` (see below) and the current platform, then subscribes to the
-  Unity log callbacks. If no relay can be created, initialization is skipped and
-  a diagnostic is printed when `DebugLogging` is enabled.
+  `GLITCHPORT_DSN` (see below) and the current platform, creates the client,
+  takes one context snapshot on the main thread, applies the context namespaces
+  and tags, adds the optional PII user, starts the lifecycle breadcrumb tracker
+  and subscribes to the Unity log callback. If no relay can be created,
+  initialization is skipped and a diagnostic is printed when `DebugLogging` is
+  enabled.
+- The `game` context (active scene, frame count, realtime clock) is refreshed
+  and every context namespace and `unity.*` tag is re-applied before each event,
+  so an event describes the scene it was captured in.
 - On platforms without HTTP support (WebGL) initialization is skipped and a
   single warning is printed.
 
@@ -115,22 +139,246 @@ While the SDK is initialized it listens to
 `Application.logMessageReceivedThreaded` (safe for logs emitted off the main
 thread) and maps:
 
-| Unity log type                 | Event level | Captured when          |
-| ------------------------------ | ----------- | ---------------------- |
-| `LogType.Exception`            | `error`     | `CaptureExceptions`    |
-| `LogType.Error`, `LogType.Assert` | `error`  | `CaptureErrors`        |
-| `LogType.Warning`              | `warning`   | `CaptureWarnings`      |
-| `LogType.Log`                  | `debug`     | `CaptureLogs`          |
+| Unity log type                                          | Event                                             | Breadcrumb                                                      |
+| ------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------- |
+| `LogType.Exception`                                     | Structured exception event at `error`             | none                                                            |
+| `LogType.Error`, `LogType.Assert` with a stack trace    | Structured exception event at `error`             | none                                                            |
+| `LogType.Error`, `LogType.Assert` without a stack trace | Message event at `error`                          | none                                                            |
+| `LogType.Warning`                                       | Message event at `warning` when `CaptureWarnings` | `log` breadcrumb at `warning` when `CaptureBreadcrumbsFromLogs` |
+| `LogType.Log`                                           | Message event at `debug` when `CaptureLogs`       | `log` breadcrumb at `debug` when `CaptureBreadcrumbsFromLogs`   |
 
-For error and exception messages the Unity stack trace is appended to the event
-message. Messages that start with `[GlitchPort]` are SDK diagnostics and are
-never captured, which also prevents feedback loops.
+Exception events use `logger` `unity` and carry the parsed `exception` array
+described in [Structured exceptions](#structured-exceptions). For
+`LogType.Exception` the condition's `Type: value` supplies the innermost
+exception (index `0`); in Unity 6's `Rethrow as` format each
+`Rethrow as <type>: <value>` line below it introduces the next outer exception,
+while the .NET `--->` format is the opposite and starts with the outermost
+exception as the condition. Both shapes are normalized to innermost first.
+Unity reports no exception type for `LogType.Error` and `LogType.Assert`, so a
+log with a stack trace becomes one synthetic `LogError` (error) or `Assert`
+(assert) exception whose value is the condition's first line and whose frames
+were parsed from the stack trace. `CaptureExceptions` and `CaptureErrors`
+decide whether the event is captured at all.
+
+A warning or log message can therefore produce both an event and a breadcrumb,
+and the breadcrumb is recorded whenever `CaptureBreadcrumbsFromLogs` is
+enabled, even when `CaptureWarnings`/`CaptureLogs` is off. That way a later
+error still shows what the game logged before it.
+
+Messages that start with `[GlitchPort]` are SDK diagnostics and are never
+captured, which also prevents feedback loops. Nothing is captured while the SDK
+is not initialized or while `Enabled` is `false`.
+
+Logs emitted on another thread are captured too. The Unity context values are
+only refreshed on the main thread; off the main thread the SDK uses the last
+snapshot it took.
+
+### Contexts and tags
+
+Initialization takes one snapshot of the device, GPU, runtime, application and
+platform values. The `game` namespace is refreshed from the main thread before
+every event. Values the platform cannot report are left empty or `null` rather
+than invented.
+
+| Context   | Key                      | Value                                                                                         |
+| --------- | ------------------------ | --------------------------------------------------------------------------------------------- |
+| `os`      | `name`                   | `SystemInfo.operatingSystem`, for example `Windows 11  (10.0.22000) 64bit`                    |
+| `os`      | `family`                 | `SystemInfo.operatingSystemFamily`, for example `Windows`                                     |
+| `device`  | `model`                  | `SystemInfo.deviceModel`                                                                      |
+| `device`  | `type`                   | `SystemInfo.deviceType`, for example `Desktop` or `Laptop`                                    |
+| `device`  | `memory_size`            | `SystemInfo.systemMemorySize` in megabytes; multiplied by 1024 × 1024 to **bytes**            |
+| `device`  | `processor_type`         | `SystemInfo.processorType`                                                                    |
+| `device`  | `processor_count`        | `SystemInfo.processorCount`                                                                   |
+| `device`  | `battery_level`          | `SystemInfo.batteryLevel`, `0` to `1`; the key is omitted when Unity reports an unknown level |
+| `gpu`     | `name`                   | `SystemInfo.graphicsDeviceName`                                                               |
+| `gpu`     | `vendor`                 | `SystemInfo.graphicsDeviceVendor`                                                             |
+| `gpu`     | `version`                | `SystemInfo.graphicsDeviceVersion`                                                            |
+| `gpu`     | `api`                    | `SystemInfo.graphicsDeviceType`, for example `Direct3D11`                                     |
+| `gpu`     | `memory_size`            | `SystemInfo.graphicsMemorySize` in **megabytes**                                              |
+| `runtime` | `name`                   | Always `Unity`                                                                                |
+| `runtime` | `version`                | `Application.unityVersion`                                                                    |
+| `runtime` | `scripting_backend`      | `Mono` or `IL2CPP`, selected at compile time                                                  |
+| `app`     | `product_name`           | `Application.productName`                                                                     |
+| `app`     | `version`                | `Application.version`                                                                         |
+| `app`     | `identifier`             | `Application.identifier`                                                                      |
+| `app`     | `company`                | `Application.companyName`                                                                     |
+| `app`     | `is_editor`              | `Application.isEditor`                                                                        |
+| `app`     | `is_development_build`   | `Debug.isDebugBuild`                                                                          |
+| `game`    | `scene`                  | Active scene name, or `null` when no scene is loaded                                          |
+| `game`    | `frame_count`            | `Time.frameCount`                                                                             |
+| `game`    | `realtime_since_startup` | `Time.realtimeSinceStartup` in seconds                                                        |
+
+The two automatic tags are:
+
+| Tag              | Value                                                      |
+| ---------------- | ---------------------------------------------------------- |
+| `unity.platform` | `Application.platform`, for example `WindowsPlayer`        |
+| `unity.scene`    | Active scene name; an empty string when no scene is loaded |
+
+With `SendDefaultPii` enabled the SDK also adds a `user` object with one field:
+
+| Field | Value                                                                                                                      |
+| ----- | -------------------------------------------------------------------------------------------------------------------------- |
+| `id`  | The first 16 lowercase hexadecimal characters of the SHA-256 hash of `SystemInfo.deviceUniqueIdentifier`, hashed as UTF-8. |
+
+The clear-text device identifier is never sent and nothing else is derived from
+the device. The hash is stable for a device, so it can count affected players
+without identifying them. When the platform does not report a device identifier,
+no `user` is added. The option defaults to `false`.
+
+### Breadcrumbs
+
+While initialized, the SDK records these breadcrumbs automatically. The recorded
+trail is attached to every later event in chronological order, together with any
+breadcrumb the game adds through `AddBreadcrumb`:
+
+| Trigger                           | `category`      | `level`   | Message                                                 | `data`                            |
+| --------------------------------- | --------------- | --------- | ------------------------------------------------------- | --------------------------------- |
+| `SceneManager.sceneLoaded`        | `scene`         | `info`    | `Scene loaded: <name>`                                  | `scene`                           |
+| `SceneManager.sceneUnloaded`      | `scene`         | `info`    | `Scene unloaded: <name>`                                | `scene`                           |
+| `SceneManager.activeSceneChanged` | `scene`         | `info`    | `Active scene changed from '<previous>' to '<current>'` | `previous_scene`, `current_scene` |
+| `Application.focusChanged`        | `app.lifecycle` | `info`    | `Application gained focus` or `Application lost focus`  | `focused`                         |
+| `OnApplicationPause`              | `app.lifecycle` | `info`    | `Application paused` or `Application resumed`           | `paused`                          |
+| `Application.lowMemory`           | `device`        | `warning` | `Low memory warning`                                    | `low_memory`                      |
+| `LogType.Warning`                 | `log`           | `warning` | The message text                                        | none                              |
+| `LogType.Log`                     | `log`           | `debug`   | The message text                                        | none                              |
+
+Every breadcrumb has `type` `default` and a UTC timestamp. Pause and resume
+arrive through a hidden `DontDestroyOnLoad` object because `OnApplicationPause`
+is only delivered to `MonoBehaviour` components; `Close()` disposes the tracker
+and unsubscribes every callback.
+
+The client merges the breadcrumbs on the scope with the event's own breadcrumbs
+and keeps only the newest `MaxBreadcrumbs` entries (default `100`) before
+building the event, so older entries are dropped first. The protocol accepts at
+most 100 breadcrumbs per event and sends them oldest first, so raising
+`MaxBreadcrumbs` above `100` does not make a Relay store more.
+
+### Structured exceptions
+
+The `exception` array is ordered **innermost cause first and outermost observed
+exception last**. Stack frames inside each exception are ordered the other way
+around: **outermost caller first and the crash site last**. Unity prints stack
+traces in the opposite direction (throw site first), so the SDK reverses every
+frame list and removes the frames of the logging call itself.
+
+- In Unity 6's `Rethrow as` format the condition supplies the innermost
+  exception (index `0`) and every `Rethrow as <type>: <value>` line introduces
+  the next outer exception. The .NET `--->` format is the opposite: the
+  condition is the outermost exception and the `--->` segments are its inner
+  causes. Both shapes are normalized into the same inner-to-outer list, so the
+  last item is always the outermost observed exception.
+- For `LogType.Exception` the exception type is parsed from the condition (type
+  `Exception` when the condition has no type prefix); the log-only
+  `LogType.Error` and `LogType.Assert` shapes are described below.
+- For `LogType.Error` and `LogType.Assert`, Unity reports a log rather than an
+  exception. The event contains one synthetic `LogError` or `Assert` exception
+  with the condition's first line as its value and the parsed frames.
+- Frames added by the logging call are removed: `UnityEngine.Debug:Log*`,
+  `UnityEngine.Logger` and `UnityEngine.DebugLogHandler` frames, and for
+  `Debug.LogException` the `UnityEngine.Debug:LogException` frame plus the call
+  site below it. When a logged exception was never thrown and the whole chain has
+  no frames, the log call-site frames are attached to the outermost exception so
+  the event still points at the code that logged it.
+
+The `in_app` flag of every frame is decided by these rules, checked from top to
+bottom:
+
+| Condition                                                                                                    | `in_app` |
+| ------------------------------------------------------------------------------------------------------------ | -------- |
+| The file name starts with `Assets/`                                                                          | `true`   |
+| The file name contains `Library/PackageCache/`                                                               | `false`  |
+| The declaring type starts with `UnityEngine.`, `UnityEditor.`, `Unity.`, `System.`, `Mono.` or `GlitchPort.` | `false`  |
+| Any other named module (game assemblies, plugins)                                                            | `true`   |
+| No declaring type (and the file name did not start with `Assets/`)                                           | `false`  |
+
+A `LogType.Exception` event looks like this. The example has two exceptions: a
+`NullReferenceException` thrown inside `Weapon.Fire` (innermost, index `0`) and
+the `InvalidOperationException` that wrapped it (outermost, last).
+
+```json
+{
+  "event_id": "9f1c2d3e-4f5a-6b7c-8d9e-0f1a2b3c4d5e",
+  "timestamp": "2026-11-15T10:22:31.123Z",
+  "level": "error",
+  "platform": "unity",
+  "logger": "unity",
+  "release": "Star Raiders@1.2.3",
+  "environment": "production",
+  "sdk": {
+    "name": "glitchport.unity",
+    "version": "0.1.0"
+  },
+  "exception": [
+    {
+      "type": "System.NullReferenceException",
+      "value": "Object reference not set to an instance of an object",
+      "stacktrace": {
+        "frames": [
+          {
+            "function": "Update",
+            "module": "PlayerController",
+            "filename": "Assets/Scripts/PlayerController.cs",
+            "lineno": 42,
+            "in_app": true
+          },
+          {
+            "function": "Fire",
+            "module": "Weapon",
+            "filename": "Assets/Scripts/Weapon.cs",
+            "lineno": 88,
+            "in_app": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "System.InvalidOperationException",
+      "value": "could not fire the weapon",
+      "stacktrace": {
+        "frames": [
+          {
+            "function": "Run",
+            "module": "GameLoop",
+            "filename": "Assets/Scripts/GameLoop.cs",
+            "lineno": 17,
+            "in_app": true
+          },
+          {
+            "function": "Update",
+            "module": "PlayerController",
+            "filename": "Assets/Scripts/PlayerController.cs",
+            "lineno": 44,
+            "in_app": true
+          }
+        ]
+      }
+    }
+  ]
+}
+```
+
+`in_app` is what the Processor prefers when it computes the default
+fingerprint, so the game's own frames decide the issue even when engine frames
+wrap them.
+
+#### IL2CPP
+
+Release builds compiled with IL2CPP usually strip managed source information.
+Unity then reports only method and type frames, without file names or line
+numbers: `filename` and `lineno` are absent, while `function`, `module` and
+`in_app` remain, and `in_app` is decided by the module rules above. Grouping
+still uses the method and type, but the dashboard cannot show source lines or
+line numbers. Mono builds and the editor normally include both. IL2CPP also does
+not guarantee that every managed frame survives compilation; missing frames are
+simply absent rather than synthesized.
 
 ### Quit-time flush and cleanup
 
 `GlitchPortUnity` subscribes to `Application.quitting`, which Unity raises when
-the player quits and when Play mode ends. `Close()` unsubscribes the callbacks,
-flushes the client for at most two seconds and disposes every relay:
+the player quits and when Play mode ends. `Close()` stops the breadcrumb
+tracker, unsubscribes the log callback, clears the context provider, flushes the
+client for at most two seconds and disposes every relay:
 
 - the file relay flushes its buffered NDJSON lines and closes the file;
 - the terminal relay closes the terminal process input, and the renderer exits
@@ -157,16 +405,16 @@ Each `GlitchPortSettings` value is combined with the current platform:
 
 The resulting matrix for the default `Auto` modes:
 
-| Environment                       | HTTP | File | Terminal |
-| --------------------------------- | ---- | ---- | -------- |
-| Editor on Windows                 | DSN  | yes  | yes, when the executable was built |
-| Editor on macOS/Linux             | DSN  | yes  | no (Windows-only) |
-| Windows development build         | DSN  | yes  | yes, when the postprocessor copied the executable |
-| Windows release build             | DSN  | no   | no |
-| macOS/Linux development build     | DSN  | yes  | no |
-| macOS/Linux release build         | DSN  | no   | no |
-| WebGL                             | no (SDK does not initialize) | no | no |
-| Mobile / console                  | DSN (unverified) | development builds only (unverified) | no |
+| Environment                   | HTTP                         | File                                 | Terminal                                          |
+| ----------------------------- | ---------------------------- | ------------------------------------ | ------------------------------------------------- |
+| Editor on Windows             | DSN                          | yes                                  | yes, when the executable was built                |
+| Editor on macOS/Linux         | DSN                          | yes                                  | no (Windows-only)                                 |
+| Windows development build     | DSN                          | yes                                  | yes, when the postprocessor copied the executable |
+| Windows release build         | DSN                          | no                                   | no                                                |
+| macOS/Linux development build | DSN                          | yes                                  | no                                                |
+| macOS/Linux release build     | DSN                          | no                                   | no                                                |
+| WebGL                         | no (SDK does not initialize) | no                                   | no                                                |
+| Mobile / console              | DSN (unverified)             | development builds only (unverified) | no                                                |
 
 `On` overrides the `Auto` column for the file and terminal relays; the terminal
 relay still requires Windows and an executable.
@@ -176,9 +424,11 @@ relay still requires Windows and an executable.
 When the `GLITCHPORT_DSN` environment variable is set to a non-blank value, the
 SDK ignores the asset's relay fields (`Dsn`, `HttpMinLevel`, `FileMode`,
 `FileDirectory`, `FileMinLevel`, `TerminalMode`, `TerminalWindow`) and parses the
-variable with the same syntax as the .NET SDK. `Enabled` still gates
-initialization, and `AutoInitialize` still decides whether the automatic hook
-runs.
+variable with the same syntax as the .NET SDK. Only the relay fields are
+replaced: `Release`, `Environment`, `SendDefaultPii`, `MaxBreadcrumbs`,
+`SampleRate` and the log capture flags still come from the asset or their
+defaults. `Enabled` still gates initialization, and `AutoInitialize` still
+decides whether the automatic hook runs.
 
 ```text
 http://<publicKey>@<host>:<port>/<projectId>
@@ -203,16 +453,24 @@ Remove-Item Env:GLITCHPORT_DSN
 ```
 
 The environment variable is read from the editor's or player's process
-environment, so it is convenient for CI jobs, headless runs — and for
-`scripts/e2e-unity.sh`, which runs a real Windows player with a file relay only.
+environment, so it is convenient for CI jobs and headless runs.
+`scripts/e2e-unity.sh` uses it to run a real Windows player against a file
+relay. To let the same script also check a real collector, set
+`GLITCHPORT_E2E_HTTP_DSN` together with `GLITCHPORT_E2E_ADMIN_URL` and
+`GLITCHPORT_E2E_ADMIN_TOKEN`: the player then reports through the collector and
+the script verifies the stored event through the Management API. Without those
+variables the e2e run stays local and self-contained.
 
 ## Manual API
 
-`GlitchPortUnity` is safe to call before initialization and after `Close()`;
-capture methods return `null` instead of throwing, and only enqueue work.
+`GlitchPortUnity` is safe to call before initialization and after `Close()`.
+Capture methods only enqueue work and return `null` instead of throwing, scope
+methods are ignored while no client is active, and no member throws into the
+game.
 
 ```csharp
 using System;
+using System.Collections.Generic;
 using GlitchPort;
 using GlitchPort.Unity;
 using UnityEngine;
@@ -220,7 +478,8 @@ using UnityEngine;
 // A message event. The level defaults to Level.Info.
 Guid? messageId = GlitchPortUnity.CaptureMessage("boss phase 2 failed", Level.Warning);
 
-// An exception event. By default it is sent at Level.Error.
+// A structured exception event with the full exception chain and stack frames.
+// The level defaults to Level.Error and the frames follow the rules above.
 try
 {
     LoadSaveFile();
@@ -230,6 +489,21 @@ catch (Exception exception)
     GlitchPortUnity.CaptureException(exception);
 }
 
+// Scope state is attached to every later event.
+GlitchPortUnity.SetTag("game_mode", "coop");
+GlitchPortUnity.SetUser(new UserInfo { Id = "player-42" });
+GlitchPortUnity.SetContext("build", new Dictionary<string, object?>
+{
+    ["channel"] = "steam",
+    ["commit"] = "a1b2c3d",
+});
+GlitchPortUnity.AddBreadcrumb(new Breadcrumb
+{
+    Category = "match",
+    Message = "joining the match",
+    Level = Level.Info,
+});
+
 // Drains every relay and reports per-relay results. The timeout applies to each
 // relay; pass null to use the Core default of five seconds.
 DeliveryReport? report = await GlitchPortUnity.FlushAsync(TimeSpan.FromSeconds(10));
@@ -238,10 +512,25 @@ if (report is null || !report.AllSucceeded)
     Debug.LogWarning("glitch-port did not deliver every event.");
 }
 
-// Unsubscribes from Unity callbacks, flushes for up to two seconds and disposes
-// the client. Idempotent; a later Init() works again.
+// Stops the breadcrumb tracker, unsubscribes from Unity callbacks, flushes for
+// up to two seconds and disposes the client. Idempotent; a later Init() works
+// again.
 GlitchPortUnity.Close();
 ```
+
+`CaptureException` builds the protocol `exception` list from the .NET exception
+and its inner exceptions, using the same inner-to-outer order and
+outermost-first frames described above.
+
+Every scope call is serialized with the threaded log callback and the lifecycle
+tracker, so `SetTag`, `SetUser`, `SetContext`, `AddBreadcrumb` and the capture
+methods can be called from any thread. Context values are only refreshed on the
+main thread; elsewhere the last snapshot is used.
+
+The SDK re-applies its `os`, `device`, `gpu`, `runtime`, `app` and `game`
+namespaces and the `unity.platform` and `unity.scene` tags before every event.
+Use `SetContext` and `SetTag` for your own names; values written into those six
+namespaces or those two tags are replaced by the SDK's snapshot.
 
 Use `Init(options)` when you want to build the relay list in code instead of the
 settings asset — normally together with `AutoInitialize = false`:
@@ -260,20 +549,26 @@ if (!GlitchPortUnity.Init(options))
 }
 ```
 
-`Init(options)` ignores `Enabled` and never replaces an already active client;
-the SDK name and version are always reported as `glitchport.unity`. Other
-members:
+`Init(options)` ignores `Enabled` and never replaces an already active client.
+The caller's options decide `Release`, `Environment`, `SampleRate`,
+`SendDefaultPii`, `MaxBreadcrumbs` and the relay list; the settings asset still
+decides which Unity log types are captured. Contexts, tags and breadcrumbs are
+attached exactly as on the automatic path. Other members:
 
-| Member                              | Description                                                          |
-| ----------------------------------- | -------------------------------------------------------------------- |
-| `GlitchPortUnity.IsInitialized`     | `true` while a client is active.                                     |
-| `GlitchPortUnity.Client`            | The active `GlitchPortClient`, or `null`.                            |
-| `GlitchPortUnity.Init()`            | Initializes from the settings asset and `GLITCHPORT_DSN`.            |
-| `GlitchPortUnity.Init(options)`     | Initializes from caller-supplied `GlitchPortOptions`.                |
-| `GlitchPortUnity.CaptureMessage`    | Enqueues a message event and returns its id.                         |
-| `GlitchPortUnity.CaptureException`  | Enqueues an exception as text and returns its id.                    |
-| `GlitchPortUnity.FlushAsync`        | Flushes every relay and returns a `DeliveryReport`.                  |
-| `GlitchPortUnity.Close`             | Flushes briefly, disposes the client and allows a later `Init`.      |
+| Member                             | Description                                                        |
+| ---------------------------------- | ------------------------------------------------------------------ |
+| `GlitchPortUnity.IsInitialized`    | `true` while a client is active.                                   |
+| `GlitchPortUnity.Client`           | The active `GlitchPortClient`, or `null`.                          |
+| `GlitchPortUnity.Init()`           | Initializes from the settings asset and `GLITCHPORT_DSN`.          |
+| `GlitchPortUnity.Init(options)`    | Initializes from caller-supplied `GlitchPortOptions`.              |
+| `GlitchPortUnity.CaptureMessage`   | Enqueues a message event and returns its id.                       |
+| `GlitchPortUnity.CaptureException` | Enqueues a structured exception event and returns its id.          |
+| `GlitchPortUnity.SetTag`           | Sets one tag; later values replace earlier ones with the same key. |
+| `GlitchPortUnity.SetUser`          | Sets the affected user; `null` is ignored.                         |
+| `GlitchPortUnity.SetContext`       | Replaces one context namespace.                                    |
+| `GlitchPortUnity.AddBreadcrumb`    | Appends a breadcrumb to the active scope.                          |
+| `GlitchPortUnity.FlushAsync`       | Flushes every relay and returns a `DeliveryReport`.                |
+| `GlitchPortUnity.Close`            | Flushes briefly, disposes the client and allows a later `Init`.    |
 
 ## Preparing the terminal executable
 
@@ -316,12 +611,19 @@ diagnostic and the HTTP/file relays keep working.
   are not available there either.
 - Only the Windows editor and Windows standalone players are verified, with
   Unity 6000.6.8f1 and the Mono scripting backend. **IL2CPP, mobile and console
-  builds are unverified.**
-- **Exceptions are sent as text**, `Type: message` followed by the stack trace,
-  not as structured stack frames. Use the message and level for grouping.
+  builds are unverified.** IL2CPP release builds normally report method and type
+  frames without file names or line numbers; see
+  [IL2CPP](#il2cpp).
+- Exceptions are reported as structured `exception` objects with their
+  inner-exception chain and stack frames. The Processor fingerprints them by
+  exception type and their crash-side frames, preferring `in_app` frames,
+  instead of using a flattened message.
 - The SDK ships `GlitchPort.Core` as a precompiled `netstandard2.1` DLL
   (`Runtime/Plugins/GlitchPort.Core.dll`). It is the same Core assembly used by
   the .NET SDK; there is no Unity-specific fork.
-- No breadcrumbs, device context or screenshots are collected.
+- The SDK collects breadcrumbs, the six context namespaces, the two `unity.*`
+  tags and, when enabled, the hashed device user id. It does not collect
+  screenshots, view-hierarchy dumps, session replay or native crash dumps; only
+  managed exceptions and Unity log messages are reported.
 - The terminal renderer is Windows-only and is not distributed with the git
   package; build it locally with `scripts/build-unity-plugins.sh`.
