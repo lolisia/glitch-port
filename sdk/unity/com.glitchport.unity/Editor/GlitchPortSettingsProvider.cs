@@ -47,6 +47,11 @@ namespace GlitchPort.Unity.Editor
             "relay",
             "terminal",
             "log",
+            "release",
+            "environment",
+            "breadcrumb",
+            "sampling",
+            "pii",
         };
 
         private GlitchPortSettings? _settings;
@@ -165,6 +170,11 @@ namespace GlitchPort.Unity.Editor
 
             DrawProperty("AutoInitialize");
             DrawProperty("HttpMinLevel");
+            DrawProperty("Release");
+            DrawProperty("Environment");
+            DrawProperty("SendDefaultPii");
+            DrawProperty("MaxBreadcrumbs");
+            DrawProperty("SampleRate");
         }
 
         private void DrawCaptureSection()
@@ -176,6 +186,7 @@ namespace GlitchPort.Unity.Editor
             DrawProperty("CaptureErrors");
             DrawProperty("CaptureWarnings");
             DrawProperty("CaptureLogs");
+            DrawProperty("CaptureBreadcrumbsFromLogs");
         }
 
         private void DrawLocalRelaySection()

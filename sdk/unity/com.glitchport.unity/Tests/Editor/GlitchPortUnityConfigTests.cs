@@ -16,6 +16,7 @@ namespace GlitchPort.Unity.Tests.Editor
         private const string DefaultPersistentDataPath = @"C:\GameData";
         private const string DefaultProductName = "Test Game";
         private const string DefaultPackageVersion = "1.2.3";
+        private const string DefaultProductVersion = "2.0.0";
         private const string DefaultTerminalPath = @"C:\Tools\glitchport-terminal.exe";
         private const string BuildScriptName = "scripts/build-unity-plugins.sh";
 
@@ -675,6 +676,193 @@ namespace GlitchPort.Unity.Tests.Editor
             Assert.That(options.SdkVersion, Is.EqualTo("9.8.7"));
         }
 
+        [Test]
+        public void OptionsReportTheUnityPlatform()
+        {
+            var options = BuildFileOptions(Platform());
+
+            Assert.That(options.Platform, Is.EqualTo("unity"));
+        }
+
+        [Test]
+        public void BlankReleaseUsesProductNameAndProductVersion()
+        {
+            _settings.Release = string.Empty;
+
+            var options = BuildFileOptions(
+                Platform(productName: "My Game", productVersion: "3.4.5"));
+
+            Assert.That(options.Release, Is.EqualTo("My Game@3.4.5"));
+        }
+
+        [Test]
+        public void WhitespaceReleaseUsesProductNameAndProductVersion()
+        {
+            _settings.Release = "   ";
+
+            var options = BuildFileOptions(Platform());
+
+            Assert.That(
+                options.Release,
+                Is.EqualTo(DefaultProductName + "@" + DefaultProductVersion));
+        }
+
+        [Test]
+        public void ExplicitReleaseWins()
+        {
+            _settings.Release = "mygame@9.9.9";
+
+            var options = BuildFileOptions(Platform());
+
+            Assert.That(options.Release, Is.EqualTo("mygame@9.9.9"));
+        }
+
+        [Test]
+        public void DefaultReleaseUsesZeroesWithoutAProductVersion()
+        {
+            var options = BuildFileOptions(Platform(productVersion: null));
+
+            Assert.That(options.Release, Is.EqualTo(DefaultProductName + "@0.0.0"));
+        }
+
+        [TestCase(true, false, "editor")]
+        [TestCase(true, true, "editor")]
+        [TestCase(false, true, "development")]
+        [TestCase(false, false, "production")]
+        public void DefaultEnvironmentFollowsThePlatform(
+            bool isEditor,
+            bool isDevelopmentBuild,
+            string expected)
+        {
+            _settings.Environment = string.Empty;
+
+            var options = BuildFileOptions(
+                Platform(isEditor: isEditor, isDevelopmentBuild: isDevelopmentBuild));
+
+            Assert.That(options.Environment, Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void WhitespaceEnvironmentUsesTheDefault()
+        {
+            _settings.Environment = "   ";
+
+            var options = BuildFileOptions(Platform(isEditor: true));
+
+            Assert.That(options.Environment, Is.EqualTo("editor"));
+        }
+
+        [Test]
+        public void ExplicitEnvironmentWins()
+        {
+            _settings.Environment = "staging";
+
+            var options = BuildFileOptions(Platform(isEditor: true, isDevelopmentBuild: true));
+
+            Assert.That(options.Environment, Is.EqualTo("staging"));
+        }
+
+        [Test]
+        public void SendDefaultPiiDefaultsToFalse()
+        {
+            var options = BuildFileOptions(Platform());
+
+            Assert.That(options.SendDefaultPii, Is.False);
+        }
+
+        [Test]
+        public void SendDefaultPiiIsCopied()
+        {
+            _settings.SendDefaultPii = true;
+
+            var options = BuildFileOptions(Platform());
+
+            Assert.That(options.SendDefaultPii, Is.True);
+        }
+
+        [Test]
+        public void MaxBreadcrumbsIsCopied()
+        {
+            _settings.MaxBreadcrumbs = 7;
+
+            var options = BuildFileOptions(Platform());
+
+            Assert.That(options.MaxBreadcrumbs, Is.EqualTo(7));
+        }
+
+        [TestCase(0d)]
+        [TestCase(0.25d)]
+        [TestCase(1d)]
+        public void SampleRateIsCopied(double sampleRate)
+        {
+            _settings.SampleRate = (float)sampleRate;
+
+            var options = BuildFileOptions(Platform());
+
+            Assert.That(options.SampleRate, Is.EqualTo(sampleRate));
+        }
+
+        [TestCase(-1d, 0d)]
+        [TestCase(0.5d, 0.5d)]
+        [TestCase(2d, 1d)]
+        public void SampleRateIsClampedToTheUnitRange(double sampleRate, double expected)
+        {
+            _settings.SampleRate = (float)sampleRate;
+
+            var options = BuildFileOptions(Platform());
+
+            Assert.That(options.SampleRate, Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void EnvironmentDsnStillAppliesReleaseAndEnvironment()
+        {
+            _settings.Release = string.Empty;
+            _settings.Environment = string.Empty;
+
+            var options = GlitchPortUnityConfig.BuildOptions(
+                _settings,
+                Platform(isEditor: false, isDevelopmentBuild: false),
+                "file");
+
+            Assert.That(options, Is.Not.Null);
+            Assert.That(options!.Platform, Is.EqualTo("unity"));
+            Assert.That(options.Release, Is.EqualTo(DefaultProductName + "@" + DefaultProductVersion));
+            Assert.That(options.Environment, Is.EqualTo("production"));
+        }
+
+        [Test]
+        public void ProductVersionDefaultsToZeroesForOldCallers()
+        {
+            var platform = new UnityPlatformInfo(
+                isEditor: false,
+                isDevelopmentBuild: false,
+                isWindows: true,
+                canStartProcess: true,
+                supportsHttp: true,
+                persistentDataPath: DefaultPersistentDataPath,
+                productName: DefaultProductName,
+                packageVersion: DefaultPackageVersion,
+                terminalExecutablePath: DefaultTerminalPath);
+
+            Assert.That(platform.ProductVersion, Is.EqualTo("0.0.0"));
+            Assert.That(platform.ProductName, Is.EqualTo(DefaultProductName));
+        }
+
+        [TestCase(null)]
+        [TestCase("")]
+        [TestCase("   ")]
+        public void BlankProductVersionDefaultsToZeroes(string? productVersion)
+        {
+            Assert.That(Platform(productVersion: productVersion).ProductVersion, Is.EqualTo("0.0.0"));
+        }
+
+        [Test]
+        public void ExplicitProductVersionIsExposed()
+        {
+            Assert.That(Platform(productVersion: "4.5.6").ProductVersion, Is.EqualTo("4.5.6"));
+        }
+
         [TestCase(true)]
         [TestCase(false)]
         public void IsSupportedReturnsSupportsHttp(bool supportsHttp)
@@ -703,7 +891,8 @@ namespace GlitchPort.Unity.Tests.Editor
             string persistentDataPath = DefaultPersistentDataPath,
             string productName = DefaultProductName,
             string packageVersion = DefaultPackageVersion,
-            string? terminalExecutablePath = DefaultTerminalPath)
+            string? terminalExecutablePath = DefaultTerminalPath,
+            string? productVersion = DefaultProductVersion)
         {
             return new UnityPlatformInfo(
                 isEditor,
@@ -714,7 +903,8 @@ namespace GlitchPort.Unity.Tests.Editor
                 persistentDataPath,
                 productName,
                 packageVersion,
-                terminalExecutablePath);
+                terminalExecutablePath,
+                productVersion);
         }
 
         private void ConfigureFileOnly(GlitchPort.Unity.FileMode fileMode)
@@ -732,6 +922,19 @@ namespace GlitchPort.Unity.Tests.Editor
             _settings.FileMode = GlitchPort.Unity.FileMode.Off;
             _settings.TerminalMode = terminalMode;
             _settings.TerminalWindow = GlitchPort.TerminalWindow.New;
+        }
+
+        /// <summary>
+        /// Builds options that always contain exactly one relay, so tests about
+        /// options fields never depend on the platform's relay rules.
+        /// </summary>
+        private GlitchPortOptions BuildFileOptions(UnityPlatformInfo platform)
+        {
+            ConfigureFileOnly(GlitchPort.Unity.FileMode.On);
+
+            var options = GlitchPortUnityConfig.BuildOptions(_settings, platform, null);
+            Assert.That(options, Is.Not.Null);
+            return options!;
         }
 
         private static RelayDefinition SingleRelay(GlitchPortOptions? options)

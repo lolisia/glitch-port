@@ -14,10 +14,18 @@ namespace GlitchPort.Unity
     /// <see cref="GlitchPortSettings"/>, and forwards Unity log messages to it.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Capture methods only enqueue events and return immediately; delivery
     /// failures are reported by <see cref="FlushAsync"/> instead of being thrown
     /// at the capture site. Every public member is safe to call before
     /// initialization and again after <see cref="Close"/>.
+    /// </para>
+    /// <para>
+    /// The Core scope is not thread safe. Every scope mutation, breadcrumb and
+    /// capture is therefore serialized through one private lock so the threaded
+    /// Unity log callback, the lifecycle breadcrumb tracker and game code can
+    /// never interleave scope writes.
+    /// </para>
     /// </remarks>
     public static class GlitchPortUnity
     {
@@ -26,6 +34,9 @@ namespace GlitchPort.Unity
 
         /// <summary>The SDK name reported to glitch-port.</summary>
         private const string SdkName = "glitchport.unity";
+
+        /// <summary>The platform name reported on every event.</summary>
+        private const string UnityPlatformName = "unity";
 
         /// <summary>The prefix used by every diagnostic this SDK writes to the Unity console.</summary>
         private const string DiagnosticPrefix = "[GlitchPort]";
@@ -39,19 +50,28 @@ namespace GlitchPort.Unity
         // session: repeating it on every failed Init would flood the console.
         private const string NoRelayDiagnosticPrefix = "No glitch-port relay is configured";
 
+        /// <summary>
+        /// Serializes every read and write of the Core scope: captures, tags,
+        /// contexts, user and breadcrumbs.
+        /// </summary>
+        private static readonly object CaptureGate = new object();
+
         private static GlitchPortClient? _client;
         private static GlitchPortSettings? _settings;
+        private static UnityContextProvider? _contextProvider;
+        private static UnityBreadcrumbTracker? _breadcrumbTracker;
+        private static int _mainThreadId;
         private static bool _unsupportedPlatformWarned;
         private static bool _noRelayDiagnosticLogged;
 
         /// <summary>Gets a value indicating whether the SDK has an active client.</summary>
-        public static bool IsInitialized => _client is not null;
+        public static bool IsInitialized => Volatile.Read(ref _client) is not null;
 
         /// <summary>
         /// Gets the active client, or <see langword="null"/> before initialization
         /// and after <see cref="Close"/>.
         /// </summary>
-        public static GlitchPortClient? Client => _client;
+        public static GlitchPortClient? Client => Volatile.Read(ref _client);
 
         /// <summary>
         /// Initializes the SDK from <c>Resources/GlitchPortSettings</c>. When the
@@ -60,7 +80,7 @@ namespace GlitchPort.Unity
         /// <returns><see langword="true"/> when a client is active after the call.</returns>
         public static bool Init()
         {
-            if (_client is not null)
+            if (IsInitialized)
             {
                 return true;
             }
@@ -95,6 +115,8 @@ namespace GlitchPort.Unity
                     return false;
                 }
 
+                options.Platform = UnityPlatformName;
+
                 return TryInitialize(settings, options);
             }
             catch (Exception ex)
@@ -119,7 +141,7 @@ namespace GlitchPort.Unity
                 return false;
             }
 
-            if (_client is not null)
+            if (IsInitialized)
             {
                 return true;
             }
@@ -139,6 +161,7 @@ namespace GlitchPort.Unity
 
                 options.SdkName = SdkName;
                 options.SdkVersion = PackageVersion;
+                options.Platform = UnityPlatformName;
 
                 return TryInitialize(settings, options);
             }
@@ -147,6 +170,69 @@ namespace GlitchPort.Unity
                 Debug.LogWarning(DiagnosticPrefix + " Initialization failed: " + ex);
                 return false;
             }
+        }
+
+        /// <summary>Sets a tag on the active client's scope.</summary>
+        /// <param name="key">The tag name.</param>
+        /// <param name="value">The tag value.</param>
+        /// <remarks>
+        /// The call is ignored when the SDK is not initialized or the arguments
+        /// are invalid. It never throws into the game.
+        /// </remarks>
+        public static void SetTag(string key, string value)
+        {
+            if (key is null)
+            {
+                return;
+            }
+
+            MutateScope(client => client.SetTag(key, value));
+        }
+
+        /// <summary>Sets the affected user on the active client's scope.</summary>
+        /// <param name="user">The user information.</param>
+        /// <remarks>
+        /// The call is ignored when the SDK is not initialized or
+        /// <paramref name="user"/> is <see langword="null"/>. It never throws
+        /// into the game.
+        /// </remarks>
+        public static void SetUser(UserInfo? user)
+        {
+            if (user is null)
+            {
+                return;
+            }
+
+            MutateScope(client => client.SetUser(user));
+        }
+
+        /// <summary>Sets a context namespace on the active client's scope.</summary>
+        /// <param name="key">The context name, for example <c>build</c>.</param>
+        /// <param name="value">The context entries.</param>
+        /// <remarks>
+        /// The call is ignored when the SDK is not initialized or an argument is
+        /// <see langword="null"/>. It never throws into the game.
+        /// </remarks>
+        public static void SetContext(string key, IDictionary<string, object?> value)
+        {
+            if (key is null || value is null)
+            {
+                return;
+            }
+
+            MutateScope(client => client.SetContext(key, value));
+        }
+
+        /// <summary>Adds a breadcrumb to the active client's scope.</summary>
+        /// <param name="breadcrumb">The breadcrumb to record.</param>
+        /// <remarks>
+        /// The call is ignored when the SDK is not initialized or
+        /// <paramref name="breadcrumb"/> is <see langword="null"/>. It never
+        /// throws into the game.
+        /// </remarks>
+        public static void AddBreadcrumb(Breadcrumb breadcrumb)
+        {
+            AddBreadcrumbInternal(breadcrumb);
         }
 
         /// <summary>
@@ -166,27 +252,12 @@ namespace GlitchPort.Unity
                 return null;
             }
 
-            var client = _client;
-            if (client is null)
-            {
-                return null;
-            }
-
-            try
-            {
-                return client.CaptureMessageAsync(message, level).GetAwaiter().GetResult();
-            }
-            catch (Exception)
-            {
-                // Capture must never throw into the game.
-                return null;
-            }
+            return Capture(client => client.CaptureMessageAsync(message, level).GetAwaiter().GetResult());
         }
 
         /// <summary>
-        /// Enqueues an exception as an event whose message is
-        /// <c>Type: Message</c> followed by the stack trace when one is available.
-        /// The call never waits for delivery.
+        /// Enqueues an exception as a structured event and returns its id
+        /// immediately. The call never waits for delivery.
         /// </summary>
         /// <param name="exception">The exception to report.</param>
         /// <param name="level">The event severity.</param>
@@ -201,22 +272,8 @@ namespace GlitchPort.Unity
                 return null;
             }
 
-            try
-            {
-                var exceptionType = exception.GetType();
-                var message = (exceptionType.FullName ?? exceptionType.Name) + ": " + exception.Message;
-                var stackTrace = exception.StackTrace;
-                if (!string.IsNullOrEmpty(stackTrace))
-                {
-                    message += "\n" + stackTrace;
-                }
-
-                return CaptureMessage(message, level);
-            }
-            catch (Exception)
-            {
-                return null;
-            }
+            return Capture(client =>
+                client.CaptureExceptionAsync(exception, level).GetAwaiter().GetResult());
         }
 
         /// <summary>
@@ -233,7 +290,7 @@ namespace GlitchPort.Unity
         /// </returns>
         public static async Task<DeliveryReport?> FlushAsync(TimeSpan? timeout = null)
         {
-            var client = _client;
+            var client = Volatile.Read(ref _client);
             if (client is null)
             {
                 return null;
@@ -250,14 +307,33 @@ namespace GlitchPort.Unity
         }
 
         /// <summary>
-        /// Unsubscribes from Unity callbacks and disposes the active client after a
-        /// bounded flush. The method is idempotent, never throws, and allows a
-        /// later <see cref="Init()"/> call.
+        /// Stops the lifecycle tracker, unsubscribes from Unity callbacks, clears
+        /// the context provider and disposes the active client after a bounded
+        /// flush. The method is idempotent, never throws, and allows a later
+        /// <see cref="Init()"/> call.
         /// </summary>
         public static void Close()
         {
-            var client = Interlocked.Exchange(ref _client, null);
-            _settings = null;
+            UnityBreadcrumbTracker? tracker;
+            GlitchPortClient? client;
+
+            lock (CaptureGate)
+            {
+                client = _client;
+                tracker = _breadcrumbTracker;
+                _client = null;
+                _breadcrumbTracker = null;
+                _settings = null;
+            }
+
+            try
+            {
+                tracker?.Dispose();
+            }
+            catch (Exception)
+            {
+                // Unity is shutting down; the tracker no longer matters.
+            }
 
             try
             {
@@ -275,6 +351,11 @@ namespace GlitchPort.Unity
             catch (Exception)
             {
                 // Unity is shutting down; the subscription no longer matters.
+            }
+
+            lock (CaptureGate)
+            {
+                _contextProvider = null;
             }
 
             if (client is null)
@@ -300,6 +381,10 @@ namespace GlitchPort.Unity
         private static void ResetStaticsBeforePlay()
         {
             Close();
+
+            // Runtime initialization runs on the Unity main thread; remembering
+            // it here lets log callbacks on other threads skip engine access.
+            Volatile.Write(ref _mainThreadId, Thread.CurrentThread.ManagedThreadId);
             _unsupportedPlatformWarned = false;
             _noRelayDiagnosticLogged = false;
         }
@@ -357,7 +442,8 @@ namespace GlitchPort.Unity
                 Application.persistentDataPath,
                 Application.productName,
                 PackageVersion,
-                ResolveTerminalExecutablePath(isEditor, isDevelopmentBuild));
+                ResolveTerminalExecutablePath(isEditor, isDevelopmentBuild),
+                Application.version);
         }
 
         private static bool CanStartProcess(RuntimePlatform platform)
@@ -407,16 +493,53 @@ namespace GlitchPort.Unity
 
         private static bool TryInitialize(GlitchPortSettings settings, GlitchPortOptions options)
         {
+            RememberMainThread();
+
             GlitchPortClient? client = null;
+            UnityContextProvider? provider = null;
+            UnityBreadcrumbTracker? tracker = null;
 
             try
             {
                 client = new GlitchPortClient(options);
 
-                // Publish the state before subscribing so a log emitted between
-                // the two can already be captured.
-                _settings = settings;
-                _client = client;
+                provider = new UnityContextProvider(new UnitySystemContextSource());
+
+                // Collect reads engine state, so it must run on the main thread.
+                // Init is a main-thread API; a caller that breaks that contract
+                // still gets a working client with the default snapshot.
+                if (IsMainThread())
+                {
+                    provider.Collect();
+                }
+
+                lock (CaptureGate)
+                {
+                    ApplyContexts(client, provider);
+
+                    if (options.SendDefaultPii)
+                    {
+                        var user = provider.CreateUser(sendDefaultPii: true);
+                        if (user is not null)
+                        {
+                            client.SetUser(user);
+                        }
+                    }
+
+                    // Publish the state before subscribing so a log emitted
+                    // between the two can already be captured.
+                    _settings = settings;
+                    _client = client;
+                    _contextProvider = provider;
+                }
+
+                tracker = new UnityBreadcrumbTracker(AddBreadcrumbInternal);
+                tracker.Start();
+
+                lock (CaptureGate)
+                {
+                    _breadcrumbTracker = tracker;
+                }
 
                 Application.logMessageReceivedThreaded += OnLogMessageReceivedThreaded;
                 Application.quitting += OnQuitting;
@@ -424,8 +547,21 @@ namespace GlitchPort.Unity
             }
             catch (Exception ex)
             {
-                _client = null;
-                _settings = null;
+                lock (CaptureGate)
+                {
+                    _client = null;
+                    _settings = null;
+                    _contextProvider = null;
+                    _breadcrumbTracker = null;
+                }
+
+                try
+                {
+                    tracker?.Dispose();
+                }
+                catch (Exception)
+                {
+                }
 
                 try
                 {
@@ -456,22 +592,163 @@ namespace GlitchPort.Unity
             }
         }
 
+        /// <summary>
+        /// Enqueues an event through the active client after refreshing and
+        /// re-applying the Unity context. The caller must not hold
+        /// <see cref="CaptureGate"/>.
+        /// </summary>
+        private static Guid? Capture(Func<GlitchPortClient, Guid> capture)
+        {
+            try
+            {
+                lock (CaptureGate)
+                {
+                    var client = _client;
+                    if (client is null)
+                    {
+                        return null;
+                    }
+
+                    RefreshContexts(client);
+                    return capture(client);
+                }
+            }
+            catch (Exception)
+            {
+                // Capture must never throw into the game.
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Applies a scope mutation through the active client. The caller must
+        /// not hold <see cref="CaptureGate"/>.
+        /// </summary>
+        private static void MutateScope(Action<GlitchPortClient> mutate)
+        {
+            try
+            {
+                lock (CaptureGate)
+                {
+                    var client = _client;
+                    if (client is null)
+                    {
+                        return;
+                    }
+
+                    mutate(client);
+                }
+            }
+            catch (Exception)
+            {
+                // Scope changes must never throw into the game.
+            }
+        }
+
+        /// <summary>
+        /// Refreshes the per-frame game context on the main thread and re-applies
+        /// every context namespace and tag. The caller must hold
+        /// <see cref="CaptureGate"/>.
+        /// </summary>
+        private static void RefreshContexts(GlitchPortClient client)
+        {
+            var provider = _contextProvider;
+            if (provider is null)
+            {
+                return;
+            }
+
+            if (IsMainThread())
+            {
+                try
+                {
+                    provider.RefreshFrame();
+                }
+                catch (Exception)
+                {
+                    // The cached frame snapshot remains usable.
+                }
+            }
+
+            ApplyContexts(client, provider);
+        }
+
+        /// <summary>
+        /// Applies every context namespace and tag from <paramref name="provider"/>.
+        /// The caller must hold <see cref="CaptureGate"/>.
+        /// </summary>
+        private static void ApplyContexts(GlitchPortClient client, UnityContextProvider provider)
+        {
+            foreach (var context in provider.CreateContexts())
+            {
+                client.SetContext(context.Key, context.Value);
+            }
+
+            foreach (var tag in provider.CreateTags())
+            {
+                client.SetTag(tag.Key, tag.Value);
+            }
+        }
+
+        /// <summary>
+        /// The tracker callback: adds a lifecycle breadcrumb through the same lock
+        /// as captures so it cannot corrupt the Core scope.
+        /// </summary>
+        private static void AddBreadcrumbInternal(Breadcrumb breadcrumb)
+        {
+            if (breadcrumb is null)
+            {
+                return;
+            }
+
+            MutateScope(client => client.AddBreadcrumb(breadcrumb));
+        }
+
         private static void OnLogMessageReceivedThreaded(string condition, string stackTrace, LogType type)
         {
             try
             {
-                var settings = _settings;
+                var settings = Volatile.Read(ref _settings);
                 if (settings is null)
                 {
                     return;
                 }
 
-                if (!UnityLogBridge.TryMap(condition, stackTrace, type, settings, out var message, out var level))
+                var mapping = UnityLogBridge.Map(condition, stackTrace, type, settings);
+                if (mapping.IsEmpty)
                 {
                     return;
                 }
 
-                CaptureMessage(message, level);
+                try
+                {
+                    lock (CaptureGate)
+                    {
+                        var client = _client;
+                        if (client is null)
+                        {
+                            return;
+                        }
+
+                        if (mapping.Breadcrumb is not null)
+                        {
+                            // The scope breadcrumb is merged into the event below,
+                            // and survives for every later capture when the event
+                            // capture flag is off.
+                            client.AddBreadcrumb(mapping.Breadcrumb);
+                        }
+
+                        if (mapping.Event is not null)
+                        {
+                            RefreshContexts(client);
+                            client.CaptureEventAsync(mapping.Event).GetAwaiter().GetResult();
+                        }
+                    }
+                }
+                catch (Exception)
+                {
+                    // A log callback must never throw into Unity's logging pipeline.
+                }
             }
             catch (Exception)
             {
@@ -482,6 +759,23 @@ namespace GlitchPort.Unity
         private static void OnQuitting()
         {
             Close();
+        }
+
+        private static bool IsMainThread()
+        {
+            var mainThreadId = Volatile.Read(ref _mainThreadId);
+            return mainThreadId == 0 || mainThreadId == Thread.CurrentThread.ManagedThreadId;
+        }
+
+        private static void RememberMainThread()
+        {
+            if (Volatile.Read(ref _mainThreadId) == 0)
+            {
+                Interlocked.CompareExchange(
+                    ref _mainThreadId,
+                    Thread.CurrentThread.ManagedThreadId,
+                    0);
+            }
         }
 
         private static void WarnUnsupportedPlatformOnce()

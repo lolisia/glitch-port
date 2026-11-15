@@ -53,6 +53,34 @@ namespace GlitchPort.Unity
         /// <summary>Gets or sets the minimum level delivered by the HTTP relay.</summary>
         public Level HttpMinLevel = Level.Error;
 
+        /// <summary>
+        /// Gets or sets the release identifier copied onto every event. An empty
+        /// value uses the product name and the application version, for example
+        /// <c>My Game@1.2.3</c>.
+        /// </summary>
+        public string Release = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the deployment environment copied onto every event. An
+        /// empty value uses <c>editor</c>, <c>development</c> or
+        /// <c>production</c> depending on where the game runs.
+        /// </summary>
+        public string Environment = string.Empty;
+
+        /// <summary>
+        /// Gets or sets a value indicating whether personally identifiable
+        /// information, such as the user name or IP address, may be collected and
+        /// sent.
+        /// </summary>
+        public bool SendDefaultPii = false;
+
+        /// <summary>Gets or sets the maximum number of breadcrumbs kept for an event.</summary>
+        public int MaxBreadcrumbs = 100;
+
+        /// <summary>Gets or sets the fraction of events that is sent, between 0 and 1.</summary>
+        [Range(0f, 1f)]
+        public float SampleRate = 1f;
+
         /// <summary>Gets or sets a value indicating whether <see cref="LogType.Exception"/> messages are captured.</summary>
         [Header("Log capture")]
         public bool CaptureExceptions = true;
@@ -65,6 +93,9 @@ namespace GlitchPort.Unity
 
         /// <summary>Gets or sets a value indicating whether <see cref="LogType.Log"/> messages are captured.</summary>
         public bool CaptureLogs = false;
+
+        /// <summary>Gets or sets a value indicating whether captured log messages are recorded as breadcrumbs.</summary>
+        public bool CaptureBreadcrumbsFromLogs = true;
 
         /// <summary>Gets or sets when the local terminal relay is attached.</summary>
         [Header("Local relays")]
