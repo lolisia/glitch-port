@@ -17,11 +17,34 @@ Relays are useful beyond production reporting:
 The terminal and file relays are local: they need no collector, no network and
 no Docker.
 
+## What every relay receives
+
+Every capture is serialized **once** into the protocol v1 event JSON documented
+in [Event ingest API](http-api-events.md); all relays of a client forward that
+same body. The captured event also exposes the parts of the payload that the
+local renderers need:
+
+| Property     | Content                                                                                                                        |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `EventId`    | The event id (`event_id`).                                                                                                      |
+| `Timestamp`  | The capture time in UTC.                                                                                                        |
+| `Level`      | The protocol level used for the relay's `MinLevel` filter and for rendering.                                                    |
+| `Message`    | The display title: the event's `message`, or `<type>: <value>` of the outermost exception when the event carries no message.    |
+| `Json`       | The complete compact v1 JSON body (HTTP body, NDJSON line and terminal `payload`).                                              |
+| `Exceptions` | Exception summaries ordered inner cause first, each with up to five application (`in_app`) frames.                              |
+| `Tags`       | The merged tags.                                                                                                                |
+| `Release`    | The release identifier, when set.                                                                                               |
+| `Environment`| The deployment environment, when set.                                                                                           |
+
+A captured exception therefore carries its exception chain, and a capture with
+tags, a release or an environment carries all three to the terminal and file
+relays as well as to the collector.
+
 ## Relay types
 
 | Type       | Destination                                          | Typical use                                      | Network | Writes files |
 | ---------- | ---------------------------------------------------- | ------------------------------------------------ | ------- | ------------ |
-| `http`     | A glitch-port Relay via `POST /api/{projectId}/messages` | Production crash and error reporting         | Yes     | No           |
+| `http`     | A glitch-port Relay via `POST /api/{projectId}/events` | Production crash and error reporting           | Yes     | No           |
 | `terminal` | `glitchport-terminal`, a child console renderer      | Interactive development and playtests            | No      | No           |
 | `file`     | Rotating NDJSON or text log files                    | Headless runs, CI, QA machines, crash triage     | No      | Yes          |
 
@@ -100,20 +123,42 @@ file relays. Setting `Dsn` is exactly equivalent to adding
 
 ### HTTP relay
 
-`Relay.Http` parses its argument with `Dsn.Parse` and posts every event to:
+`Relay.Http` parses its argument with `Dsn.Parse` and posts every event to the
+v1 ingest endpoint:
 
 ```text
-POST {scheme}://{host}:{port}/api/{projectId}/messages
+POST {scheme}://{host}:{port}/api/{projectId}/events
 X-GlitchPort-Key: {publicKey}
-Content-Type: application/json
+Content-Type: application/json; charset=utf-8
+Content-Encoding: gzip          (only for bodies of 1024 bytes or more)
 ```
 
 The public key is the DSN's URI userinfo and the project id is the last path
 segment, so `http://dev-public-key@localhost:5080/1` posts to
-`http://localhost:5080/api/1/messages`. A failed request is retried once after
-200 ms before it is counted as failed. All HTTP relays of a client share one
-`HttpClient` (an instance may be injected through the `GlitchPortClient`
-constructor).
+`http://localhost:5080/api/1/events`.
+
+**Body.** The request body is the protocol v1 event JSON produced by the client
+— the same body the [Event ingest API](http-api-events.md) describes. An
+exception capture carries the `exception` array, and the body carries `tags`,
+`release` and `environment` whenever the event has them:
+
+```json
+{"event_id":"9f1c2d3e-4f5a-6b7c-8d9e-0f1a2b3c4d5e","timestamp":"2026-11-15T10:22:31.123Z","level":"error","platform":"dotnet","release":"star-raiders@1.2.3","environment":"production","sdk":{"name":"glitchport.dotnet","version":"0.1.0"},"exception":[{"type":"System.InvalidOperationException","value":"boom"}],"tags":{"scene":"arena_02"}}
+```
+
+The serializer has already applied every protocol limit (message length, tag
+count, context size, …) before the relay sees the body.
+
+**Compression.** A body of **1024 UTF-8 bytes or more** is gzip-compressed and
+sent with `Content-Encoding: gzip`; smaller bodies are sent as they are. The
+Relay accepts a gzip-compressed body and rejects any other content encoding.
+
+**Retries.** A failed request (transport error or a non-success status code) is
+retried once after 200 ms before it is counted as failed. The status code and a
+truncated response body are kept in the relay's `LastError`.
+
+All HTTP relays of a client share one `HttpClient` (an instance may be injected
+through the `GlitchPortClient` constructor).
 
 ### Terminal relay
 
@@ -145,8 +190,22 @@ The renderer reads a small JSON-lines protocol from standard input:
 
 ```json
 {"type":"hello","protocol":1,"parent_pid":12345,"app":"MyGame"}
-{"type":"event","payload":{"event_id":"…","level":"error","message":"…"}}
+{"type":"event","payload":{"event_id":"9f1c2d3e-4f5a-6b7c-8d9e-0f1a2b3c4d5e","timestamp":"2026-11-15T10:22:31.123Z","level":"error","platform":"dotnet","sdk":{"name":"glitchport.dotnet","version":"0.1.0"},"exception":[{"type":"System.InvalidOperationException","value":"boom"}],"tags":{"scene":"arena_02"},"release":"star-raiders@1.2.3","environment":"production"}}
 ```
+
+`payload` is the complete protocol v1 event: the same JSON the HTTP relay posts
+and the file relay writes to NDJSON. It is never a reduced shape, so the
+renderer sees the exception chain, tags, release and environment of every
+event. `Format` selects how the payload is rendered:
+
+| `TerminalFormat` | Output                                                                                                                                                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Pretty`         | Multi-line: local time, level and the title (the outermost exception's `type: value`, or the message for a message-only event). An event with an exception then adds up to five `  at Module.Function (file:line)` frames, one sorted `  tags: key=value, …` line and `  release:` / `  environment:` lines when it carries them; the last line is `  sdk={name}/{version} · id {short id}`. |
+| `Compact`        | One line: `{local time} {LEVEL} {title}  (id {short id})`, with the same title rule.                                                                                                                                       |
+| `Json`           | The raw `payload` JSON, exactly as received.                                                                                                                                                                              |
+
+When standard output is a real console with ANSI support, `Pretty` and
+`Compact` colour only the level token; `Json` is written verbatim.
 
 **Window behaviour.** `TerminalWindow.Inherit` (the default) uses the console
 that the game already owns, on every platform. `TerminalWindow.New` detaches
@@ -211,7 +270,7 @@ parents) when the relay is created.
 | `MinLevel`       | `Level.Debug`     | Lowest level written.                                                |
 | `QueueCapacity`  | `1000`            | Maximum number of events waiting for the writer.                     |
 | `Directory`      | `logs/glitchport` | Target directory; relative paths are resolved when the relay is created. |
-| `Format`         | `FileFormat.Ndjson` | `Ndjson` (one JSON payload per line) or `Text`.                    |
+| `Format`         | `FileFormat.Ndjson` | `Ndjson` (one v1 event JSON per line) or `Text` (one compact line per event). |
 | `MaxFileSizeMb`  | `10`              | Rotate once the active file exceeds this size; `0` starts a new file per event. |
 | `MaxAgeDays`     | `7`               | Delete own files older than this; `0` disables the age limit.        |
 | `MaxTotalSizeMb` | `200`             | Delete the oldest own files above this total; `0` disables the limit. |
@@ -229,9 +288,13 @@ glitchport-{yyyyMMdd-HHmmss}-{pid}.log      (FileFormat.Text)
 If a file with that name already exists (two writers in the same second), a
 numeric suffix is appended: `glitchport-20261114-101500-4321-1.ndjson`.
 
-**Formats.** `Ndjson` writes the raw event payload, one JSON object per line.
-`Text` writes the same compact line as the terminal renderer:
-`2026-11-14 10:15:00.123 ERROR message  (id 1a2b3c4d)`.
+**Formats.** `Ndjson` writes the complete protocol v1 event JSON — the same
+body the HTTP relay posts — as one JSON object per line. `Text` writes the same
+compact line as the terminal renderer:
+`2026-11-14 10:15:00.123 ERROR message  (id 1a2b3c4d)`. For an event with an
+exception the title is the outermost exception's `type: value`, for example
+`2026-11-14 10:15:00.123 ERROR System.InvalidOperationException: boom  (id 1a2b3c4d)`;
+a message-only event keeps its message as the title.
 
 **Rotation.** A new file is started when the local date changes or when the
 active file has exceeded `MaxFileSizeMb`. The next event continues the same file
@@ -343,11 +406,12 @@ relay accepts all levels from `debug` up.
 
 ## Delivery semantics and reporting
 
-- **Capture never blocks and never throws because of a relay.** `CaptureMessageAsync`
-  builds the event once, enqueues it into every relay that accepts the level and
-  returns the event id immediately. Argument, disposal and cancellation problems
-  are reported as faulted tasks before enqueueing; delivery failures are not
-  thrown at the capture site.
+- **Capture never blocks and never throws because of a relay.**
+  `CaptureMessageAsync`, `CaptureExceptionAsync` and `CaptureEventAsync` build
+  the event once, enqueue it into every relay that accepts the level and return
+  the event id immediately. Argument, disposal and cancellation problems are
+  reported as faulted tasks before enqueueing; delivery failures are not thrown
+  at the capture site.
 - **Queues are bounded.** Each relay accepts at most `QueueCapacity` events
   (default `1000`). When the queue is full the event is counted as `Dropped` for
   that relay; capture does not wait. Events below a relay's `MinLevel` are not

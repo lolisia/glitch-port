@@ -1,8 +1,9 @@
 # HelloClient
 
-Minimal console sample that captures messages through `GlitchPort.Core`. The
-end-to-end check runs it against a local collector, and it doubles as a manual
-playground for the file and terminal relays.
+Minimal console sample that captures messages (or, with `--exception`, a sample
+exception) through `GlitchPort.Core`. The end-to-end check runs it against a
+local collector, and it doubles as a manual playground for the file and terminal
+relays.
 
 The build also produces `glitchport-terminal` next to `HelloClient.exe`, so a
 `terminal:` relay works without any extra setup.
@@ -15,13 +16,20 @@ dotnet run --project sdk/dotnet/samples/HelloClient -- [message] [options]
 
 Arguments:
 
-- `message` — the text to capture; defaults to `hello`.
+- `message` — the text to capture; defaults to `hello`. Ignored with
+  `--exception`.
 - `--level <debug|info|warning|error|fatal>` — event severity, case-insensitive;
-  defaults to `info`.
+  defaults to `info`, or to `error` when `--exception` is used.
 - `--count <n>` — number of events to capture; defaults to `1`, must be `>= 1`.
 - `--hold <seconds>` — keep the process alive after the flush, for example to
   read a terminal relay window; defaults to `0`, must be `>= 0`. Ctrl+C stops
   the wait.
+- `--exception` — capture a sample exception
+  (`InvalidOperationException: sample exception from HelloClient` with an inner
+  `ArgumentException: sample inner argument`) through
+  `GlitchPortClient.CaptureExceptionAsync` instead of capturing the message. The
+  output is unchanged: one `event_id: <guid>` line per event and the relay
+  report.
 
 ## Configuration
 

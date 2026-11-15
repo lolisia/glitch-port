@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    Minimal game-server-like host used by scripts/e2e-dotnet-server.sh and as a
+    manual playground for the GlitchPort.AspNetCore integration.
+
+    The sample only references the integration package: AddGlitchPort brings the
+    dependency-free SDK core (GlitchPort.Core) in transitively, so nothing else
+    is needed to capture request exceptions and ILogger errors.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\GlitchPort.AspNetCore\GlitchPort.AspNetCore.csproj" />
+  </ItemGroup>
+
+</Project>

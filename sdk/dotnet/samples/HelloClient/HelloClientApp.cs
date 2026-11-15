@@ -8,13 +8,20 @@ namespace GlitchPort.HelloClient
 {
     /// <summary>
     /// The testable body of the hello sample: parses the command line, resolves the
-    /// relay configuration, captures the message through <see cref="GlitchPortClient"/>,
-    /// flushes the relays and reports each relay's delivery counters.
+    /// relay configuration, captures the message (or, with <c>--exception</c>, a
+    /// sample exception) through <see cref="GlitchPortClient"/>, flushes the relays
+    /// and reports each relay's delivery counters.
     /// </summary>
     internal static class HelloClientApp
     {
         /// <summary>The message captured when the user passes no argument.</summary>
         internal const string DefaultMessage = "hello";
+
+        /// <summary>The message of the sample exception captured by <c>--exception</c>.</summary>
+        internal const string SampleExceptionMessage = "sample exception from HelloClient";
+
+        /// <summary>The message of the sample exception's inner exception.</summary>
+        internal const string SampleInnerExceptionMessage = "sample inner argument";
 
         /// <summary>The DSN used when <see cref="DsnEnvironmentVariable"/> is not set.</summary>
         internal const string DefaultDsn = "http://dev-public-key@localhost:5080/1";
@@ -23,14 +30,15 @@ namespace GlitchPort.HelloClient
         internal const string DsnEnvironmentVariable = "GLITCHPORT_DSN";
 
         /// <summary>
-        /// Parses the arguments, captures the message <c>--count</c> times, flushes
-        /// the relays, prints the terminal child pid (when one was started) and one
-        /// delivery line per relay, optionally holds the process open, and writes a
+        /// Parses the arguments, captures the message (or a sample exception when
+        /// <c>--exception</c> is set) <c>--count</c> times, flushes the relays,
+        /// prints the terminal child pid (when one was started) and one delivery
+        /// line per relay, optionally holds the process open, and writes a
         /// single-line <c>error: ...</c> message when anything fails.
         /// </summary>
         /// <param name="args">
         /// The command line: <c>[message] [--level &lt;debug|info|warning|error|fatal&gt;]
-        /// [--count &lt;n&gt;] [--hold &lt;seconds&gt;]</c>.
+        /// [--count &lt;n&gt;] [--hold &lt;seconds&gt;] [--exception]</c>.
         /// </param>
         /// <param name="stdout">The writer that receives the event ids and report.</param>
         /// <param name="stderr">The writer that receives the error on failure.</param>
@@ -63,11 +71,18 @@ namespace GlitchPort.HelloClient
 
                 using var client = (clientFactory ?? CreateClient)(options);
 
+                // A captured exception is an error unless --level asked for
+                // another severity; a captured message keeps the parsed default.
+                var level = arguments.Exception && !arguments.LevelSpecified
+                    ? Level.Error
+                    : arguments.Level;
+
                 for (var i = 0; i < arguments.Count; i++)
                 {
-                    var eventId = await client
-                        .CaptureMessageAsync(arguments.Message, arguments.Level, cancellationToken)
-                        .ConfigureAwait(false);
+                    var eventId = arguments.Exception
+                        ? await CaptureSampleExceptionAsync(client, level, cancellationToken).ConfigureAwait(false)
+                        : await client.CaptureMessageAsync(arguments.Message, level, cancellationToken)
+                            .ConfigureAwait(false);
 
                     stdout.WriteLine("event_id: " + eventId.ToString("D", CultureInfo.InvariantCulture));
                 }
@@ -128,6 +143,34 @@ namespace GlitchPort.HelloClient
         }
 
         /// <summary>
+        /// Throws and catches a sample exception, then reports it through
+        /// <see cref="GlitchPortClient.CaptureExceptionAsync"/> — exactly what an
+        /// application error boundary does with an exception it handled itself.
+        /// </summary>
+        /// <param name="client">The client that captures the exception.</param>
+        /// <param name="level">The severity of the resulting event.</param>
+        /// <param name="cancellationToken">A token that cancels the capture.</param>
+        /// <returns>The generated event id.</returns>
+        private static async Task<Guid> CaptureSampleExceptionAsync(
+            GlitchPortClient client,
+            Level level,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                throw new InvalidOperationException(
+                    SampleExceptionMessage,
+                    new ArgumentException(SampleInnerExceptionMessage));
+            }
+            catch (InvalidOperationException exception)
+            {
+                return await client
+                    .CaptureExceptionAsync(exception, level, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
         /// Prints <c>terminal_pid: &lt;pid&gt;</c> for every terminal relay that
         /// started its child renderer.
         /// </summary>
@@ -166,13 +209,21 @@ namespace GlitchPort.HelloClient
             out ParsedArguments arguments,
             out string error)
         {
-            arguments = new ParsedArguments(DefaultMessage, Level.Info, 1, 0);
+            arguments = new ParsedArguments(
+                DefaultMessage,
+                Level.Info,
+                levelSpecified: false,
+                count: 1,
+                exception: false,
+                holdSeconds: 0d);
             error = string.Empty;
 
             var message = DefaultMessage;
             var messageSet = false;
             var level = Level.Info;
+            var levelSpecified = false;
             var count = 1;
+            var exception = false;
             var holdSeconds = 0d;
 
             for (var i = 0; i < args.Length; i++)
@@ -195,6 +246,11 @@ namespace GlitchPort.HelloClient
                             return false;
                         }
 
+                        levelSpecified = true;
+                        break;
+
+                    case "--exception":
+                        exception = true;
                         break;
 
                     case "--count":
@@ -249,7 +305,7 @@ namespace GlitchPort.HelloClient
                 }
             }
 
-            arguments = new ParsedArguments(message, level, count, holdSeconds);
+            arguments = new ParsedArguments(message, level, levelSpecified, count, exception, holdSeconds);
             return true;
         }
 
@@ -295,11 +351,19 @@ namespace GlitchPort.HelloClient
 
         private readonly struct ParsedArguments
         {
-            public ParsedArguments(string message, Level level, int count, double holdSeconds)
+            public ParsedArguments(
+                string message,
+                Level level,
+                bool levelSpecified,
+                int count,
+                bool exception,
+                double holdSeconds)
             {
                 Message = message;
                 Level = level;
+                LevelSpecified = levelSpecified;
                 Count = count;
+                Exception = exception;
                 HoldSeconds = holdSeconds;
             }
 
@@ -307,7 +371,13 @@ namespace GlitchPort.HelloClient
 
             public Level Level { get; }
 
+            /// <summary>Gets a value indicating whether <c>--level</c> was given.</summary>
+            public bool LevelSpecified { get; }
+
             public int Count { get; }
+
+            /// <summary>Gets a value indicating whether <c>--exception</c> was given.</summary>
+            public bool Exception { get; }
 
             public double HoldSeconds { get; }
         }

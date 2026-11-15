@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using Xunit;
 
 namespace GlitchPort.Tests
@@ -180,10 +182,282 @@ namespace GlitchPort.Tests
             }
         }
 
+        [Fact]
+        public void FormatCompact_Exception_UsesTypeAndValueOnOneLine()
+        {
+            var e = CreateEvent(
+                message: "the stored message is not shown",
+                level: Level.Error,
+                exception: CreateException());
+
+            var result = EventFormatter.FormatCompact(e, color: false);
+
+            Assert.Equal(
+                "2026-11-14 15:02:14.010 ERROR System.InvalidOperationException: boom  (id 3b7e0c11)",
+                result);
+        }
+
+        [Fact]
+        public void FormatCompact_ExceptionWithFramesTagsAndMetadata_StaysOneLine()
+        {
+            var e = CreateEvent(
+                level: Level.Error,
+                exception: CreateException(frames: new[] { Frame("Game", "Update", "Update.cs", 12) }),
+                tags: new Dictionary<string, string> { ["scene"] = "Stage1" },
+                release: "star-raiders@1.2.3",
+                environment: "production");
+
+            var result = EventFormatter.FormatCompact(e, color: false);
+
+            Assert.Equal(
+                "2026-11-14 15:02:14.010 ERROR System.InvalidOperationException: boom  (id 3b7e0c11)",
+                result);
+            Assert.DoesNotContain("\n", result);
+            Assert.DoesNotContain("at Game", result);
+            Assert.DoesNotContain("tags:", result);
+            Assert.DoesNotContain("release:", result);
+            Assert.DoesNotContain("environment:", result);
+        }
+
+        [Fact]
+        public void FormatCompact_ExceptionWithoutValue_PrintsOnlyTheType()
+        {
+            var e = CreateEvent(
+                level: Level.Error,
+                exception: new CapturedExceptionSummary("System.InvalidOperationException", "", null));
+
+            var result = EventFormatter.FormatCompact(e, color: false);
+
+            Assert.Equal(
+                "2026-11-14 15:02:14.010 ERROR System.InvalidOperationException  (id 3b7e0c11)",
+                result);
+        }
+
+        [Fact]
+        public void FormatPretty_Exception_PrintsFramesTagsMetadataAndFooterLast()
+        {
+            var e = CreateEvent(
+                level: Level.Error,
+                exception: CreateException(frames: new[]
+                {
+                    Frame("Game", "Update", "Update.cs", 12),
+                    Frame("Game", "Start", "Start.cs", 3),
+                }),
+                tags: new Dictionary<string, string>
+                {
+                    ["z"] = "last",
+                    ["a"] = "first",
+                },
+                release: "star-raiders@1.2.3",
+                environment: "production");
+
+            var result = EventFormatter.FormatPretty(e, color: false);
+
+            Assert.Equal(
+                "15:02:14.010 ERROR System.InvalidOperationException: boom\n"
+                    + "  at Game.Update (Update.cs:12)\n"
+                    + "  at Game.Start (Start.cs:3)\n"
+                    + "  tags: a=first, z=last\n"
+                    + "  release: star-raiders@1.2.3\n"
+                    + "  environment: production\n"
+                    + "  sdk=glitchport.dotnet/0.1.0 \u00b7 id 3b7e0c11",
+                result);
+        }
+
+        [Fact]
+        public void FormatPretty_Exception_PrintsAtMostFiveFramesFromTheThrowSite()
+        {
+            var frames = Enumerable.Range(0, 7)
+                .Select(index => Frame("Game", "Frame" + index, "Game.cs", index + 1))
+                .ToArray();
+            var e = CreateEvent(level: Level.Error, exception: CreateException(frames: frames));
+
+            var result = EventFormatter.FormatPretty(e, color: false);
+
+            Assert.Equal(
+                "15:02:14.010 ERROR System.InvalidOperationException: boom\n"
+                    + "  at Game.Frame0 (Game.cs:1)\n"
+                    + "  at Game.Frame1 (Game.cs:2)\n"
+                    + "  at Game.Frame2 (Game.cs:3)\n"
+                    + "  at Game.Frame3 (Game.cs:4)\n"
+                    + "  at Game.Frame4 (Game.cs:5)\n"
+                    + "  sdk=glitchport.dotnet/0.1.0 \u00b7 id 3b7e0c11",
+                result);
+            Assert.DoesNotContain("Frame5", result, StringComparison.Ordinal);
+            Assert.DoesNotContain("Frame6", result, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void FormatPretty_UnrenderableLeadingFrames_DoNotLetAFrameBeyondTheFifthAppear()
+        {
+            var frames = new[]
+            {
+                Frame(null, null, null, null),
+                Frame(null, null, null, null),
+                Frame(null, null, null, null),
+                Frame(null, null, null, null),
+                Frame(null, null, null, null),
+                Frame("Game", "Sixth", "Game.cs", 6),
+            };
+            var e = CreateEvent(level: Level.Error, exception: CreateException(frames: frames));
+
+            var result = EventFormatter.FormatPretty(e, color: false);
+
+            Assert.Equal(
+                "15:02:14.010 ERROR System.InvalidOperationException: boom\n"
+                    + "  sdk=glitchport.dotnet/0.1.0 \u00b7 id 3b7e0c11",
+                result);
+            Assert.DoesNotContain("Sixth", result, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void FormatPretty_FramePartsThatAreAbsent_AreOmitted()
+        {
+            var e = CreateEvent(
+                level: Level.Error,
+                exception: CreateException(frames: new[]
+                {
+                    Frame(null, "Bare", null, null),
+                    Frame("Game", "Update", "Update.cs", null),
+                    Frame(null, "Plain", "Plain.cs", 7),
+                    Frame("Game", null, "Module.cs", 2),
+                    Frame(null, null, "Orphan.cs", 1),
+                }));
+
+            var result = EventFormatter.FormatPretty(e, color: false);
+
+            Assert.Equal(
+                "15:02:14.010 ERROR System.InvalidOperationException: boom\n"
+                    + "  at Bare\n"
+                    + "  at Game.Update (Update.cs)\n"
+                    + "  at Plain (Plain.cs:7)\n"
+                    + "  at Game (Module.cs:2)\n"
+                    + "  sdk=glitchport.dotnet/0.1.0 \u00b7 id 3b7e0c11",
+                result);
+        }
+
+        [Fact]
+        public void FormatPretty_MultipleExceptions_UseTheOutermostSummary()
+        {
+            var inner = new CapturedExceptionSummary(
+                "System.ArgumentException",
+                "inner",
+                new[] { Frame("Game", "Inner", "Inner.cs", 1) });
+            var outer = new CapturedExceptionSummary(
+                "System.InvalidOperationException",
+                "outer",
+                new[] { Frame("Game", "Outer", "Outer.cs", 2) });
+            var e = CreateEvent(level: Level.Error, exceptions: new[] { inner, outer });
+
+            var result = EventFormatter.FormatPretty(e, color: false);
+
+            Assert.Equal(
+                "15:02:14.010 ERROR System.InvalidOperationException: outer\n"
+                    + "  at Game.Outer (Outer.cs:2)\n"
+                    + "  sdk=glitchport.dotnet/0.1.0 \u00b7 id 3b7e0c11",
+                result);
+        }
+
+        [Fact]
+        public void FormatPretty_Tags_AreSortedByKeyWithOrdinalOrder()
+        {
+            var e = CreateEvent(
+                exception: CreateException(),
+                tags: new Dictionary<string, string>
+                {
+                    ["b"] = "2",
+                    ["a"] = "3",
+                    ["A"] = "1",
+                });
+
+            var result = EventFormatter.FormatPretty(e, color: false);
+
+            Assert.Contains("\n  tags: A=1, a=3, b=2\n", result, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void FormatPretty_Exception_WithColor_WrapsOnlyTheLevelToken()
+        {
+            var e = CreateEvent(level: Level.Error, exception: CreateException());
+
+            var result = EventFormatter.FormatPretty(e, color: true);
+
+            Assert.Equal(
+                "15:02:14.010 \u001b[31mERROR\u001b[0m System.InvalidOperationException: boom\n"
+                    + "  sdk=glitchport.dotnet/0.1.0 \u00b7 id 3b7e0c11",
+                result);
+            Assert.Equal(2, CountEscapeCharacters(result));
+        }
+
+        [Fact]
+        public void MessageOnlyEvent_WithTagsAndMetadata_KeepsTheLegacyOutput()
+        {
+            // A client configured with release/environment (and scopes that add
+            // tags) attaches them to message captures too. The exception block is
+            // the only place that renders them, so the message-only output stays
+            // byte-for-byte identical to the pre-v1 format.
+            var e = CreateEvent(
+                tags: new Dictionary<string, string>
+                {
+                    ["scene"] = "Stage1",
+                    ["build"] = "debug",
+                },
+                release: "star-raiders@1.2.3",
+                environment: "production");
+
+            Assert.Equal(
+                "2026-11-14 15:02:14.010 INFO  hello  (id 3b7e0c11)",
+                EventFormatter.FormatCompact(e, color: false));
+
+            var pretty = EventFormatter.FormatPretty(e, color: false);
+
+            Assert.Equal(
+                "15:02:14.010 INFO  hello\n"
+                    + "  sdk=glitchport.dotnet/0.1.0 \u00b7 id 3b7e0c11",
+                pretty);
+            Assert.DoesNotContain("tags:", pretty, StringComparison.Ordinal);
+            Assert.DoesNotContain("release:", pretty, StringComparison.Ordinal);
+            Assert.DoesNotContain("environment:", pretty, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void MessageOnlyEvent_WithoutSummaries_KeepsTheLegacyOutput()
+        {
+            // The default helper passes empty exception, tag and metadata
+            // collections, which is exactly the T02 message-only shape.
+            var e = CreateEvent();
+
+            Assert.Equal(
+                "2026-11-14 15:02:14.010 INFO  hello  (id 3b7e0c11)",
+                EventFormatter.FormatCompact(e, color: false));
+            Assert.Equal(
+                "15:02:14.010 INFO  hello\n"
+                    + "  sdk=glitchport.dotnet/0.1.0 \u00b7 id 3b7e0c11",
+                EventFormatter.FormatPretty(e, color: false));
+        }
+
+        private static CapturedExceptionSummary CreateException(CapturedStackFrame[]? frames = null)
+        {
+            return new CapturedExceptionSummary(
+                "System.InvalidOperationException",
+                "boom",
+                frames);
+        }
+
         private static CapturedEvent CreateEvent(
             string message = "hello",
-            Level level = Level.Info)
+            Level level = Level.Info,
+            CapturedExceptionSummary? exception = null,
+            IReadOnlyList<CapturedExceptionSummary>? exceptions = null,
+            IReadOnlyDictionary<string, string>? tags = null,
+            string? release = null,
+            string? environment = null)
         {
+            var summaries = exceptions
+                ?? (exception is null
+                    ? Array.Empty<CapturedExceptionSummary>()
+                    : new[] { exception });
+
             return new CapturedEvent(
                 EventId,
                 LocalTime(2026, 11, 14, 15, 2, 14, 10),
@@ -191,7 +465,16 @@ namespace GlitchPort.Tests
                 message,
                 SdkName,
                 SdkVersion,
-                "{}");
+                "{}",
+                summaries,
+                tags,
+                release,
+                environment);
+        }
+
+        private static CapturedStackFrame Frame(string? module, string? function, string? fileName, int? line)
+        {
+            return new CapturedStackFrame(module, function, fileName, line);
         }
 
         /// <summary>

@@ -8,8 +8,8 @@
 #      writing their output to .artifact/e2e/*.log
 #   4. waits for both /healthz endpoints
 #   5. sends the default "hello" message through the .NET SDK sample
-#   6. asserts that the message reached the management API with the endpoint
-#      recorded by the Relay (POST /api/1/messages)
+#   6. asserts that the event reached the management API with the endpoint
+#      recorded by the Relay (POST /api/1/events)
 #
 # Usage (from the repository root, or from anywhere else):
 #   bash scripts/e2e-hello.sh
@@ -185,9 +185,11 @@ GLITCHPORT_DSN="$hello_dsn" \
     dotnet run --project sdk/dotnet/samples/HelloClient/HelloClient.csproj -c Release --no-build
 
 # The Relay records `"<method> <path>"` as the endpoint, so a stored hello
-# message proves the Relay forwarded the event to the Processor.
+# event proves the Relay forwarded the event to the Processor. The management
+# message list combines structured events and the legacy messages table, so the
+# hello event shows up there as well.
 messages_url="$processor_endpoint/api/manage/messages?limit=100"
-expected_endpoint="POST /api/$project_id/messages"
+expected_endpoint="POST /api/$project_id/events"
 deadline=$((SECONDS + 10))
 response=""
 
@@ -195,12 +197,12 @@ while :; do
     response="$(curl -sf -H "Authorization: Bearer $admin_token" "$messages_url" 2>/dev/null || true)"
 
     if grep -q 'hello' <<<"$response" && grep -q "$expected_endpoint" <<<"$response"; then
-        echo "e2e-hello: management API lists the hello message"
+        echo "e2e-hello: management API lists the hello event"
         break
     fi
 
     if [ "$SECONDS" -ge "$deadline" ]; then
-        echo "e2e-hello: the hello message did not reach the management API within 10s" >&2
+        echo "e2e-hello: the hello event did not reach the management API within 10s" >&2
         echo "e2e-hello: GET $messages_url returned:" >&2
         printf '%s\n' "${response:-<no response>}" >&2
         exit 1

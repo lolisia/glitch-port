@@ -47,7 +47,7 @@ namespace GlitchPort.HelloClient.Tests
                 var request = Assert.Single(handler.Requests);
                 Assert.Equal(HttpMethod.Post, request.Method);
                 Assert.NotNull(request.RequestUri);
-                Assert.Equal("http://localhost:5080/api/1/messages", request.RequestUri!.ToString());
+                Assert.Equal("http://localhost:5080/api/1/events", request.RequestUri!.ToString());
                 Assert.Equal("dev-public-key", request.ApiKey);
 
                 var payload = ParsePayload(request.Body);
@@ -82,7 +82,7 @@ namespace GlitchPort.HelloClient.Tests
 
                     var request = Assert.Single(handler.Requests);
                     Assert.NotNull(request.RequestUri);
-                    Assert.Equal("http://relay.example.com:9000/api/7/messages", request.RequestUri!.ToString());
+                    Assert.Equal("http://relay.example.com:9000/api/7/events", request.RequestUri!.ToString());
                     Assert.Equal("custom-key", request.ApiKey);
                     Assert.Equal("boom", ParsePayload(request.Body).GetProperty("message").GetString());
 
@@ -147,6 +147,116 @@ namespace GlitchPort.HelloClient.Tests
 
                 Assert.Equal(3, eventIds.Distinct(StringComparer.Ordinal).Count());
                 Assert.Contains("relay http (http): delivered=3 failed=0 dropped=0", lines);
+            });
+        }
+
+        [Theory]
+        [InlineData("warning")]
+        [InlineData("WARNING")]
+        [InlineData("Fatal")]
+        public async Task RunAsync_WithExceptionAndLevel_UsesTheGivenLevel(string value)
+        {
+            await WithDsnAsync(null, async () =>
+            {
+                using var handler = new RecordingHttpMessageHandler();
+                var result = await RunAsync(new[] { "--exception", "--level", value }, handler);
+
+                Assert.Equal(0, result.ExitCode);
+                Assert.Equal(string.Empty, result.Stderr);
+
+                var payload = ParsePayload(Assert.Single(handler.Requests).Body);
+                Assert.Equal(
+                    value.ToLowerInvariant(),
+                    payload.GetProperty("level").GetString());
+                Assert.Equal(2, payload.GetProperty("exception").GetArrayLength());
+            });
+        }
+
+        [Fact]
+        public async Task RunAsync_WithException_CapturesTheSampleExceptionInsteadOfTheMessage()
+        {
+            await WithDsnAsync(null, async () =>
+            {
+                using var handler = new RecordingHttpMessageHandler();
+                var result = await RunAsync(new[] { "--exception" }, handler);
+
+                Assert.Equal(0, result.ExitCode);
+                Assert.Equal(string.Empty, result.Stderr);
+
+                var request = Assert.Single(handler.Requests);
+                Assert.Equal(HttpMethod.Post, request.Method);
+                Assert.NotNull(request.RequestUri);
+                Assert.Equal("http://localhost:5080/api/1/events", request.RequestUri!.ToString());
+                Assert.Equal("dev-public-key", request.ApiKey);
+
+                var payload = ParsePayload(request.Body);
+
+                // A captured exception defaults to the error level and carries no
+                // message field; the exception chain replaces it.
+                Assert.Equal("error", payload.GetProperty("level").GetString());
+                Assert.False(
+                    payload.TryGetProperty("message", out _),
+                    "an exception event must not fall back to the positional message");
+
+                var exceptions = payload.GetProperty("exception");
+                Assert.Equal(2, exceptions.GetArrayLength());
+
+                // Inner cause first, outermost exception last.
+                Assert.Equal("System.ArgumentException", exceptions[0].GetProperty("type").GetString());
+                Assert.Equal(HelloClientApp.SampleInnerExceptionMessage, exceptions[0].GetProperty("value").GetString());
+                Assert.Equal(
+                    "System.InvalidOperationException",
+                    exceptions[1].GetProperty("type").GetString());
+                Assert.Equal(HelloClientApp.SampleExceptionMessage, exceptions[1].GetProperty("value").GetString());
+
+                // The output format does not change with --exception.
+                var lines = SplitLines(result.Stdout);
+                Assert.Equal(2, lines.Length);
+                Assert.StartsWith("event_id: ", lines[0], StringComparison.Ordinal);
+                Assert.True(Guid.TryParse(lines[0].Substring("event_id: ".Length), out _));
+                Assert.Equal("relay http (http): delivered=1 failed=0 dropped=0", lines[1]);
+            });
+        }
+
+        [Fact]
+        public async Task RunAsync_WithExceptionAndCount_CapturesOneExceptionPerIteration()
+        {
+            await WithDsnAsync(null, async () =>
+            {
+                using var handler = new RecordingHttpMessageHandler();
+                var result = await RunAsync(new[] { "--exception", "--count", "2" }, handler);
+
+                Assert.Equal(0, result.ExitCode);
+                Assert.Equal(string.Empty, result.Stderr);
+                Assert.Equal(2, handler.Requests.Count);
+                Assert.All(handler.Requests, request =>
+                    Assert.Equal(2, ParsePayload(request.Body).GetProperty("exception").GetArrayLength()));
+
+                var lines = SplitLines(result.Stdout);
+                var eventIds = lines
+                    .Where(line => line.StartsWith("event_id: ", StringComparison.Ordinal))
+                    .ToArray();
+
+                Assert.Equal(2, eventIds.Length);
+                Assert.Equal(2, eventIds.Distinct(StringComparer.Ordinal).Count());
+                Assert.Contains("relay http (http): delivered=2 failed=0 dropped=0", lines);
+            });
+        }
+
+        [Fact]
+        public async Task RunAsync_WithExceptionAndMessage_IgnoresThePositionalMessage()
+        {
+            await WithDsnAsync(null, async () =>
+            {
+                using var handler = new RecordingHttpMessageHandler();
+                var result = await RunAsync(new[] { "ignored message", "--exception" }, handler);
+
+                Assert.Equal(0, result.ExitCode);
+                Assert.Equal(string.Empty, result.Stderr);
+
+                var payload = ParsePayload(Assert.Single(handler.Requests).Body);
+                Assert.False(payload.TryGetProperty("message", out _));
+                Assert.Equal(2, payload.GetProperty("exception").GetArrayLength());
             });
         }
 

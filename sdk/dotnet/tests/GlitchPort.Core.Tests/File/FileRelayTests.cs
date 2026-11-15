@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -220,6 +222,81 @@ namespace GlitchPort.Tests
 
                 var file = Assert.Single(Directory.GetFiles(directory, "glitchport-*.log"));
                 Assert.Equal(EventFormatter.FormatCompact(captured, color: false) + "\n", File.ReadAllText(file));
+                AssertNoByteOrderMark(file);
+            }
+            finally
+            {
+                DeleteDirectory(directory);
+            }
+        }
+
+        [Fact]
+        public async Task Handle_Text_ExceptionEvent_WritesTheCompactExceptionLine()
+        {
+            var directory = CreateTempDirectory();
+
+            try
+            {
+                var captured = CreateExceptionEvent();
+
+                using (var relay = new FileRelay(CreateOptions(directory, FileFormat.Text)))
+                {
+                    Assert.True(relay.TryEnqueue(captured));
+                    Assert.True((await relay.FlushAsync(TimeSpan.FromSeconds(10))).Succeeded);
+                }
+
+                var file = Assert.Single(Directory.GetFiles(directory, "glitchport-*.log"));
+                var content = File.ReadAllText(file);
+
+                // A self-contained literal: this test must catch a formatter
+                // regression rather than echo EventFormatter.FormatCompact.
+                Assert.Equal(
+                    "2026-11-14 15:02:14.010 ERROR System.InvalidOperationException: boom  (id 3b7e0c11)\n",
+                    content);
+
+                // Text is the compact format: no frames, tags or metadata lines.
+                Assert.DoesNotContain("at Game.", content, StringComparison.Ordinal);
+                Assert.DoesNotContain("tags:", content, StringComparison.Ordinal);
+                AssertNoByteOrderMark(file);
+            }
+            finally
+            {
+                DeleteDirectory(directory);
+            }
+        }
+
+        [Fact]
+        public async Task Handle_Ndjson_ExceptionEvent_WritesExactlyOneCompactV1JsonLine()
+        {
+            var directory = CreateTempDirectory();
+
+            try
+            {
+                var captured = CreateExceptionEvent();
+
+                using (var relay = new FileRelay(CreateOptions(directory)))
+                {
+                    Assert.True(relay.TryEnqueue(captured));
+                    Assert.True((await relay.FlushAsync(TimeSpan.FromSeconds(10))).Succeeded);
+                }
+
+                var file = Assert.Single(Directory.GetFiles(directory, "glitchport-*.ndjson"));
+                var content = File.ReadAllText(file);
+
+                Assert.Equal(captured.Json + "\n", content);
+                Assert.DoesNotContain('\n', captured.Json);
+                Assert.Single(content.TrimEnd('\n').Split('\n'));
+
+                using var document = JsonDocument.Parse(content.TrimEnd('\n'));
+                var root = document.RootElement;
+
+                Assert.Equal("error", root.GetProperty("level").GetString());
+                Assert.Equal(
+                    "System.InvalidOperationException",
+                    root.GetProperty("exception").EnumerateArray().Single().GetProperty("type").GetString());
+                Assert.Equal("star-raiders@1.2.3", root.GetProperty("release").GetString());
+                Assert.Equal("production", root.GetProperty("environment").GetString());
+                Assert.Equal("Stage1", root.GetProperty("tags").GetProperty("scene").GetString());
                 AssertNoByteOrderMark(file);
             }
             finally
@@ -756,6 +833,81 @@ namespace GlitchPort.Tests
                 GlitchPortOptions.DefaultSdkName,
                 "0.1.0",
                 json ?? "{\"event_id\":\"" + eventId.ToString("D") + "\",\"message\":\"" + message + "\"}");
+        }
+
+        /// <summary>
+        /// Builds a protocol v1 exception event, serialized by the production
+        /// serializer so the NDJSON assertion covers real v1 JSON.
+        /// </summary>
+        private static CapturedEvent CreateExceptionEvent()
+        {
+            var eventId = Guid.Parse("3b7e0c11-1111-2222-3333-444455556666");
+
+            // A local-wall-clock timestamp keeps the expected formatted line
+            // independent of the machine timezone.
+            var timestamp = new DateTimeOffset(new DateTime(2026, 11, 14, 15, 2, 14, 10, DateTimeKind.Local));
+
+            var exception = new ExceptionInfo
+            {
+                Type = "System.InvalidOperationException",
+                Value = "boom",
+                Module = "Game",
+            };
+            exception.Frames.Add(new StackFrameInfo
+            {
+                Function = "Update",
+                Module = "Game",
+                FileName = "Update.cs",
+                LineNumber = 12,
+                InApp = true,
+            });
+            exception.Frames.Add(new StackFrameInfo
+            {
+                Function = "Start",
+                Module = "Game",
+                FileName = "Start.cs",
+                LineNumber = 3,
+                InApp = true,
+            });
+
+            var e = new GlitchPortEvent
+            {
+                EventId = eventId,
+                Timestamp = timestamp,
+                Level = Level.Error,
+                Release = "star-raiders@1.2.3",
+                Environment = "production",
+            };
+            e.Exceptions.Add(exception);
+            e.Tags["scene"] = "Stage1";
+
+            var json = EventSerializer.Serialize(e, GlitchPortOptions.DefaultSdkName, "0.1.0");
+
+            return new CapturedEvent(
+                eventId,
+                timestamp,
+                Level.Error,
+                "System.InvalidOperationException: boom",
+                GlitchPortOptions.DefaultSdkName,
+                "0.1.0",
+                json,
+                new[]
+                {
+                    new CapturedExceptionSummary(
+                        "System.InvalidOperationException",
+                        "boom",
+                        new[]
+                        {
+                            new CapturedStackFrame("Game", "Update", "Update.cs", 12),
+                            new CapturedStackFrame("Game", "Start", "Start.cs", 3),
+                        }),
+                },
+                new Dictionary<string, string>
+                {
+                    ["scene"] = "Stage1",
+                },
+                "star-raiders@1.2.3",
+                "production");
         }
 
         private static string CreateTempDirectory()

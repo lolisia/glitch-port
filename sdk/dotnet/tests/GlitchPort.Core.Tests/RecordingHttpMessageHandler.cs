@@ -30,6 +30,17 @@ namespace GlitchPort.Tests
 
         public string? ContentType { get; private set; }
 
+        /// <summary>Gets the <c>Content-Encoding</c> header value, or <see langword="null"/>.</summary>
+        public string? ContentEncoding { get; private set; }
+
+        /// <summary>Gets the exact bytes of the request body, without any decompression.</summary>
+        public byte[]? BodyBytes { get; private set; }
+
+        /// <summary>
+        /// Gets the request body decoded as UTF-8. Compressed bodies are recorded
+        /// verbatim in <see cref="BodyBytes"/> and therefore decode to garbage; use
+        /// the raw bytes and decompress them instead.
+        /// </summary>
         public string? Body { get; private set; }
 
         public bool Disposed { get; private set; }
@@ -46,9 +57,13 @@ namespace GlitchPort.Tests
                 ? string.Join(",", values)
                 : null;
             ContentType = request.Content?.Headers.ContentType?.ToString();
-            Body = request.Content is null
+            ContentEncoding = request.Content is not null && request.Content.Headers.ContentEncoding.Count > 0
+                ? string.Join(",", request.Content.Headers.ContentEncoding)
+                : null;
+            BodyBytes = request.Content is null
                 ? null
-                : await request.Content.ReadAsStringAsync().ConfigureAwait(false);
+                : await request.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+            Body = BodyBytes is null ? null : Encoding.UTF8.GetString(BodyBytes);
 
             return new HttpResponseMessage(_statusCode)
             {
