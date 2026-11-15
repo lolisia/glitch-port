@@ -99,6 +99,7 @@ Any cursor that cannot be decoded returns `400 Bad Request`.
 | `PATCH` | `/labels/{labelId}` | Change a label name and/or color. |
 | `DELETE` | `/labels/{labelId}` | Delete a label and its assignments. |
 | `GET` | `/projects/{projectId}/stats` | Count events per UTC time bucket. |
+| `GET` | `/maintenance/retention` | Report the retention window and the counters of the newest retention run. |
 
 The legacy `GET /api/manage/messages` endpoint (limit 1–500) remains available
 for clients that only need the message list; it is not part of the issue API.
@@ -870,6 +871,48 @@ Any other `period` value returns `400`.
 
 ```bash
 curl -s "http://localhost:5090/api/manage/projects/1/stats?period=14d" \
+  -H "Authorization: Bearer dev-admin-token"
+```
+
+## Retention status
+
+```http
+GET /api/manage/maintenance/retention
+```
+
+The Processor deletes events and legacy messages that are older than the
+configured retention window in a background job. This endpoint reports that
+window together with the counters of the most recently finished run. It is
+protected by the same `Authorization: Bearer <admin-token>` header as every
+other management endpoint and returns `401 Unauthorized` when the header is
+missing or wrong.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `days` | integer | Configured retention window in days (`Processor:Retention:Days`, default `30`). The value `0` means retention is disabled and no row is ever deleted. |
+| `last_run_at` | timestamp or null | Finish time of the newest retention run, or `null` when no run has finished yet. |
+| `last_deleted_events` | integer | Events deleted by the newest run. `0` when no run exists. |
+| `last_deleted_issues` | integer | Issues deleted by the newest run. `0` when no run exists. |
+
+```json
+{
+  "days": 30,
+  "last_run_at": "2026-11-15T10:00:00+00:00",
+  "last_deleted_events": 128,
+  "last_deleted_issues": 4
+}
+```
+
+The background job waits one full `Processor:Retention:IntervalMinutes`
+(default `60`) before its first run and then repeats with that interval. It
+deletes at most `Processor:Retention:BatchSize` events or messages per
+transaction (default `10000`). The `last_*` values describe only the newest
+run; they are not cumulative totals. A run that cannot acquire the internal
+retention advisory lock leaves the data untouched and does not change these
+values.
+
+```bash
+curl -s "http://localhost:5090/api/manage/maintenance/retention" \
   -H "Authorization: Bearer dev-admin-token"
 ```
 

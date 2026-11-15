@@ -1,3 +1,4 @@
+using GlitchPort.Processor.Retention;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -51,6 +52,11 @@ public sealed class ProcessorApplicationFactory : WebApplicationFactory<Program>
                 [$"{ProcessorOptions.SectionName}:InternalSharedSecret"] = InternalSharedSecret,
                 [$"{ProcessorOptions.SectionName}:PublicRelayUrl"] = _publicRelayUrl,
                 [$"{ProcessorOptions.SectionName}:CorsOrigins:0"] = DashboardOrigin,
+
+                // The hosted retention worker waits one full interval before
+                // its first run; a day keeps it from ever firing during the
+                // test suite. Retention itself is exercised directly.
+                [$"{ProcessorOptions.SectionName}:{RetentionOptions.SectionName}:IntervalMinutes"] = "1440",
 
                 // The management API resolves a project before listing its
                 // issues, so the shared test database needs the project id the

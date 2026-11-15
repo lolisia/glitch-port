@@ -273,7 +273,7 @@ function stubApi(options: ServerOptions = {}) {
         return noContentResponse();
       }
 
-      if (method === 'GET' && path === LABELS_PATH) {
+      if (method === 'GET' && /^\/api\/manage\/projects\/\d+\/labels$/.test(path)) {
         return jsonResponse(resolveValue(options.labels ?? LABELS));
       }
 
@@ -299,7 +299,7 @@ describe('IssueDetailPage', () => {
   it('loads the issue, labels and event list and renders the header without an event GET', async () => {
     const { calls } = stubApi();
 
-    render(<IssueDetailPage issueId={42} />);
+    render(<IssueDetailPage issueId={42} projectId={1} />);
 
     expect(screen.getByText('Loading...')).toBeInTheDocument();
 
@@ -390,7 +390,7 @@ describe('IssueDetailPage', () => {
       },
     });
 
-    render(<IssueDetailPage issueId={42} />);
+    render(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByTestId('issue-detail-header');
     const items = within(
@@ -410,7 +410,7 @@ describe('IssueDetailPage', () => {
       },
     });
 
-    render(<IssueDetailPage issueId={42} />);
+    render(<IssueDetailPage issueId={42} projectId={1} />);
 
     const header = await screen.findByTestId('issue-detail-header');
     expect(within(header).getAllByText('-')).toHaveLength(2);
@@ -419,7 +419,7 @@ describe('IssueDetailPage', () => {
   it('renders the load error and token guidance on 401', async () => {
     stubApi({ issueError: jsonResponse({ error: 'unauthorized' }, 401) });
 
-    render(<IssueDetailPage issueId={42} />);
+    render(<IssueDetailPage issueId={42} projectId={1} />);
 
     expect(
       await screen.findByText('Failed to load issue: HTTP 401: unauthorized'),
@@ -435,7 +435,7 @@ describe('IssueDetailPage', () => {
   it('renders the load error on 404', async () => {
     stubApi({ issueError: jsonResponse({ error: 'not found' }, 404) });
 
-    render(<IssueDetailPage issueId={42} />);
+    render(<IssueDetailPage issueId={42} projectId={1} />);
 
     expect(
       await screen.findByText('Failed to load issue: HTTP 404: not found'),
@@ -447,7 +447,7 @@ describe('IssueDetailPage', () => {
     const user = userEvent.setup();
     const { calls } = stubApi();
 
-    render(<IssueDetailPage issueId={42} />);
+    render(<IssueDetailPage issueId={42} projectId={1} />);
 
     const header = await screen.findByTestId('issue-detail-header');
 
@@ -482,7 +482,7 @@ describe('IssueDetailPage', () => {
     const user = userEvent.setup();
     const { calls } = stubApi();
 
-    render(<IssueDetailPage issueId={42} />);
+    render(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByTestId('issue-detail-header');
 
@@ -513,7 +513,7 @@ describe('IssueDetailPage', () => {
     const user = userEvent.setup();
     const { calls } = stubApi();
 
-    render(<IssueDetailPage issueId={42} />);
+    render(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByTestId('issue-detail-header');
 
@@ -553,7 +553,7 @@ describe('IssueDetailPage', () => {
     const user = userEvent.setup();
     stubApi({ patchError: jsonResponse({ error: 'boom' }, 500) });
 
-    render(<IssueDetailPage issueId={42} />);
+    render(<IssueDetailPage issueId={42} projectId={1} />);
 
     const header = await screen.findByTestId('issue-detail-header');
 
@@ -569,7 +569,7 @@ describe('IssueDetailPage', () => {
     const user = userEvent.setup();
     const { calls } = stubApi();
 
-    render(<IssueDetailPage issueId={42} />);
+    render(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByText('Latest payload body');
     const items = within(
@@ -594,7 +594,7 @@ describe('IssueDetailPage', () => {
     const user = userEvent.setup();
     const { calls } = stubApi();
 
-    render(<IssueDetailPage issueId={42} />);
+    render(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByText('Latest payload body');
 
@@ -634,7 +634,7 @@ describe('IssueDetailPage', () => {
     const user = userEvent.setup();
     stubApi({ eventError: jsonResponse({ error: 'gone' }, 500) });
 
-    render(<IssueDetailPage issueId={42} />);
+    render(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByText('Latest payload body');
     const items = within(
@@ -662,7 +662,7 @@ describe('IssueDetailPage', () => {
       },
     });
 
-    render(<IssueDetailPage issueId={42} />);
+    render(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByText('Second summary');
     expect(screen.queryByText('First summary')).not.toBeInTheDocument();
@@ -689,7 +689,7 @@ describe('IssueDetailPage', () => {
     const onDeleteEvent = vi.fn();
     const { calls } = stubApi({ onDeleteEvent });
 
-    render(<IssueDetailPage issueId={42} />);
+    render(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByText('Latest payload body');
 
@@ -722,7 +722,7 @@ describe('IssueDetailPage', () => {
       },
     });
 
-    render(<IssueDetailPage issueId={42} />);
+    render(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByText('Latest payload body');
 
@@ -757,7 +757,7 @@ describe('IssueDetailPage', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     const { calls } = stubApi();
 
-    render(<IssueDetailPage issueId={42} />);
+    render(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByTestId('issue-detail-header');
 
@@ -775,7 +775,7 @@ describe('IssueDetailPage', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const { calls } = stubApi();
 
-    render(<IssueDetailPage issueId={42} />);
+    render(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByTestId('issue-detail-header');
 
@@ -791,7 +791,7 @@ describe('IssueDetailPage', () => {
       firstEvents: { items: [], next_cursor: null },
     });
 
-    render(<IssueDetailPage issueId={42} />);
+    render(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByTestId('issue-detail-header');
 
@@ -799,5 +799,37 @@ describe('IssueDetailPage', () => {
     expect(screen.getByRole('button', { name: 'Delete event' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Newer' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Older' })).toBeDisabled();
+  });
+
+  it('renders the no-project state without calling the API', () => {
+    const { calls } = stubApi();
+
+    render(<IssueDetailPage issueId={42} projectId={null} />);
+
+    expect(screen.getByTestId('issue-detail-page')).toBeInTheDocument();
+    expect(screen.getByText(/No project selected/)).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: 'choose a project' }),
+    ).toHaveAttribute('href', '#/projects');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('reloads the project labels when the active project changes', async () => {
+    const { calls } = stubApi();
+    const { rerender } = render(
+      <IssueDetailPage issueId={42} projectId={1} />,
+    );
+
+    await screen.findByTestId('issue-detail-header');
+    expect(callsTo(calls, 'GET', LABELS_PATH)).toHaveLength(1);
+
+    rerender(<IssueDetailPage issueId={42} projectId={2} />);
+
+    await waitFor(() =>
+      expect(
+        callsTo(calls, 'GET', '/api/manage/projects/2/labels'),
+      ).toHaveLength(1),
+    );
+    expect(screen.getByRole('checkbox', { name: 'crash' })).toBeChecked();
   });
 });
