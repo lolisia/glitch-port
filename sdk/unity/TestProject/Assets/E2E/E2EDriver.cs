@@ -12,9 +12,9 @@ namespace GlitchPort.TestProject
     /// Drives the Unity end-to-end check used by <c>scripts/e2e-unity.sh</c>.
     /// The component does nothing unless the player was started with
     /// <c>-glitchport-e2e</c>. In that case it proves that the SDK initialized
-    /// itself before the scene loaded, that Unity logs and the manual capture API
-    /// are queued, and that a flush delivers them; the player then exits with 0
-    /// on success and 1 on failure.
+    /// itself before the scene loaded, that Unity logs (including a nested
+    /// exception) and the manual capture API are queued, and that a flush
+    /// delivers them; the player then exits with 0 on success and 1 on failure.
     /// </summary>
     public sealed class E2EDriver : MonoBehaviour
     {
@@ -26,6 +26,13 @@ namespace GlitchPort.TestProject
 
         /// <summary>The warning message the manual capture API must report.</summary>
         public const string CapturedWarningMessage = "e2e unity message";
+
+        /// <summary>
+        /// How long the driver lets the player run after the last log so the
+        /// threaded log callback has enqueued every captured event. The wait
+        /// spans several frames, which is also the documented minimum.
+        /// </summary>
+        private const int LogDrainDelayMilliseconds = 100;
 
         private const string DiagnosticPrefix = "[GlitchPort]";
 
@@ -72,6 +79,18 @@ namespace GlitchPort.TestProject
             // Captured through the manual API at Level.Warning. Capture only
             // enqueues the event and returns its id immediately.
             var messageId = GlitchPortUnity.CaptureMessage(CapturedWarningMessage, Level.Warning);
+
+            // A thrown and caught nested exception, reported the way a game
+            // reports an unhandled one. The throw site lives in E2EGame.*, so
+            // the parser keeps at least one in-app frame even though every
+            // GlitchPort.* frame is filtered as SDK code.
+            var nestedException = E2EGame.FaultFactory.CreateNested();
+            Debug.LogException(nestedException);
+
+            // The Unity log callback is threaded: give the player a few frames
+            // to enqueue the events captured above before the flush drains the
+            // relays and the player exits.
+            await Task.Delay(LogDrainDelayMilliseconds);
 
             // Drains every relay, including the file relay configured through
             // GLITCHPORT_DSN, before the player exits.
