@@ -162,6 +162,107 @@ namespace GlitchPort.Tests
     }
 
     /// <summary>
+    /// An <see cref="HttpMessageHandler"/> whose response can be switched at
+    /// runtime and which records, in order, the body of every request answered
+    /// with a success status.
+    /// </summary>
+    internal sealed class ScriptableHttpMessageHandler : HttpMessageHandler
+    {
+        private readonly object _gate = new object();
+        private readonly List<string> _successfulBodies = new List<string>();
+        private Func<int, HttpRequestMessage, HttpResponseMessage> _responder;
+        private int _attempts;
+
+        public ScriptableHttpMessageHandler(Func<int, HttpRequestMessage, HttpResponseMessage> responder)
+        {
+            _responder = responder ?? throw new ArgumentNullException(nameof(responder));
+        }
+
+        public int Attempts => Volatile.Read(ref _attempts);
+
+        /// <summary>Gets the request bodies answered with a success status, in request order.</summary>
+        public IReadOnlyList<string> SuccessfulBodies
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _successfulBodies.ToArray();
+                }
+            }
+        }
+
+        /// <summary>Replaces the responder used for every later request.</summary>
+        public void Respond(Func<int, HttpRequestMessage, HttpResponseMessage> responder)
+        {
+            lock (_gate)
+            {
+                _responder = responder ?? throw new ArgumentNullException(nameof(responder));
+            }
+        }
+
+        /// <summary>Answers every later request with <paramref name="statusCode"/>.</summary>
+        public void Respond(HttpStatusCode statusCode, string body = "{}")
+        {
+            Respond((_, _) => TestHttpMessageHandler.Response(statusCode, body));
+        }
+
+        /// <summary>Adds a <c>Retry-After</c> header in delta-seconds to a response.</summary>
+        public static HttpResponseMessage WithRetryAfter(HttpResponseMessage response, TimeSpan delay)
+        {
+            if (response is null)
+            {
+                throw new ArgumentNullException(nameof(response));
+            }
+
+            response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(delay);
+            return response;
+        }
+
+        /// <summary>Adds a <c>Retry-After</c> header as an HTTP date to a response.</summary>
+        public static HttpResponseMessage WithRetryAfterDate(HttpResponseMessage response, DateTimeOffset date)
+        {
+            if (response is null)
+            {
+                throw new ArgumentNullException(nameof(response));
+            }
+
+            response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(date);
+            return response;
+        }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var attempt = Interlocked.Increment(ref _attempts);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var body = request.Content is null
+                ? null
+                : await request.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            Func<int, HttpRequestMessage, HttpResponseMessage> responder;
+            lock (_gate)
+            {
+                responder = _responder;
+            }
+
+            var response = responder(attempt, request);
+
+            if (response.IsSuccessStatusCode && body is not null)
+            {
+                lock (_gate)
+                {
+                    _successfulBodies.Add(body);
+                }
+            }
+
+            return response;
+        }
+    }
+
+    /// <summary>
     /// An <see cref="HttpMessageHandler"/> whose request stays in flight until the
     /// test releases it, so tests can prove that capture does not wait for the
     /// network.

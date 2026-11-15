@@ -165,6 +165,26 @@ namespace GlitchPort.Tests
             Assert.True(result.LastError!.Length < longBody.Length);
         }
 
+        [Fact]
+        public async Task Handle_WithoutAnOfflineQueue_DoesNotQueueBacklog()
+        {
+            using var handler = new TestHttpMessageHandler(
+                (_, _) => TestHttpMessageHandler.Response(HttpStatusCode.InternalServerError, "relay exploded"));
+            using var httpClient = new HttpClient(handler);
+            using var relay = new HttpRelay(Dsn.Parse(DsnString), new HttpRelayOptions(), httpClient);
+
+            Assert.True(relay.TryEnqueue(RelayTestData.CreateEvent()));
+            var result = await relay.FlushAsync(TimeSpan.FromSeconds(5));
+
+            // The default options have no offline directory: a failed event is
+            // retried once and reported as failed, never written to disk.
+            Assert.Equal(2, handler.Attempts);
+            Assert.Equal(0, result.Queued);
+            Assert.Equal(0, result.Delivered);
+            Assert.Equal(1, result.Failed);
+            Assert.False(result.Succeeded);
+        }
+
         /// <summary>
         /// Builds an event whose serialized body has exactly
         /// <paramref name="bodyLength"/> UTF-8 bytes, so the compression threshold

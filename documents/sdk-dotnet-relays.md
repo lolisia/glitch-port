@@ -30,7 +30,7 @@ local renderers need:
 | `Timestamp`  | The capture time in UTC.                                                                                                        |
 | `Level`      | The protocol level used for the relay's `MinLevel` filter and for rendering.                                                    |
 | `Message`    | The display title: the event's `message`, or `<type>: <value>` of the outermost exception when the event carries no message.    |
-| `Json`       | The complete compact v1 JSON body (HTTP body, NDJSON line and terminal `payload`).                                              |
+| `Json`       | The complete compact v1 JSON body (HTTP body, offline queue file, NDJSON line and terminal `payload`).                          |
 | `Exceptions` | Exception summaries ordered inner cause first, each with up to five application (`in_app`) frames.                              |
 | `Tags`       | The merged tags.                                                                                                                |
 | `Release`    | The release identifier, when set.                                                                                               |
@@ -42,14 +42,15 @@ relays as well as to the collector.
 
 ## Relay types
 
-| Type       | Destination                                          | Typical use                                      | Network | Writes files |
-| ---------- | ---------------------------------------------------- | ------------------------------------------------ | ------- | ------------ |
-| `http`     | A glitch-port Relay via `POST /api/{projectId}/events` | Production crash and error reporting           | Yes     | No           |
-| `terminal` | `glitchport-terminal`, a child console renderer      | Interactive development and playtests            | No      | No           |
-| `file`     | Rotating NDJSON or text log files                    | Headless runs, CI, QA machines, crash triage     | No      | Yes          |
+| Type       | Destination                                          | Typical use                                      | Network | Writes files                |
+| ---------- | ---------------------------------------------------- | ------------------------------------------------ | ------- | --------------------------- |
+| `http`     | A glitch-port Relay via `POST /api/{projectId}/events` | Production crash and error reporting           | Yes     | Offline queue (opt-in)      |
+| `terminal` | `glitchport-terminal`, a child console renderer      | Interactive development and playtests            | No      | No                          |
+| `file`     | Rotating NDJSON or text log files                    | Headless runs, CI, QA machines, crash triage     | No      | Yes                         |
 
 All three types share the same settings: `Name`, `Enabled`, `MinLevel` and
-`QueueCapacity`. The type is fixed when the relay definition is created.
+`QueueCapacity`. The type is fixed when the relay definition is created. The
+HTTP relay additionally offers the opt-in [offline queue](#offline-queue).
 
 ## Configuring relays in code
 
@@ -153,12 +154,142 @@ count, context size, …) before the relay sees the body.
 sent with `Content-Encoding: gzip`; smaller bodies are sent as they are. The
 Relay accepts a gzip-compressed body and rejects any other content encoding.
 
-**Retries.** A failed request (transport error or a non-success status code) is
-retried once after 200 ms before it is counted as failed. The status code and a
-truncated response body are kept in the relay's `LastError`.
+**Retries and failure classes.** A direct request is tried once and, on a
+transient failure, retried once more after 200 ms. Transport exceptions
+(including timeouts), `5xx` responses and the throttling responses `429` and
+`503` are **transient**. Any other `4xx` response is **permanent**: it is not
+retried and not queued, and the attempt counts as `Failed`. The status code and
+a truncated response body are kept in the relay's `LastError`.
+
+Without an offline queue a transient failure after the retry is counted as
+`Failed`, exactly as before. With an offline queue the event is written to
+`{Directory}/{timestamp}-{event_id}.json` and reported as queued instead — see
+[Offline queue](#offline-queue).
 
 All HTTP relays of a client share one `HttpClient` (an instance may be injected
 through the `GlitchPortClient` constructor).
+
+#### Offline queue
+
+The HTTP relay can persist events that the collector cannot accept right now and
+resend them later. The queue is **disabled by default**: it exists only when
+`HttpRelayOptions.OfflineQueue.Directory` names a directory. Every HTTP relay
+owns an `HttpOfflineQueueOptions` instance:
+
+| Option                 | Default | Validation                                                                 | Meaning                                                                                                     |
+| ---------------------- | ------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `Directory`            | `null`  | `null` or whitespace disables the queue                                     | Directory that holds the queued event files. The relay creates it, including parents, when it is constructed. |
+| `MaxEvents`            | `500`   | Integer `>= 1`; anything else throws `ArgumentOutOfRangeException`          | Maximum number of queued events; the oldest files are deleted first.                                         |
+| `MaxAgeHours`          | `72`    | Integer `>= 0`; `0` disables the age limit                                  | Maximum age of a queued event in hours.                                                                     |
+| `RetryIntervalSeconds` | `30`    | Integer `>= 1`; anything else throws `ArgumentOutOfRangeException`          | Seconds between background resend passes.                                                                   |
+
+```csharp
+using GlitchPort;
+
+var options = new GlitchPortOptions();
+
+options.Relays.Add(Relay.Http("http://public-key@relay.example.com:5080/1", http =>
+{
+    http.OfflineQueue.Directory = @"C:\games\logs\glitchport-queue";
+    http.OfflineQueue.MaxEvents = 500;             // default
+    http.OfflineQueue.MaxAgeHours = 72;            // default; 0 disables the age limit
+    http.OfflineQueue.RetryIntervalSeconds = 30;   // default
+}));
+
+using var client = new GlitchPortClient(options);
+```
+
+When a directory is configured, the numeric limits are validated when the HTTP
+relay is created. A directory that cannot be created or written never throws:
+the relay keeps the reason in `LastError` and behaves as if no queue were
+configured, so undeliverable events count as `Failed`. The same happens when
+another live process holds the directory lock (see below).
+
+The Unity package's C# configuration (`GlitchPortSettings` and
+`GlitchPortUnityConfig`) does not expose the queue yet, so its behaviour is
+unchanged: the relay is created without a queue directory and the default keeps
+the queue disabled. The Core DLL bundled with the Unity package contains these
+types and is refreshed by `scripts/build-unity-plugins.sh`.
+
+**Storage.** Every queued event is one UTF-8 (no BOM) file named after the
+event's UTC timestamp and id:
+
+```text
+{Directory}/{timestamp}-{event_id}.json
+```
+
+```text
+C:\games\logs\glitchport-queue\20261115T102231123Z-9f1c2d3e-4f5a-6b7c-8d9e-0f1a2b3c4d5e.json
+```
+
+The timestamp uses the `yyyyMMdd'T'HHmmssfff'Z'` format. The file content is the
+**exact protocol v1 event JSON** the relay would have posted — the same
+`CapturedEvent.Json` body, byte for byte, never the formatted or terminal
+rendering. The write is atomic: a sibling temp file is flushed to disk and
+renamed into place, so a reader or a restarted process never sees a partially
+written event and a crash leaves no truncated `.json` file. A name collision
+(the same event id and millisecond) appends `-1`, `-2`, … instead of
+overwriting.
+
+**Directory lock.** The queue directory is guarded by a
+`.glitchport-offline.lock` file held open with exclusive sharing, so only one
+live process uses a directory at a time. A relay that cannot acquire the lock
+writes nothing, records the reason in `LastError` and counts its failed
+deliveries as `Failed`. The lock file is not deleted on dispose; the OS releases
+the handle when a process exits, including a crash, so a leftover lock file from
+a dead process is reusable. Only files matching the
+`{timestamp}-{event_id}.json` pattern belong to the queue: the lock file, temp
+files and any other file in the directory are ignored and never deleted.
+
+The queue persists across process restarts: a new relay that opens the same
+directory finds the files and resends them. The Processor stores events
+idempotently by `event_id`, so resending an event whose response was lost cannot
+create a duplicate.
+
+**Resending.** Queued events go to the same `POST /api/{projectId}/events`
+endpoint with the same `X-GlitchPort-Key` and `Content-Type` headers, and the
+same gzip compression for bodies of 1024 bytes or more, as a direct send. A
+resend pass sends the **oldest event first** and runs:
+
+- when the relay is created, before the first retry interval elapses,
+- every `RetryIntervalSeconds`,
+- immediately after a successful direct send,
+- on `FlushAsync` and `Dispose` — the same hooks that flush the in-memory
+  queue — including the client's process-exit flush.
+
+A success deletes the file and counts the event as `Delivered`. A permanent
+`4xx` (other than `429`) deletes the file too and counts it as `Failed`, because
+retrying it would never succeed. A transient failure — transport error,
+timeout, `5xx`, `429` or `503` — stops the pass and keeps the file for the next
+cycle; the event is **not** counted as `Failed`, and the relay records the
+reason in `LastError`. Resend passes are serialized, so the worker thread, the
+retry thread and `FlushAsync` never send the same file at the same time.
+
+**`Retry-After`.** A `429` or `503` response may carry `Retry-After` as
+delta-seconds or as an HTTP date. The relay turns it into a hold that applies to
+direct sends and resend passes alike: while the hold is active no request
+reaches the relay, direct captures are written to the disk queue instead, and
+resend passes stop. The retry thread wakes up when the hold expires. A direct
+send whose hold is longer than the 200 ms retry delay queues the event
+immediately and skips its second attempt; one without a usable header is an
+ordinary transient failure that is retried once and then queued. A resend pass
+that receives `429` or `503` without a usable `Retry-After` still applies the
+default **5-second** hold.
+
+**Retention.** After every write and at the start of every resend pass the queue
+applies its limits. Files older than `MaxAgeHours` are deleted first; the
+timestamp in the file name, not the file system's modification time, determines
+the age. Then the oldest remaining files are deleted until at most `MaxEvents`
+files remain. Every such deletion is counted as `Dropped`. `MaxAgeHours = 0`
+disables the age limit, and a file that cannot be deleted is left in place
+without blocking the queue. A corrupt queued file is removed and counted as
+`Dropped` instead of blocking later events.
+
+**Reporting.** `RelayDeliveryResult.Queued` is the number of events waiting in
+the on-disk queue at the time of the snapshot; it is `0` when the queue is
+disabled or unavailable. A queued event does not increment `Failed`, and
+`Succeeded` keeps its existing meaning — `Failed == 0 && Dropped == 0` — so a
+backlog safely stored on disk does not mark the relay as failed.
 
 ### Terminal relay
 
@@ -338,7 +469,7 @@ using var client = new GlitchPortClient(options);
 The grammar of one item is:
 
 ```text
-http://key@host:port/projectId?min_level=error&name=main
+http://key@host:port/projectId?min_level=error&name=main&offline_dir=<path>&offline_max_events=500&offline_max_age_hours=72&offline_retry_interval_seconds=30
 terminal:?window=new|inherit&format=pretty|compact|json&min_level=debug&name=term&path=<exe>
 file:?dir=<path>&format=ndjson|text&max_file_size_mb=10&max_age_days=7&max_total_size_mb=200&max_files=100&flush_interval_ms=1000&min_level=info&name=file
 ```
@@ -346,9 +477,9 @@ file:?dir=<path>&format=ndjson|text&max_file_size_mb=10&max_age_days=7&max_total
 An item without parameters may omit the question mark (`terminal` and `file`
 are valid on their own). Parameter values are URI-decoded, so percent-encode
 characters that would otherwise be structural: a space is `%20`, an ampersand
-inside a value is `%26`, and a semicolon is `%3B`. For the `file` relay's `dir`,
-`~` and environment variables in `%NAME%`, `$NAME` or `${NAME}` form are
-expanded after decoding.
+inside a value is `%26`, and a semicolon is `%3B`. For the `file` relay's `dir`
+and the HTTP relay's `offline_dir`, `~` and environment variables in `%NAME%`,
+`$NAME` or `${NAME}` form are expanded after decoding.
 
 An invalid item makes `FromEnvironment()` throw a `FormatException` whose
 message contains the 1-based item index and the reason. Unknown relay types,
@@ -357,16 +488,30 @@ unknown parameters and malformed values are all rejected instead of ignored.
 ### HTTP parameters
 
 ```text
-http://key@host:port/projectId?min_level=error&name=main
+http://key@host:port/projectId?min_level=error&name=main&offline_dir=<path>&offline_max_events=500&offline_max_age_hours=72&offline_retry_interval_seconds=30
 ```
 
-| Parameter   | Values                                          | Default  | Meaning                                  |
-| ----------- | ----------------------------------------------- | -------- | ---------------------------------------- |
-| `min_level` | `debug`, `info`, `warning`, `error`, `fatal`     | `debug`  | Lowest level sent to the collector.      |
-| `name`      | Any text                                        | `http`   | Relay name in delivery reports.          |
+| Parameter                      | Values                                          | Default  | Meaning                                                                                       |
+| ------------------------------ | ----------------------------------------------- | -------- | --------------------------------------------------------------------------------------------- |
+| `min_level`                    | `debug`, `info`, `warning`, `error`, `fatal`     | `debug`  | Lowest level sent to the collector.                                                           |
+| `name`                         | Any text                                        | `http`   | Relay name in delivery reports.                                                               |
+| `offline_dir`                  | Directory path                                  | unset    | Enables the offline queue in this directory; absent disables it. `~` and environment variables are expanded. |
+| `offline_max_events`           | Integer `>= 1`                                  | `500`    | Maximum number of queued events.                                                              |
+| `offline_max_age_hours`        | Integer `>= 0`                                  | `72`     | Delete queued events older than this; `0` disables the age limit.                             |
+| `offline_retry_interval_seconds` | Integer `>= 1`                                | `30`     | Seconds between background resend passes.                                                     |
 
 `key`, `host` and `projectId` are required; `port` is optional and defaults to
-the scheme's port. `http` and `https` are supported.
+the scheme's port. `http` and `https` are supported. `offline_dir` must not be
+blank; omit it to keep the queue disabled. The numeric parameters keep their
+defaults when omitted and are rejected when out of range.
+
+For example, this item queues events under `C:\games\logs/glitchport-queue`
+(the percent-encoded `C%3A%5Cgames%5Clogs%2Fglitchport-queue`) and keeps at most
+500 of them:
+
+```text
+http://public-key@relay.example.com:5080/1?offline_dir=C%3A%5Cgames%5Clogs%2Fglitchport-queue&offline_max_events=500
+```
 
 ### Terminal parameters
 
@@ -417,7 +562,8 @@ relay accepts all levels from `debug` up.
   that relay; capture does not wait. Events below a relay's `MinLevel` are not
   sent to that relay at all and are not counted as failed or dropped.
 - **Delivery is per relay.** A failure in one relay never affects the others.
-  HTTP failures are retried once; a terminal or file relay that cannot write
+  HTTP failures are retried once and, when the offline queue is enabled, kept on
+  disk instead of being lost; a terminal or file relay that cannot write
   disables itself and reports the failure through its counters and `LastError`.
 - **Flushing is explicit.** `FlushAsync(TimeSpan? timeout = null)` waits for
   every relay to drain the events queued before the call and returns a
@@ -426,8 +572,14 @@ relay accepts all levels from `debug` up.
   `TimeSpan.InfiniteTimeSpan` to wait without a timeout. `Dispose` performs a
   best-effort flush of up to two seconds before releasing the relays, and the
   client also flushes at process exit.
+- **Offline queued events are pending, not failed.** When the HTTP relay has an
+  offline queue, a transiently undeliverable event is written to disk instead of
+  being counted as `Failed`. `RelayDeliveryResult.Queued` reports how many
+  events are waiting in that on-disk queue at the time of the snapshot (`0` when
+  the queue is disabled or unavailable); it does not change `Succeeded`, which
+  keeps its existing meaning (`Failed == 0 && Dropped == 0`).
 - **Reports are snapshots.** Each `RelayDeliveryResult` exposes `Name`, `Type`,
-  `Delivered`, `Failed`, `Dropped`, `LastError` and `Succeeded`
+  `Delivered`, `Failed`, `Dropped`, `Queued`, `LastError` and `Succeeded`
   (`Failed == 0 && Dropped == 0`). `DeliveryReport.AllSucceeded` combines all
   relays. A relay whose flush exceeds the timeout is reported as failed with an
   explanatory `LastError`.
@@ -447,7 +599,8 @@ foreach (RelayDeliveryResult relay in report.Relays)
 {
     Console.WriteLine(
         $"relay {relay.Name} ({relay.Type}): " +
-        $"delivered={relay.Delivered} failed={relay.Failed} dropped={relay.Dropped}");
+        $"delivered={relay.Delivered} failed={relay.Failed} dropped={relay.Dropped} " +
+        $"queued={relay.Queued}");
 
     if (!string.IsNullOrEmpty(relay.LastError))
     {
@@ -472,7 +625,14 @@ foreach (IRelay relay in client.Relays)
 Typical output for a terminal and a file relay:
 
 ```text
-relay term (terminal): delivered=1 failed=0 dropped=0
-relay file (file): delivered=1 failed=0 dropped=0
+relay term (terminal): delivered=1 failed=0 dropped=0 queued=0
+relay file (file): delivered=1 failed=0 dropped=0 queued=0
 terminal_pid: 12345
+```
+
+With an offline queue and a collector that is temporarily down, the HTTP relay
+keeps the events on disk and reports them as queued rather than failed:
+
+```text
+relay http (http): delivered=1 failed=0 dropped=0 queued=2
 ```

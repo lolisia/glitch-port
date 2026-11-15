@@ -797,6 +797,16 @@
             <param name="dropped">The number of events dropped because the queue was full.</param>
             <param name="lastError">The most recent error, when any.</param>
         </member>
+        <member name="M:GlitchPort.RelayDeliveryResult.#ctor(System.String,System.String,System.Int64,System.Int64,System.Int64,System.Int64,System.String)">
+            <summary>Creates a delivery result with the number of events still queued offline.</summary>
+            <param name="name">The relay name.</param>
+            <param name="type">The relay type.</param>
+            <param name="delivered">The number of events delivered so far.</param>
+            <param name="failed">The number of events that failed to deliver.</param>
+            <param name="dropped">The number of events dropped because the queue was full.</param>
+            <param name="queued">The number of events waiting in the relay's offline queue.</param>
+            <param name="lastError">The most recent error, when any.</param>
+        </member>
         <member name="P:GlitchPort.RelayDeliveryResult.Name">
             <summary>Gets the relay name.</summary>
         </member>
@@ -811,6 +821,12 @@
         </member>
         <member name="P:GlitchPort.RelayDeliveryResult.Dropped">
             <summary>Gets the number of events dropped because the queue was full.</summary>
+        </member>
+        <member name="P:GlitchPort.RelayDeliveryResult.Queued">
+            <summary>
+            Gets the number of events waiting in the relay's on-disk offline
+            queue at the time of the snapshot. <c>0</c> when no queue is configured.
+            </summary>
         </member>
         <member name="P:GlitchPort.RelayDeliveryResult.LastError">
             <summary>Gets the most recent delivery error, when any.</summary>
@@ -984,6 +1000,20 @@
             are gzip-compressed. Delivery happens on the base class worker thread; a
             failed attempt is retried once before it is counted as failed.
             </summary>
+            <remarks>
+            <para>
+            When <see cref="P:GlitchPort.HttpRelayOptions.OfflineQueue"/> names a directory, events
+            that cannot be delivered (network errors, timeouts, <c>5xx</c>,
+            <c>429</c> and <c>503</c>) are written there verbatim and resent later by
+            a background retry thread, on <see cref="M:GlitchPort.QueuedRelay.FlushBuffer"/> and
+            after every successful direct delivery. Other <c>4xx</c> responses are
+            permanent: the event is reported as failed and never queued.
+            </para>
+            <para>
+            A <c>Retry-After</c> header on <c>429</c>/<c>503</c> suspends all relay
+            traffic until it expires.
+            </para>
+            </remarks>
         </member>
         <member name="F:GlitchPort.HttpRelay.CompressionThresholdBytes">
             <summary>
@@ -991,20 +1021,275 @@
             compresses the request. Smaller bodies are sent as-is.
             </summary>
         </member>
+        <member name="F:GlitchPort.HttpRelay.DefaultRateLimitHold">
+            <summary>
+            The hold applied to a <c>429</c>/<c>503</c> drain response whose
+            <c>Retry-After</c> header is missing or invalid.
+            </summary>
+        </member>
+        <member name="F:GlitchPort.HttpRelay.RetryWaitChunk">
+            <summary>
+            The longest wait the retry thread performs before re-checking for a
+            newly recorded <c>Retry-After</c> hold, so it can wake early.
+            </summary>
+        </member>
+        <member name="F:GlitchPort.HttpRelay.MaxRateLimitHold">
+            <summary>An upper bound for parsed <c>Retry-After</c> delays.</summary>
+        </member>
         <member name="M:GlitchPort.HttpRelay.#ctor(GlitchPort.Dsn,GlitchPort.HttpRelayOptions,System.Net.Http.HttpClient)">
             <summary>Creates an HTTP relay.</summary>
             <param name="dsn">The parsed DSN that identifies the relay and project.</param>
             <param name="options">The relay options.</param>
             <param name="httpClient">The shared <see cref="T:System.Net.Http.HttpClient"/> used to send events.</param>
+            <exception cref="T:System.ArgumentOutOfRangeException">
+            The offline queue is configured and one of its limits is invalid.
+            </exception>
         </member>
         <member name="M:GlitchPort.HttpRelay.Handle(GlitchPort.CapturedEvent)">
             <inheritdoc/>
+        </member>
+        <member name="M:GlitchPort.HttpRelay.FlushBuffer">
+            <summary>
+            Drains the offline queue from <see cref="M:GlitchPort.QueuedRelay.FlushBuffer"/>, so
+            <see cref="M:GlitchPort.QueuedRelay.FlushAsync(System.TimeSpan)"/> and dispose also flush the backlog.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.HttpRelay.GetQueuedCount">
+            <inheritdoc/>
+        </member>
+        <member name="M:GlitchPort.HttpRelay.Dispose">
+            <summary>
+            Stops the retry thread and releases the offline queue. The base worker
+            performs its final drain while the queue is still alive; a late drain
+            after the queue was disposed is a no-op.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.HttpRelay.SendOnce(System.Byte[])">
+            <summary>
+            Sends one serialized event and classifies the result. Never throws:
+            network failures become transient outcomes.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.HttpRelay.DrainOfflineQueue">
+            <summary>
+            Sends every queued event, oldest first, until the queue is empty, a
+            transient error asks for a pause, or a Retry-After hold is active.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.HttpRelay.RetryLoop">
+            <summary>
+            Runs on the dedicated retry thread: drains immediately, then once per
+            retry interval, waking early when a Retry-After hold expires.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.HttpRelay.Persist(GlitchPort.CapturedEvent,System.String)">
+            <summary>Writes one event to the disk queue and counts what the write did.</summary>
+        </member>
+        <member name="P:GlitchPort.HttpRelay.IsOfflineQueueAvailable">
+            <summary>Gets a value indicating whether the disk queue exists and owns its directory.</summary>
+        </member>
+        <member name="M:GlitchPort.HttpRelay.TryGetRetryAfter(System.Net.Http.HttpResponseMessage,System.TimeSpan@)">
+            <summary>
+            Reads <c>Retry-After</c> as delta-seconds or an HTTP date. A missing or
+            malformed header yields <see langword="false"/>.
+            </summary>
         </member>
         <member name="M:GlitchPort.HttpRelay.CreateContent(System.Byte[])">
             <summary>
             Creates the request content for one attempt. Large payloads are
             compressed with gzip and advertised with <c>Content-Encoding: gzip</c>.
             </summary>
+        </member>
+        <member name="T:GlitchPort.HttpRelay.SendOutcome">
+            <summary>The result of one HTTP attempt.</summary>
+        </member>
+        <member name="P:GlitchPort.HttpRelay.SendOutcome.IsThrottled">
+            <summary>Gets a value indicating whether the response was a 429 or 503.</summary>
+        </member>
+        <member name="P:GlitchPort.HttpRelay.SendOutcome.HasRetryAfter">
+            <summary>Gets a value indicating whether a Retry-After header was parsed.</summary>
+        </member>
+        <member name="P:GlitchPort.HttpRelay.SendOutcome.RetryAfter">
+            <summary>Gets the parsed Retry-After delay; may be non-positive.</summary>
+        </member>
+        <member name="T:GlitchPort.DirectoryLock">
+            <summary>
+            Keeps an exclusive lock on an offline queue directory for the lifetime of
+            the instance.
+            </summary>
+            <remarks>
+            The lock is an OS file handle opened with <see cref="F:System.IO.FileShare.None"/>, so
+            a second queue (in this or in another process) fails to open it instead
+            of using the same files. The lock file is deliberately not deleted on
+            <see cref="M:GlitchPort.DirectoryLock.Dispose"/>: a leftover file from a crashed process is not held
+            by the OS and is simply reused (its stale content is truncated and
+            replaced with the current process id).
+            </remarks>
+        </member>
+        <member name="F:GlitchPort.DirectoryLock.LockFileName">
+            <summary>The name of the lock file inside the queue directory.</summary>
+        </member>
+        <member name="M:GlitchPort.DirectoryLock.#ctor(System.String)">
+            <summary>Acquires the lock for <paramref name="directory"/>.</summary>
+            <param name="directory">The directory that contains the lock file.</param>
+            <exception cref="T:System.IO.IOException">The lock is held by another process.</exception>
+            <exception cref="T:System.UnauthorizedAccessException">The lock file cannot be opened.</exception>
+        </member>
+        <member name="M:GlitchPort.DirectoryLock.Dispose">
+            <summary>Releases the lock. Safe to call more than once.</summary>
+        </member>
+        <member name="T:GlitchPort.HttpOfflineQueueOptions">
+            <summary>
+            Options for the HTTP relay's on-disk offline queue. The queue keeps
+            serialized events while the relay endpoint is unreachable and retries
+            them later.
+            </summary>
+            <remarks>
+            The queue is disabled when <see cref="P:GlitchPort.HttpOfflineQueueOptions.Directory"/> is <see langword="null"/>
+            or blank, which is the default. <see cref="P:GlitchPort.HttpOfflineQueueOptions.MaxEvents"/>, <see cref="P:GlitchPort.HttpOfflineQueueOptions.MaxAgeHours"/>
+            and <see cref="P:GlitchPort.HttpOfflineQueueOptions.RetryIntervalSeconds"/> are validated when the queue (or
+            the relay that owns it) is created.
+            </remarks>
+        </member>
+        <member name="P:GlitchPort.HttpOfflineQueueOptions.Directory">
+            <summary>
+            Gets or sets the directory that holds queued events.
+            <see langword="null"/> or whitespace disables the queue. Defaults to
+            <see langword="null"/>.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.HttpOfflineQueueOptions.MaxEvents">
+            <summary>
+            Gets or sets the maximum number of queued events. The oldest events
+            are dropped first when the limit is exceeded. Defaults to 500.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.HttpOfflineQueueOptions.MaxAgeHours">
+            <summary>
+            Gets or sets the maximum age, in hours, of a queued event. Older
+            events are deleted. <c>0</c> disables the age limit. Defaults to 72.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.HttpOfflineQueueOptions.RetryIntervalSeconds">
+            <summary>
+            Gets or sets the interval, in seconds, between retry attempts for
+            queued events. Defaults to 30.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.HttpOfflineQueueOptions.Validate">
+            <summary>
+            Validates the numeric limits. Called when the queue or relay is created.
+            </summary>
+            <exception cref="T:System.ArgumentOutOfRangeException">A limit is outside its supported range.</exception>
+        </member>
+        <member name="T:GlitchPort.OfflineQueue">
+            <summary>
+            A small, crash-safe on-disk FIFO of serialized events used by the HTTP
+            relay while the network is unavailable.
+            </summary>
+            <remarks>
+            <para>
+            Every event is stored in its own
+            <c>{timestamp}-{event_id}.json</c> file. A sibling temp file is flushed to
+            disk and then renamed into place, so a reader never observes a partially
+            written event and a crash never leaves a truncated <c>.json</c> file.
+            </para>
+            <para>
+            The directory is guarded by <see cref="T:GlitchPort.DirectoryLock"/>: a second queue
+            (in this or in another process) reports <see cref="P:GlitchPort.OfflineQueue.IsAvailable"/> as
+            <see langword="false"/> instead of touching the same files. Failures to
+            create the directory or acquire the lock never throw; they only disable
+            the queue and record a sanitized <see cref="P:GlitchPort.OfflineQueue.LastError"/>.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:GlitchPort.OfflineQueue.#ctor(System.String,System.Int32,System.Int32)">
+            <summary>Creates an offline queue rooted at <paramref name="directory"/>.</summary>
+            <param name="directory">The directory that holds the queue files. Blank disables the queue.</param>
+            <param name="maxEvents">The maximum number of queued files; must be at least 1.</param>
+            <param name="maxAgeHours">The maximum age in hours; 0 disables the age limit.</param>
+            <exception cref="T:System.ArgumentOutOfRangeException">A numeric limit is outside its supported range.</exception>
+        </member>
+        <member name="P:GlitchPort.OfflineQueue.IsAvailable">
+            <summary>
+            Gets a value indicating whether the directory exists and the queue
+            owns its lock. <see langword="false"/> after <see cref="M:GlitchPort.OfflineQueue.Dispose"/>.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.OfflineQueue.LastError">
+            <summary>Gets the sanitized reason the queue is unavailable, when any.</summary>
+        </member>
+        <member name="P:GlitchPort.OfflineQueue.Count">
+            <summary>Gets the number of event files currently on disk.</summary>
+        </member>
+        <member name="P:GlitchPort.OfflineQueue.Dropped">
+            <summary>Gets the number of event files deleted by the queue limits.</summary>
+        </member>
+        <member name="M:GlitchPort.OfflineQueue.TryEnqueue(System.String,System.Guid,System.DateTimeOffset,System.Int32@,System.String@)">
+            <summary>
+            Atomically writes one event to the queue, then applies the age and
+            count limits.
+            </summary>
+            <param name="json">The exact serialized event JSON.</param>
+            <param name="eventId">The event id used in the file name.</param>
+            <param name="timestamp">The event timestamp used in the file name.</param>
+            <param name="evicted">The number of files deleted by the limits after the write.</param>
+            <param name="error">A sanitized error when the write failed, otherwise <see langword="null"/>.</param>
+            <returns><see langword="true"/> when the file was written.</returns>
+        </member>
+        <member name="M:GlitchPort.OfflineQueue.EnforceLimits">
+            <summary>
+            Deletes own files older than <c>MaxAgeHours</c> and then the oldest
+            remaining files until at most <c>MaxEvents</c> files remain.
+            </summary>
+            <returns>The number of deleted files, also added to <see cref="P:GlitchPort.OfflineQueue.Dropped"/>.</returns>
+        </member>
+        <member name="M:GlitchPort.OfflineQueue.TryPeekOldest(GlitchPort.OfflineQueueEntry@)">
+            <summary>Reads the oldest queued event without removing it.</summary>
+            <param name="entry">The oldest readable entry, or <see langword="null"/>.</param>
+            <returns><see langword="true"/> when an entry was read.</returns>
+        </member>
+        <member name="M:GlitchPort.OfflineQueue.Remove(GlitchPort.OfflineQueueEntry)">
+            <summary>Deletes an entry returned by <see cref="M:GlitchPort.OfflineQueue.TryPeekOldest(GlitchPort.OfflineQueueEntry@)"/>.</summary>
+            <param name="entry">The entry to remove.</param>
+        </member>
+        <member name="M:GlitchPort.OfflineQueue.Dispose">
+            <summary>Releases the directory lock. Later calls become no-ops.</summary>
+        </member>
+        <member name="M:GlitchPort.OfflineQueue.MoveIntoPlace(System.String,System.String)">
+            <summary>
+            Renames the flushed temp file to its final name. A collision (the same
+            event id and millisecond) appends <c>-1</c>, <c>-2</c>, ... before the
+            extension instead of overwriting the existing event.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.OfflineQueue.TryParseFileName(System.String,System.DateTimeOffset@,System.Guid@)">
+            <summary>
+            Matches only <c>{yyyyMMddTHHmmssfffZ}-{event-id}[-N].json</c>. The lock
+            file, temp files and everything else in the directory are ignored.
+            </summary>
+        </member>
+        <member name="T:GlitchPort.OfflineQueueEntry">
+            <summary>One serialized event waiting in an <see cref="T:GlitchPort.OfflineQueue"/>.</summary>
+        </member>
+        <member name="M:GlitchPort.OfflineQueueEntry.#ctor(System.String,System.Guid,System.DateTimeOffset,System.String)">
+            <summary>Creates a queue entry.</summary>
+            <param name="path">The absolute path of the event file.</param>
+            <param name="eventId">The event id embedded in the file name.</param>
+            <param name="timestamp">The UTC event timestamp embedded in the file name.</param>
+            <param name="json">The exact serialized event JSON read from the file.</param>
+        </member>
+        <member name="P:GlitchPort.OfflineQueueEntry.Path">
+            <summary>Gets the absolute path of the event file.</summary>
+        </member>
+        <member name="P:GlitchPort.OfflineQueueEntry.EventId">
+            <summary>Gets the event id embedded in the file name.</summary>
+        </member>
+        <member name="P:GlitchPort.OfflineQueueEntry.Timestamp">
+            <summary>Gets the UTC event timestamp embedded in the file name.</summary>
+        </member>
+        <member name="P:GlitchPort.OfflineQueueEntry.Json">
+            <summary>Gets the exact serialized event JSON read from the file.</summary>
         </member>
         <member name="T:GlitchPort.IRelay">
             <summary>
@@ -1122,6 +1407,12 @@
             <see cref="M:GlitchPort.QueuedRelay.FlushBuffer"/> and exits; the method never blocks for more
             than roughly one second because the worker is a background thread.
             </summary>
+            <remarks>
+            Subclasses that own extra threads or disk state override this method:
+            the base implementation must run while that state is still alive so the
+            final <see cref="M:GlitchPort.QueuedRelay.FlushBuffer"/> can use it. Overrides must stay
+            idempotent, just like this implementation.
+            </remarks>
         </member>
         <member name="M:GlitchPort.QueuedRelay.Handle(GlitchPort.CapturedEvent)">
             <summary>Processes one event on the worker thread.</summary>
@@ -1129,6 +1420,13 @@
         </member>
         <member name="M:GlitchPort.QueuedRelay.FlushBuffer">
             <summary>Flushes any internal buffer on the worker thread. Defaults to a no-op.</summary>
+        </member>
+        <member name="M:GlitchPort.QueuedRelay.GetQueuedCount">
+            <summary>
+            Gets the number of events waiting in the subclass' disk-backed queue.
+            The default implementation reports zero (no disk queue).
+            </summary>
+            <returns>The number of events still queued, or zero when no queue is enabled.</returns>
         </member>
         <member name="M:GlitchPort.QueuedRelay.MarkDelivered(System.Int64)">
             <summary>Records <paramref name="count"/> successfully delivered events.</summary>
@@ -1138,6 +1436,17 @@
             <summary>Records <paramref name="count"/> failed events and remembers the error.</summary>
             <param name="error">A short error description.</param>
             <param name="count">The number of events; defaults to one.</param>
+        </member>
+        <member name="M:GlitchPort.QueuedRelay.MarkDropped(System.Int64)">
+            <summary>Records <paramref name="count"/> events dropped by the queue limits.</summary>
+            <param name="count">The number of events; defaults to one.</param>
+        </member>
+        <member name="M:GlitchPort.QueuedRelay.RecordLastError(System.String)">
+            <summary>
+            Remembers <paramref name="error"/> without counting a failed event, for
+            transient problems that a later attempt is expected to resolve.
+            </summary>
+            <param name="error">A short error description.</param>
         </member>
         <member name="M:GlitchPort.QueuedRelay.Disable(System.String)">
             <summary>Stops accepting new events and records the reason.</summary>
@@ -1154,7 +1463,7 @@
             <remarks>
             Each non-empty item is one relay and may use one of the following forms:
             <list type="bullet">
-            <item><description><c>http://key@host:port/projectId?min_level=error&amp;name=main</c></description></item>
+            <item><description><c>http://key@host:port/projectId?min_level=error&amp;name=main&amp;offline_dir=queue&amp;offline_max_events=500</c></description></item>
             <item><description><c>terminal:?window=new&amp;format=pretty&amp;min_level=debug&amp;name=term&amp;path=...</c></description></item>
             <item><description><c>file:?dir=logs&amp;format=ndjson&amp;max_file_size_mb=10&amp;min_level=info&amp;name=file</c></description></item>
             </list>
@@ -1272,6 +1581,13 @@
         </member>
         <member name="T:GlitchPort.HttpRelayOptions">
             <summary>Options for the HTTP relay.</summary>
+        </member>
+        <member name="P:GlitchPort.HttpRelayOptions.OfflineQueue">
+            <summary>
+            Gets the on-disk offline queue options. The queue is disabled while
+            <see cref="P:GlitchPort.HttpOfflineQueueOptions.Directory"/> is <see langword="null"/>
+            or blank, which is the default.
+            </summary>
         </member>
         <member name="T:GlitchPort.TerminalProcessLocator">
             <summary>
