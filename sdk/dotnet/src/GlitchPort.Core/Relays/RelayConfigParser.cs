@@ -13,7 +13,7 @@ namespace GlitchPort
     /// <remarks>
     /// Each non-empty item is one relay and may use one of the following forms:
     /// <list type="bullet">
-    /// <item><description><c>http://key@host:port/projectId?min_level=error&amp;name=main</c></description></item>
+    /// <item><description><c>http://key@host:port/projectId?min_level=error&amp;name=main&amp;offline_dir=queue&amp;offline_max_events=500</c></description></item>
     /// <item><description><c>terminal:?window=new&amp;format=pretty&amp;min_level=debug&amp;name=term&amp;path=...</c></description></item>
     /// <item><description><c>file:?dir=logs&amp;format=ndjson&amp;max_file_size_mb=10&amp;min_level=info&amp;name=file</c></description></item>
     /// </list>
@@ -35,13 +35,24 @@ namespace GlitchPort
         private const string MaxTotalSizeParameter = "max_total_size_mb";
         private const string MaxFilesParameter = "max_files";
         private const string FlushIntervalParameter = "flush_interval_ms";
+        private const string OfflineDirectoryParameter = "offline_dir";
+        private const string OfflineMaxEventsParameter = "offline_max_events";
+        private const string OfflineMaxAgeHoursParameter = "offline_max_age_hours";
+        private const string OfflineRetryIntervalSecondsParameter = "offline_retry_interval_seconds";
 
         private const string DefaultDirectory = "logs/glitchport";
+        private const int DefaultOfflineMaxEvents = 500;
+        private const int DefaultOfflineMaxAgeHours = 72;
+        private const int DefaultOfflineRetryIntervalSeconds = 30;
 
         private static readonly string[] HttpParameters =
         {
             MinLevelParameter,
             NameParameter,
+            OfflineDirectoryParameter,
+            OfflineMaxEventsParameter,
+            OfflineMaxAgeHoursParameter,
+            OfflineRetryIntervalSecondsParameter,
         };
 
         private static readonly string[] TerminalParameters =
@@ -156,10 +167,46 @@ namespace GlitchPort
             var minLevel = ParseMinLevel(parameters, index);
             var name = ParseName(parameters, HttpType);
 
+            string? offlineDirectory = null;
+            if (parameters.TryGetValue(OfflineDirectoryParameter, out var offlineDirectoryValue))
+            {
+                if (string.IsNullOrWhiteSpace(offlineDirectoryValue))
+                {
+                    throw Error(index, $"parameter '{OfflineDirectoryParameter}' must not be blank.");
+                }
+
+                offlineDirectory = ExpandDirectory(offlineDirectoryValue);
+            }
+
+            var offlineMaxEvents = ParseInteger(
+                parameters,
+                OfflineMaxEventsParameter,
+                DefaultOfflineMaxEvents,
+                1,
+                index);
+            var offlineMaxAgeHours = ParseInteger(
+                parameters,
+                OfflineMaxAgeHoursParameter,
+                DefaultOfflineMaxAgeHours,
+                0,
+                index);
+            var offlineRetryIntervalSeconds = ParseInteger(
+                parameters,
+                OfflineRetryIntervalSecondsParameter,
+                DefaultOfflineRetryIntervalSeconds,
+                1,
+                index);
+
             RelayDefinition definition;
             try
             {
-                definition = Relay.Http(dsn);
+                definition = Relay.Http(dsn, http =>
+                {
+                    http.OfflineQueue.Directory = offlineDirectory;
+                    http.OfflineQueue.MaxEvents = offlineMaxEvents;
+                    http.OfflineQueue.MaxAgeHours = offlineMaxAgeHours;
+                    http.OfflineQueue.RetryIntervalSeconds = offlineRetryIntervalSeconds;
+                });
             }
             catch (FormatException ex)
             {

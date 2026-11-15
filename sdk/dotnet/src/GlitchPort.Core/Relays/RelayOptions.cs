@@ -22,5 +22,11 @@ namespace GlitchPort
     /// <summary>Options for the HTTP relay.</summary>
     public sealed class HttpRelayOptions : RelayOptions
     {
+        /// <summary>
+        /// Gets the on-disk offline queue options. The queue is disabled while
+        /// <see cref="HttpOfflineQueueOptions.Directory"/> is <see langword="null"/>
+        /// or blank, which is the default.
+        /// </summary>
+        public HttpOfflineQueueOptions OfflineQueue { get; } = new HttpOfflineQueueOptions();
     }
 }

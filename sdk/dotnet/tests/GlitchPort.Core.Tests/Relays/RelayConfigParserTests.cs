@@ -32,6 +32,76 @@ namespace GlitchPort.Tests
             Assert.Equal("http", definition.Name);
             Assert.Equal(Level.Debug, definition.MinLevel);
             Assert.True(definition.Enabled);
+
+            var options = Assert.IsType<HttpRelayOptions>(definition.Options);
+            Assert.Null(options.OfflineQueue.Directory);
+            Assert.Equal(500, options.OfflineQueue.MaxEvents);
+            Assert.Equal(72, options.OfflineQueue.MaxAgeHours);
+            Assert.Equal(30, options.OfflineQueue.RetryIntervalSeconds);
+        }
+
+        [Fact]
+        public void Parse_HttpRelay_ParsesTheOfflineQueueParameters()
+        {
+            var definition = Assert.Single(RelayConfigParser.Parse(
+                "http://public-key@relay.example.com:5080/7?offline_dir=C%3A%5Cgames%5Clogs%2Fqueue"
+                + "&offline_max_events=100&offline_max_age_hours=0&offline_retry_interval_seconds=5"));
+
+            var options = Assert.IsType<HttpRelayOptions>(definition.Options);
+            Assert.Equal(@"C:\games\logs/queue", options.OfflineQueue.Directory);
+            Assert.Equal(100, options.OfflineQueue.MaxEvents);
+            Assert.Equal(0, options.OfflineQueue.MaxAgeHours);
+            Assert.Equal(5, options.OfflineQueue.RetryIntervalSeconds);
+        }
+
+        [Fact]
+        public void Parse_HttpRelay_ParsesTheDocumentedOfflineQueueExample()
+        {
+            var definition = Assert.Single(RelayConfigParser.Parse(
+                "http://key@host:5080/1?offline_dir=C%3A%5Cgames%5Clogs%2Fqueue&offline_max_events=500"));
+
+            var options = Assert.IsType<HttpRelayOptions>(definition.Options);
+            Assert.Equal(@"C:\games\logs/queue", options.OfflineQueue.Directory);
+            Assert.Equal(500, options.OfflineQueue.MaxEvents);
+            Assert.Equal(72, options.OfflineQueue.MaxAgeHours);
+            Assert.Equal(30, options.OfflineQueue.RetryIntervalSeconds);
+        }
+
+        [Fact]
+        public void Parse_HttpRelay_ExpandsTheOfflineDirectoryLikeTheFileRelay()
+        {
+            var name = "GLITCHPORT_TEST_OFFLINE_DIR_" + Guid.NewGuid().ToString("N");
+            const string Value = "custom/queue";
+            Environment.SetEnvironmentVariable(name, Value);
+            try
+            {
+                var definition = Assert.Single(RelayConfigParser.Parse(
+                    "http://public-key@relay.example.com:5080/7?offline_dir=~%2F%25" + name + "%25"
+                    + "%2F%24" + name
+                    + "%2F%24%7B" + name + "%7D"));
+
+                var options = Assert.IsType<HttpRelayOptions>(definition.Options);
+                var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+                Assert.Equal(
+                    Path.Combine(profile, Value + "/" + Value + "/" + Value),
+                    options.OfflineQueue.Directory);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(name, null);
+            }
+        }
+
+        [Fact]
+        public void Parse_HttpRelay_LeavesTheOfflineDirectoryNullWhenItIsAbsent()
+        {
+            var definition = Assert.Single(RelayConfigParser.Parse(
+                "http://public-key@relay.example.com:5080/7?offline_max_events=10"));
+
+            var options = Assert.IsType<HttpRelayOptions>(definition.Options);
+            Assert.Null(options.OfflineQueue.Directory);
+            Assert.Equal(10, options.OfflineQueue.MaxEvents);
         }
 
         [Fact]
@@ -269,6 +339,14 @@ namespace GlitchPort.Tests
         [InlineData("file:?max_total_size_mb=-1", "#1", "must be >= 0")]
         [InlineData("file:?max_files=-1", "#1", "must be >= 0")]
         [InlineData("http://public-key@relay.example.com:5080/1?window=new", "#1", "unknown parameter 'window'")]
+        [InlineData("http://public-key@relay.example.com:5080/1?offline_dir=", "#1", "must not be blank")]
+        [InlineData("http://public-key@relay.example.com:5080/1?offline_dir=%20", "#1", "must not be blank")]
+        [InlineData("http://public-key@relay.example.com:5080/1?offline_max_events=abc", "#1", "not a valid integer")]
+        [InlineData("http://public-key@relay.example.com:5080/1?offline_max_events=", "#1", "not a valid integer")]
+        [InlineData("http://public-key@relay.example.com:5080/1?offline_max_events=0", "#1", "must be >= 1")]
+        [InlineData("http://public-key@relay.example.com:5080/1?offline_max_age_hours=-1", "#1", "must be >= 0")]
+        [InlineData("http://public-key@relay.example.com:5080/1?offline_retry_interval_seconds=0", "#1", "must be >= 1")]
+        [InlineData("http://public-key@relay.example.com:5080/1?offline_bogus=1", "#1", "unknown parameter 'offline_bogus'")]
         public void Parse_InvalidItem_ThrowsFormatExceptionWithIndexAndReason(
             string config,
             string expectedIndex,
@@ -278,6 +356,16 @@ namespace GlitchPort.Tests
 
             Assert.Contains(expectedIndex, exception.Message, StringComparison.Ordinal);
             Assert.Contains(expectedReason, exception.Message, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void Parse_InvalidOfflineParameter_ReportsItsPositionAmongNonEmptyItems()
+        {
+            var exception = Assert.Throws<FormatException>(() => RelayConfigParser.Parse(
+                "terminal; http://public-key@relay.example.com:5080/1?offline_max_events=0"));
+
+            Assert.Contains("#2", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("offline_max_events", exception.Message, StringComparison.Ordinal);
         }
     }
 }
