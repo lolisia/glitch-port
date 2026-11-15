@@ -12,6 +12,9 @@ namespace GlitchPort.Unity
     /// </summary>
     public sealed class UnityPlatformInfo
     {
+        /// <summary>The product version used when the caller does not report one.</summary>
+        public const string DefaultProductVersion = "0.0.0";
+
         /// <summary>Creates platform information.</summary>
         /// <param name="isEditor">Whether the game is running in the Unity editor.</param>
         /// <param name="isDevelopmentBuild">Whether this is a development player.</param>
@@ -22,6 +25,10 @@ namespace GlitchPort.Unity
         /// <param name="productName">The product name shown by the terminal renderer.</param>
         /// <param name="packageVersion">The Unity SDK package version.</param>
         /// <param name="terminalExecutablePath">The terminal executable path, or <see langword="null"/> when it was not found.</param>
+        /// <param name="productVersion">
+        /// The application version reported in the default release, or
+        /// <see langword="null"/> when the caller does not know it.
+        /// </param>
         public UnityPlatformInfo(
             bool isEditor,
             bool isDevelopmentBuild,
@@ -31,7 +38,8 @@ namespace GlitchPort.Unity
             string persistentDataPath,
             string productName,
             string packageVersion,
-            string? terminalExecutablePath)
+            string? terminalExecutablePath,
+            string? productVersion = null)
         {
             IsEditor = isEditor;
             IsDevelopmentBuild = isDevelopmentBuild;
@@ -42,6 +50,7 @@ namespace GlitchPort.Unity
             ProductName = productName ?? string.Empty;
             PackageVersion = packageVersion ?? string.Empty;
             TerminalExecutablePath = terminalExecutablePath;
+            ProductVersion = string.IsNullOrWhiteSpace(productVersion) ? DefaultProductVersion : productVersion;
         }
 
         /// <summary>Gets a value indicating whether the game is running in the Unity editor.</summary>
@@ -68,6 +77,9 @@ namespace GlitchPort.Unity
         /// <summary>Gets the Unity SDK package version.</summary>
         public string PackageVersion { get; }
 
+        /// <summary>Gets the application version reported in the default release.</summary>
+        public string ProductVersion { get; }
+
         /// <summary>Gets the resolved terminal executable path, or <see langword="null"/> when it was not found.</summary>
         public string? TerminalExecutablePath { get; }
 
@@ -87,6 +99,14 @@ namespace GlitchPort.Unity
     public static class GlitchPortUnityConfig
     {
         private const string SdkName = "glitchport.unity";
+
+        private const string UnityPlatformName = "unity";
+
+        private const string EditorEnvironment = "editor";
+
+        private const string DevelopmentEnvironment = "development";
+
+        private const string ProductionEnvironment = "production";
 
         private const string TerminalUnavailableDiagnostic =
             "The terminal relay is enabled but was not added. Run scripts/build-unity-plugins.sh to build "
@@ -122,6 +142,8 @@ namespace GlitchPort.Unity
         /// method never reads the process environment itself. Without an
         /// environment DSN, the asset DSN, file mode and terminal mode rules add
         /// the relay definitions described by <see cref="GlitchPortSettings"/>.
+        /// The platform, release, environment, PII, breadcrumb and sampling
+        /// options are always derived from the settings and the platform facts.
         /// </remarks>
         /// <param name="settings">The project settings.</param>
         /// <param name="platform">The platform facts.</param>
@@ -159,6 +181,16 @@ namespace GlitchPort.Unity
             {
                 SdkName = SdkName,
                 SdkVersion = platform.PackageVersion,
+                Platform = UnityPlatformName,
+                Release = string.IsNullOrWhiteSpace(settings.Release)
+                    ? platform.ProductName + "@" + platform.ProductVersion
+                    : settings.Release,
+                Environment = string.IsNullOrWhiteSpace(settings.Environment)
+                    ? DefaultEnvironment(platform)
+                    : settings.Environment,
+                SendDefaultPii = settings.SendDefaultPii,
+                MaxBreadcrumbs = settings.MaxBreadcrumbs,
+                SampleRate = Math.Max(0d, Math.Min(1d, settings.SampleRate)),
             };
 
             if (!string.IsNullOrWhiteSpace(environmentDsn))
@@ -219,6 +251,16 @@ namespace GlitchPort.Unity
             }
 
             return options;
+        }
+
+        private static string DefaultEnvironment(UnityPlatformInfo platform)
+        {
+            if (platform.IsEditor)
+            {
+                return EditorEnvironment;
+            }
+
+            return platform.IsDevelopmentBuild ? DevelopmentEnvironment : ProductionEnvironment;
         }
 
         private static bool IsFileEnabled(GlitchPort.Unity.FileMode mode, UnityPlatformInfo platform)
