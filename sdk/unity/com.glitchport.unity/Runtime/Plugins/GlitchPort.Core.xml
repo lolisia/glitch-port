@@ -417,12 +417,17 @@
             The output never ends with a newline.
             </summary>
         </member>
+        <member name="F:GlitchPort.EventFormatter.MaxPrettyFrames">
+            <summary>How many exception stack frames the pretty format shows at most.</summary>
+        </member>
         <member name="M:GlitchPort.EventFormatter.FormatCompact(GlitchPort.CapturedEvent,System.Boolean)">
             <summary>
             Formats an event as a single compact line:
             <c>{local time} {LEVEL} {message}  (id {short id})</c>.
-            Continuation lines of a multi-line message are indented by two spaces
-            and the event id is appended to the last line.
+            An event with an exception uses the outermost exception's
+            <c>type: value</c> in place of the message. Continuation lines of a
+            multi-line message are indented by two spaces and the event id is
+            appended to the last line.
             </summary>
             <param name="e">The event to format.</param>
             <param name="color">When <see langword="true"/>, wraps only the level token in ANSI SGR codes.</param>
@@ -435,6 +440,13 @@
             <c>  sdk={name}/{version} · id {short id}</c>. Continuation lines of a
             multi-line message are indented by two spaces.
             </summary>
+            <remarks>
+            An event with an exception shows the outermost exception's
+            <c>type: value</c> in place of the message, followed by up to five of
+            the selected stack frames (<c>  at Module.Function (file:line)</c>),
+            one sorted tags summary line (<c>  tags: key=value, ...</c>) and the
+            release and environment when the event carries them.
+            </remarks>
             <param name="e">The event to format.</param>
             <param name="color">When <see langword="true"/>, wraps only the level token in ANSI SGR codes.</param>
             <returns>The formatted event, without a trailing newline.</returns>
@@ -454,6 +466,34 @@
             Renders the level name upper-cased and padded to five characters, wrapped
             in the level's ANSI SGR codes when <paramref name="color"/> is set.
             </summary>
+        </member>
+        <member name="M:GlitchPort.EventFormatter.AppendTitle(System.Text.StringBuilder,GlitchPort.CapturedEvent)">
+            <summary>
+            Appends the event title: <c>type: value</c> of the outermost exception,
+            or the message for a message-only event.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.EventFormatter.FormatExceptionTitle(System.String,System.String)">
+            <summary>Joins an exception type and value as <c>type: value</c>, omitting empty parts.</summary>
+        </member>
+        <member name="M:GlitchPort.EventFormatter.AppendFrames(System.Text.StringBuilder,System.Collections.Generic.IList{GlitchPort.CapturedStackFrame})">
+            <summary>
+            Appends at most <see cref="F:GlitchPort.EventFormatter.MaxPrettyFrames"/> frames, in the order of
+            the summary (throw site first), as
+            <c>  at Module.Function (file:line)</c>.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.EventFormatter.FormatFrameName(GlitchPort.CapturedStackFrame)">
+            <summary>Renders <c>Module.Function</c>, omitting the dot when a part is missing.</summary>
+        </member>
+        <member name="M:GlitchPort.EventFormatter.FormatFrameLocation(GlitchPort.CapturedStackFrame)">
+            <summary>Renders <c>(file:line)</c>, or <see langword="null"/> without a file name.</summary>
+        </member>
+        <member name="M:GlitchPort.EventFormatter.AppendTags(System.Text.StringBuilder,System.Collections.Generic.IReadOnlyDictionary{System.String,System.String})">
+            <summary>Appends one <c>  tags: key=value, ...</c> line when the event has tags.</summary>
+        </member>
+        <member name="M:GlitchPort.EventFormatter.AppendMetadata(System.Text.StringBuilder,System.String,System.String)">
+            <summary>Appends one <c>  {label}: {value}</c> line when the value is present.</summary>
         </member>
         <member name="M:GlitchPort.EventFormatter.AppendMessage(System.Text.StringBuilder,System.String)">
             <summary>Appends a message, indenting every line after the first by two spaces.</summary>
