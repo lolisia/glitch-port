@@ -1000,6 +1000,20 @@
             are gzip-compressed. Delivery happens on the base class worker thread; a
             failed attempt is retried once before it is counted as failed.
             </summary>
+            <remarks>
+            <para>
+            When <see cref="P:GlitchPort.HttpRelayOptions.OfflineQueue"/> names a directory, events
+            that cannot be delivered (network errors, timeouts, <c>5xx</c>,
+            <c>429</c> and <c>503</c>) are written there verbatim and resent later by
+            a background retry thread, on <see cref="M:GlitchPort.QueuedRelay.FlushBuffer"/> and
+            after every successful direct delivery. Other <c>4xx</c> responses are
+            permanent: the event is reported as failed and never queued.
+            </para>
+            <para>
+            A <c>Retry-After</c> header on <c>429</c>/<c>503</c> suspends all relay
+            traffic until it expires.
+            </para>
+            </remarks>
         </member>
         <member name="F:GlitchPort.HttpRelay.CompressionThresholdBytes">
             <summary>
@@ -1007,20 +1021,96 @@
             compresses the request. Smaller bodies are sent as-is.
             </summary>
         </member>
+        <member name="F:GlitchPort.HttpRelay.DefaultRateLimitHold">
+            <summary>
+            The hold applied to a <c>429</c>/<c>503</c> drain response whose
+            <c>Retry-After</c> header is missing or invalid.
+            </summary>
+        </member>
+        <member name="F:GlitchPort.HttpRelay.RetryWaitChunk">
+            <summary>
+            The longest wait the retry thread performs before re-checking for a
+            newly recorded <c>Retry-After</c> hold, so it can wake early.
+            </summary>
+        </member>
+        <member name="F:GlitchPort.HttpRelay.MaxRateLimitHold">
+            <summary>An upper bound for parsed <c>Retry-After</c> delays.</summary>
+        </member>
         <member name="M:GlitchPort.HttpRelay.#ctor(GlitchPort.Dsn,GlitchPort.HttpRelayOptions,System.Net.Http.HttpClient)">
             <summary>Creates an HTTP relay.</summary>
             <param name="dsn">The parsed DSN that identifies the relay and project.</param>
             <param name="options">The relay options.</param>
             <param name="httpClient">The shared <see cref="T:System.Net.Http.HttpClient"/> used to send events.</param>
+            <exception cref="T:System.ArgumentOutOfRangeException">
+            The offline queue is configured and one of its limits is invalid.
+            </exception>
         </member>
         <member name="M:GlitchPort.HttpRelay.Handle(GlitchPort.CapturedEvent)">
             <inheritdoc/>
+        </member>
+        <member name="M:GlitchPort.HttpRelay.FlushBuffer">
+            <summary>
+            Drains the offline queue from <see cref="M:GlitchPort.QueuedRelay.FlushBuffer"/>, so
+            <see cref="M:GlitchPort.QueuedRelay.FlushAsync(System.TimeSpan)"/> and dispose also flush the backlog.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.HttpRelay.GetQueuedCount">
+            <inheritdoc/>
+        </member>
+        <member name="M:GlitchPort.HttpRelay.Dispose">
+            <summary>
+            Stops the retry thread and releases the offline queue. The base worker
+            performs its final drain while the queue is still alive; a late drain
+            after the queue was disposed is a no-op.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.HttpRelay.SendOnce(System.Byte[])">
+            <summary>
+            Sends one serialized event and classifies the result. Never throws:
+            network failures become transient outcomes.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.HttpRelay.DrainOfflineQueue">
+            <summary>
+            Sends every queued event, oldest first, until the queue is empty, a
+            transient error asks for a pause, or a Retry-After hold is active.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.HttpRelay.RetryLoop">
+            <summary>
+            Runs on the dedicated retry thread: drains immediately, then once per
+            retry interval, waking early when a Retry-After hold expires.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.HttpRelay.Persist(GlitchPort.CapturedEvent,System.String)">
+            <summary>Writes one event to the disk queue and counts what the write did.</summary>
+        </member>
+        <member name="P:GlitchPort.HttpRelay.IsOfflineQueueAvailable">
+            <summary>Gets a value indicating whether the disk queue exists and owns its directory.</summary>
+        </member>
+        <member name="M:GlitchPort.HttpRelay.TryGetRetryAfter(System.Net.Http.HttpResponseMessage,System.TimeSpan@)">
+            <summary>
+            Reads <c>Retry-After</c> as delta-seconds or an HTTP date. A missing or
+            malformed header yields <see langword="false"/>.
+            </summary>
         </member>
         <member name="M:GlitchPort.HttpRelay.CreateContent(System.Byte[])">
             <summary>
             Creates the request content for one attempt. Large payloads are
             compressed with gzip and advertised with <c>Content-Encoding: gzip</c>.
             </summary>
+        </member>
+        <member name="T:GlitchPort.HttpRelay.SendOutcome">
+            <summary>The result of one HTTP attempt.</summary>
+        </member>
+        <member name="P:GlitchPort.HttpRelay.SendOutcome.IsThrottled">
+            <summary>Gets a value indicating whether the response was a 429 or 503.</summary>
+        </member>
+        <member name="P:GlitchPort.HttpRelay.SendOutcome.HasRetryAfter">
+            <summary>Gets a value indicating whether a Retry-After header was parsed.</summary>
+        </member>
+        <member name="P:GlitchPort.HttpRelay.SendOutcome.RetryAfter">
+            <summary>Gets the parsed Retry-After delay; may be non-positive.</summary>
         </member>
         <member name="T:GlitchPort.DirectoryLock">
             <summary>
@@ -1317,6 +1407,12 @@
             <see cref="M:GlitchPort.QueuedRelay.FlushBuffer"/> and exits; the method never blocks for more
             than roughly one second because the worker is a background thread.
             </summary>
+            <remarks>
+            Subclasses that own extra threads or disk state override this method:
+            the base implementation must run while that state is still alive so the
+            final <see cref="M:GlitchPort.QueuedRelay.FlushBuffer"/> can use it. Overrides must stay
+            idempotent, just like this implementation.
+            </remarks>
         </member>
         <member name="M:GlitchPort.QueuedRelay.Handle(GlitchPort.CapturedEvent)">
             <summary>Processes one event on the worker thread.</summary>
@@ -1324,6 +1420,13 @@
         </member>
         <member name="M:GlitchPort.QueuedRelay.FlushBuffer">
             <summary>Flushes any internal buffer on the worker thread. Defaults to a no-op.</summary>
+        </member>
+        <member name="M:GlitchPort.QueuedRelay.GetQueuedCount">
+            <summary>
+            Gets the number of events waiting in the subclass' disk-backed queue.
+            The default implementation reports zero (no disk queue).
+            </summary>
+            <returns>The number of events still queued, or zero when no queue is enabled.</returns>
         </member>
         <member name="M:GlitchPort.QueuedRelay.MarkDelivered(System.Int64)">
             <summary>Records <paramref name="count"/> successfully delivered events.</summary>
@@ -1333,6 +1436,17 @@
             <summary>Records <paramref name="count"/> failed events and remembers the error.</summary>
             <param name="error">A short error description.</param>
             <param name="count">The number of events; defaults to one.</param>
+        </member>
+        <member name="M:GlitchPort.QueuedRelay.MarkDropped(System.Int64)">
+            <summary>Records <paramref name="count"/> events dropped by the queue limits.</summary>
+            <param name="count">The number of events; defaults to one.</param>
+        </member>
+        <member name="M:GlitchPort.QueuedRelay.RecordLastError(System.String)">
+            <summary>
+            Remembers <paramref name="error"/> without counting a failed event, for
+            transient problems that a later attempt is expected to resolve.
+            </summary>
+            <param name="error">A short error description.</param>
         </member>
         <member name="M:GlitchPort.QueuedRelay.Disable(System.String)">
             <summary>Stops accepting new events and records the reason.</summary>

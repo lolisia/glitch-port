@@ -155,7 +155,13 @@ namespace GlitchPort
         /// <see cref="FlushBuffer"/> and exits; the method never blocks for more
         /// than roughly one second because the worker is a background thread.
         /// </summary>
-        public void Dispose()
+        /// <remarks>
+        /// Subclasses that own extra threads or disk state override this method:
+        /// the base implementation must run while that state is still alive so the
+        /// final <see cref="FlushBuffer"/> can use it. Overrides must stay
+        /// idempotent, just like this implementation.
+        /// </remarks>
+        public virtual void Dispose()
         {
             Thread? worker;
 
@@ -197,6 +203,16 @@ namespace GlitchPort
         {
         }
 
+        /// <summary>
+        /// Gets the number of events waiting in the subclass' disk-backed queue.
+        /// The default implementation reports zero (no disk queue).
+        /// </summary>
+        /// <returns>The number of events still queued, or zero when no queue is enabled.</returns>
+        protected virtual long GetQueuedCount()
+        {
+            return 0;
+        }
+
         /// <summary>Records <paramref name="count"/> successfully delivered events.</summary>
         /// <param name="count">The number of events; defaults to one.</param>
         protected void MarkDelivered(long count = 1)
@@ -210,6 +226,23 @@ namespace GlitchPort
         protected void MarkFailed(string error, long count = 1)
         {
             Interlocked.Add(ref _failed, count);
+            _lastError = RelayErrorText.Sanitize(error);
+        }
+
+        /// <summary>Records <paramref name="count"/> events dropped by the queue limits.</summary>
+        /// <param name="count">The number of events; defaults to one.</param>
+        protected void MarkDropped(long count = 1)
+        {
+            Interlocked.Add(ref _dropped, count);
+        }
+
+        /// <summary>
+        /// Remembers <paramref name="error"/> without counting a failed event, for
+        /// transient problems that a later attempt is expected to resolve.
+        /// </summary>
+        /// <param name="error">A short error description.</param>
+        protected void RecordLastError(string error)
+        {
             _lastError = RelayErrorText.Sanitize(error);
         }
 
@@ -348,6 +381,7 @@ namespace GlitchPort
                 Interlocked.Read(ref _delivered),
                 Interlocked.Read(ref _failed),
                 Interlocked.Read(ref _dropped),
+                GetQueuedCount(),
                 _lastError);
         }
 
@@ -373,6 +407,7 @@ namespace GlitchPort
                 Interlocked.Read(ref _delivered),
                 Interlocked.Read(ref _failed) + stillQueued,
                 Interlocked.Read(ref _dropped),
+                GetQueuedCount(),
                 error);
         }
 
