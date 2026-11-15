@@ -56,4 +56,8 @@ Data persists in `glitch-port_postgres-data`. Back up with `pg_dump` before
 upgrades. `docker compose -f compose.yml down` preserves data; do not add `-v`.
 Each service has a CPU and memory limit (576 MiB total); co-hosting still consumes
 resources and does not preserve RMD's previously measured maximum capacity.
-The current collector has no retention job: monitor disk growth.
+Retention is enabled by default (`Processor:Retention:Days = 30`; set it to `0`
+to disable retention): the Processor deletes events and legacy messages older
+than that window every `Processor:Retention:IntervalMinutes` (default `60`).
+See [the operations guide](../../documents/operations.md) for retention,
+multiple Processor instances and backup/restore procedures.
