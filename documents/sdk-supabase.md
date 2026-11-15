@@ -442,6 +442,54 @@ Additional field caps: tag keys 32 and tag values 200 characters, exception
 type and fingerprint component 200 characters, release 200, environment 64,
 `server_name` 200 and logger 128 characters.
 
+## Local verification (repository only)
+
+The SDK ships an end-to-end example that runs against a real local collector
+instead of mocks:
+
+```bash
+bash scripts/e2e-supabase.sh
+```
+
+The script is integration-only: it needs Docker (Compose v2) for PostgreSQL and
+the .NET 10 SDK for the collector, uses the fixed host ports 5080 (Relay), 5090
+(Processor) and 55432 (PostgreSQL), and is not part of `scripts/verify.sh`. Do
+not run it at the same time as the other fixed-port end-to-end scripts
+(`scripts/e2e-hello.sh`, `scripts/e2e-events.sh`, ...). The script starts
+PostgreSQL, the Processor and the Relay, waits for both `/healthz` endpoints,
+runs the example and always tears the stack down again.
+
+`sdk/supabase/examples/node-e2e.ts` runs on Node.js 22 with
+`--experimental-strip-types` and imports the SDK source directly through
+`../src/glitchport.ts`. That relative `.ts` specifier is the same form Deno
+requires, so the example needs no build step and no package install. It:
+
+- initializes the SDK with `environment: 'e2e'` and
+  `release: 'supabase-e2e@0.0.0'` and invokes a handler wrapped with
+  `withGlitchPort` on a request with `?fail=1`, so the handler throws on
+  purpose;
+- asserts the automatic response: status `500`, a `content-type` starting with
+  `application/json`, and a body with `error: "Internal Server Error"` and a
+  32-character lowercase hexadecimal `event_id`;
+- reads `GET /api/manage/events/{eventId}` (dashed UUID form) until the stored
+  event is visible and checks that it has platform `javascript` and
+  `payload.exception[0].type === "Error"`;
+- polls `GET /api/manage/projects/{projectId}/issues?status=all&limit=100`
+  until the generated issue exists with platform `javascript`, a title
+  containing `Error: intentional failure from supabase edge function` and
+  `event_count >= 1`.
+
+The example reads these environment variables:
+
+| Variable | Default | Description |
+| -------- | ------- | ----------- |
+| `GLITCHPORT_DSN` | required | Project DSN used by the SDK, for example `http://dev-public-key@localhost:5080/1`. |
+| `GLITCHPORT_MANAGE_URL` | `http://localhost:5090/api/manage` | Management API base URL. |
+| `GLITCHPORT_ADMIN_TOKEN` | `dev-admin-token` | `Authorization: Bearer` token for the Management API. |
+
+`GLITCHPORT_PROJECT_ID` optionally overrides the project id that is otherwise
+taken from the last non-empty segment of the DSN path.
+
 ## Limitations
 
 - **Manual captures are not flushed automatically.** Only the automatic
