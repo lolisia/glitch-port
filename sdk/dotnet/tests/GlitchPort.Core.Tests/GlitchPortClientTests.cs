@@ -1,12 +1,17 @@
 using System;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
+using System.IO.Compression;
 using System.Net;
 using System.Net.Http;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using GlitchPort.Tests.Events;
 using Xunit;
 
 namespace GlitchPort.Tests
@@ -42,13 +47,13 @@ namespace GlitchPort.Tests
             Assert.Equal("http", requestUri.Scheme);
             Assert.Equal("relay.example.com", requestUri.Host);
             Assert.Equal(5080, requestUri.Port);
-            Assert.Equal("/api/1/messages", requestUri.AbsolutePath);
+            Assert.Equal("/api/1/events", requestUri.AbsolutePath);
 
             Assert.Equal("public-key", handler.ApiKey);
             Assert.Equal(ExpectedContentType, handler.ContentType);
 
             Assert.NotNull(handler.Body);
-            using var document = JsonDocument.Parse(handler.Body!);
+            using var document = JsonDocument.Parse(ReadRequestBody(handler));
             var root = document.RootElement;
 
             Assert.True(root.TryGetProperty("event_id", out var eventIdElement));
@@ -81,7 +86,7 @@ namespace GlitchPort.Tests
             await client.CaptureMessageAsync("boom", Level.Error);
             await client.FlushAsync();
 
-            using var document = JsonDocument.Parse(handler.Body!);
+            using var document = JsonDocument.Parse(ReadRequestBody(handler));
             Assert.Equal("error", document.RootElement.GetProperty("level").GetString());
         }
 
@@ -135,7 +140,7 @@ namespace GlitchPort.Tests
             await client.CaptureMessageAsync("hello");
             await client.FlushAsync();
 
-            using var document = JsonDocument.Parse(handler.Body!);
+            using var document = JsonDocument.Parse(ReadRequestBody(handler));
             Assert.Equal(expectedVersion, document.RootElement.GetProperty("sdk").GetProperty("version").GetString());
         }
 
@@ -156,7 +161,7 @@ namespace GlitchPort.Tests
             await client.CaptureMessageAsync("hello");
             await client.FlushAsync();
 
-            using var document = JsonDocument.Parse(handler.Body!);
+            using var document = JsonDocument.Parse(ReadRequestBody(handler));
             var sdk = document.RootElement.GetProperty("sdk");
             Assert.Equal("custom.sdk", sdk.GetProperty("name").GetString());
             Assert.Equal("9.8.7", sdk.GetProperty("version").GetString());
@@ -176,7 +181,7 @@ namespace GlitchPort.Tests
 
             Assert.NotNull(handler.RequestUri);
             Assert.Equal(80, handler.RequestUri!.Port);
-            Assert.Equal("/api/9/messages", handler.RequestUri.AbsolutePath);
+            Assert.Equal("/api/9/events", handler.RequestUri.AbsolutePath);
         }
 
         [Fact]
@@ -201,6 +206,18 @@ namespace GlitchPort.Tests
             Assert.False(report.AllSucceeded);
             Assert.Contains("500", result.LastError, StringComparison.Ordinal);
             Assert.Contains("relay exploded", result.LastError, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public async Task CaptureMessageAsync_WithNull_ReturnsFaultedTask()
+        {
+            using var handler = new RecordingHttpMessageHandler();
+            using var httpClient = new HttpClient(handler);
+            using var client = CreateClient(httpClient);
+
+            await Assert.ThrowsAsync<ArgumentNullException>(() => client.CaptureMessageAsync(null!));
+
+            Assert.Null(handler.Body);
         }
 
         [Fact]
@@ -264,7 +281,7 @@ namespace GlitchPort.Tests
             Assert.True(report.AllSucceeded);
             Assert.Equal(1, Assert.Single(report.Relays).Delivered);
 
-            using var document = JsonDocument.Parse(handler.Body!);
+            using var document = JsonDocument.Parse(ReadRequestBody(handler));
             Assert.Equal("boom", document.RootElement.GetProperty("message").GetString());
         }
 
@@ -279,7 +296,7 @@ namespace GlitchPort.Tests
             client.Dispose();
 
             Assert.NotNull(handler.Body);
-            using var document = JsonDocument.Parse(handler.Body!);
+            using var document = JsonDocument.Parse(ReadRequestBody(handler));
             Assert.Equal("hello", document.RootElement.GetProperty("message").GetString());
         }
 
@@ -372,6 +389,236 @@ namespace GlitchPort.Tests
             Assert.Equal("http", client.Relays[0].Type);
             Assert.Equal("backup", client.Relays[1].Name);
             Assert.Equal("http", client.Relays[1].Type);
+        }
+
+        [Fact]
+        public void Constructor_ExposesTheOptionsInstance()
+        {
+            var options = new GlitchPortOptions
+            {
+                Dsn = Dsn.Parse(ValidDsn),
+                Release = "star-raiders@1.2.3",
+            };
+
+            using var handler = new RecordingHttpMessageHandler();
+            using var httpClient = new HttpClient(handler);
+            using var client = new GlitchPortClient(options, httpClient);
+
+            Assert.Same(options, client.Options);
+            Assert.Equal("star-raiders@1.2.3", client.Options.Release);
+        }
+
+        [Fact]
+        public async Task CaptureMessageAsync_ProducesMessageOnlyProtocolV1Event()
+        {
+            using var handler = new RecordingHttpMessageHandler();
+            using var httpClient = new HttpClient(handler);
+            using var client = CreateClient(httpClient);
+
+            await client.CaptureMessageAsync("hello");
+            await client.FlushAsync();
+
+            using var document = JsonDocument.Parse(ReadRequestBody(handler));
+            var root = document.RootElement;
+
+            Assert.Equal("hello", root.GetProperty("message").GetString());
+            Assert.False(root.TryGetProperty("exception", out _));
+            Assert.Equal("info", root.GetProperty("level").GetString());
+            Assert.Equal(GlitchPortEvent.DefaultPlatform, root.GetProperty("platform").GetString());
+
+            var runtime = root.GetProperty("contexts").GetProperty("runtime");
+            Assert.Equal("dotnet", runtime.GetProperty("name").GetString());
+            Assert.Equal(Environment.Version.ToString(), runtime.GetProperty("version").GetString());
+            Assert.Equal(RuntimeInformation.FrameworkDescription, runtime.GetProperty("framework").GetString());
+
+            var os = root.GetProperty("contexts").GetProperty("os");
+            Assert.Equal(RuntimeInformation.OSDescription, os.GetProperty("name").GetString());
+            Assert.Equal(RuntimeInformation.OSDescription, os.GetProperty("description").GetString());
+
+            ProtocolSchema.AssertValid(handler.Body!);
+        }
+
+        [Fact]
+        public async Task CaptureExceptionAsync_EnqueuesInnerToOuterExceptionsAndReturnsTheId()
+        {
+            using var handler = new RecordingHttpMessageHandler();
+            using var httpClient = new HttpClient(handler);
+            using var client = CreateClient(httpClient);
+
+            var exception = CreateNestedException();
+            var eventId = await client.CaptureExceptionAsync(exception);
+            await client.FlushAsync();
+
+            Assert.NotEqual(Guid.Empty, eventId);
+
+            using var document = JsonDocument.Parse(ReadRequestBody(handler));
+            var root = document.RootElement;
+
+            Assert.Equal(eventId, Guid.Parse(root.GetProperty("event_id").GetString()!));
+            Assert.False(root.TryGetProperty("message", out _));
+            Assert.Equal("error", root.GetProperty("level").GetString());
+
+            var exceptions = root.GetProperty("exception");
+            Assert.Equal(2, exceptions.GetArrayLength());
+            Assert.Equal("System.InvalidOperationException", exceptions[0].GetProperty("type").GetString());
+            Assert.Equal("inner", exceptions[0].GetProperty("value").GetString());
+            Assert.Equal("System.ApplicationException", exceptions[1].GetProperty("type").GetString());
+            Assert.Equal("outer", exceptions[1].GetProperty("value").GetString());
+
+            ProtocolSchema.AssertValid(ReadRequestBody(handler));
+        }
+
+        [Fact]
+        public async Task CaptureExceptionAsync_ReturnsBeforeTheRequestCompletes()
+        {
+            using var handler = new BlockingHttpMessageHandler();
+            using var httpClient = new HttpClient(handler);
+            using var client = CreateClient(httpClient);
+
+            var capture = client.CaptureExceptionAsync(new InvalidOperationException("boom"));
+            var winner = await Task.WhenAny(capture, Task.Delay(TimeSpan.FromSeconds(5)));
+
+            Assert.Same(capture, winner);
+            Assert.NotEqual(Guid.Empty, await capture);
+
+            await handler.Started.WaitAsync(TimeSpan.FromSeconds(5));
+            handler.Release();
+
+            var report = await client.FlushAsync();
+            Assert.True(report.AllSucceeded);
+        }
+
+        [Fact]
+        public async Task CaptureExceptionAsync_WithNull_ReturnsFaultedTask()
+        {
+            using var handler = new RecordingHttpMessageHandler();
+            using var httpClient = new HttpClient(handler);
+            using var client = CreateClient(httpClient);
+
+            await Assert.ThrowsAsync<ArgumentNullException>(() => client.CaptureExceptionAsync(null!));
+            Assert.Null(handler.Body);
+        }
+
+        [Fact]
+        public async Task CaptureExceptionAsync_PreCancelledToken_ThrowsAndDoesNotSend()
+        {
+            using var handler = new RecordingHttpMessageHandler();
+            using var httpClient = new HttpClient(handler);
+            using var client = CreateClient(httpClient);
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => client.CaptureExceptionAsync(new InvalidOperationException("boom"), ct: cancellation.Token));
+
+            Assert.Null(handler.Body);
+        }
+
+        [Fact]
+        public async Task CaptureEventAsync_FillsTheEventIdAndTimestampAndSerializesTheEvent()
+        {
+            using var handler = new RecordingHttpMessageHandler();
+            using var httpClient = new HttpClient(handler);
+            using var client = CreateClient(httpClient);
+            var e = new GlitchPortEvent
+            {
+                Message = "custom",
+                Level = Level.Warning,
+            };
+
+            Assert.Equal(Guid.Empty, e.EventId);
+            var eventId = await client.CaptureEventAsync(e);
+
+            Assert.Equal(eventId, e.EventId);
+            Assert.NotEqual(default, e.Timestamp);
+
+            await client.FlushAsync();
+
+            using var document = JsonDocument.Parse(ReadRequestBody(handler));
+            var root = document.RootElement;
+            Assert.Equal(eventId, Guid.Parse(root.GetProperty("event_id").GetString()!));
+            Assert.Equal("custom", root.GetProperty("message").GetString());
+            Assert.Equal("warning", root.GetProperty("level").GetString());
+        }
+
+        [Fact]
+        public async Task CaptureEventAsync_ReturnsBeforeTheRequestCompletes()
+        {
+            using var handler = new BlockingHttpMessageHandler();
+            using var httpClient = new HttpClient(handler);
+            using var client = CreateClient(httpClient);
+
+            var capture = client.CaptureEventAsync(new GlitchPortEvent { Message = "hello" });
+            var winner = await Task.WhenAny(capture, Task.Delay(TimeSpan.FromSeconds(5)));
+
+            Assert.Same(capture, winner);
+            Assert.NotEqual(Guid.Empty, await capture);
+
+            await handler.Started.WaitAsync(TimeSpan.FromSeconds(5));
+            handler.Release();
+
+            var report = await client.FlushAsync();
+            Assert.True(report.AllSucceeded);
+        }
+
+        [Fact]
+        public async Task CaptureEventAsync_WithNull_ReturnsFaultedTask()
+        {
+            using var handler = new RecordingHttpMessageHandler();
+            using var httpClient = new HttpClient(handler);
+            using var client = CreateClient(httpClient);
+
+            await Assert.ThrowsAsync<ArgumentNullException>(() => client.CaptureEventAsync(null!));
+            Assert.Null(handler.Body);
+        }
+
+        [Fact]
+        public async Task CaptureEventAsync_PreCancelledToken_ThrowsAndDoesNotSend()
+        {
+            using var handler = new RecordingHttpMessageHandler();
+            using var httpClient = new HttpClient(handler);
+            using var client = CreateClient(httpClient);
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => client.CaptureEventAsync(new GlitchPortEvent { Message = "hello" }, cancellation.Token));
+
+            Assert.Null(handler.Body);
+        }
+
+        private static string ReadRequestBody(RecordingHttpMessageHandler handler)
+        {
+            Assert.NotNull(handler.BodyBytes);
+
+            if (string.Equals(handler.ContentEncoding, "gzip", StringComparison.Ordinal))
+            {
+                using var compressed = new MemoryStream(handler.BodyBytes!);
+                using var gzip = new GZipStream(compressed, CompressionMode.Decompress);
+                using var reader = new StreamReader(gzip, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                return reader.ReadToEnd();
+            }
+
+            return Encoding.UTF8.GetString(handler.BodyBytes!);
+        }
+
+        private static Exception CreateNestedException()
+        {
+            try
+            {
+                try
+                {
+                    throw new InvalidOperationException("inner");
+                }
+                catch (Exception inner)
+                {
+                    throw new ApplicationException("outer", inner);
+                }
+            }
+            catch (Exception exception)
+            {
+                return exception;
+            }
         }
 
         private static GlitchPortClient CreateClient(HttpClient httpClient)

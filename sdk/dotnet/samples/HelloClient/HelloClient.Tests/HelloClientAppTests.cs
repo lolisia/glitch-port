@@ -47,7 +47,7 @@ namespace GlitchPort.HelloClient.Tests
                 var request = Assert.Single(handler.Requests);
                 Assert.Equal(HttpMethod.Post, request.Method);
                 Assert.NotNull(request.RequestUri);
-                Assert.Equal("http://localhost:5080/api/1/messages", request.RequestUri!.ToString());
+                Assert.Equal("http://localhost:5080/api/1/events", request.RequestUri!.ToString());
                 Assert.Equal("dev-public-key", request.ApiKey);
 
                 var payload = ParsePayload(request.Body);
@@ -82,7 +82,7 @@ namespace GlitchPort.HelloClient.Tests
 
                     var request = Assert.Single(handler.Requests);
                     Assert.NotNull(request.RequestUri);
-                    Assert.Equal("http://relay.example.com:9000/api/7/messages", request.RequestUri!.ToString());
+                    Assert.Equal("http://relay.example.com:9000/api/7/events", request.RequestUri!.ToString());
                     Assert.Equal("custom-key", request.ApiKey);
                     Assert.Equal("boom", ParsePayload(request.Body).GetProperty("message").GetString());
 

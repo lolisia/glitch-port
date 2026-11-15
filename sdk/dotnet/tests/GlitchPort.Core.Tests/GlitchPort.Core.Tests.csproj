@@ -9,6 +9,9 @@
 
     <!-- Filled by the ProjectReference build of the fake terminal child. -->
     <TestTerminalChildOutputDirectory>$(MSBuildThisFileDirectory)..\GlitchPort.TestTerminalChild\bin\$(Configuration)\net10.0\</TestTerminalChildOutputDirectory>
+
+    <!-- Filled by the ProjectReference build of the crashing unhandled-exception child. -->
+    <TestUnhandledChildOutputDirectory>$(MSBuildThisFileDirectory)..\GlitchPort.TestUnhandledChild\bin\$(Configuration)\net10.0\</TestUnhandledChildOutputDirectory>
   </PropertyGroup>
 
   <ItemGroup>
@@ -46,6 +49,14 @@
     <ProjectReference
       Include="..\GlitchPort.TestTerminalChild\GlitchPort.TestTerminalChild.csproj"
       ReferenceOutputAssembly="false" />
+
+    <!--
+      The unhandled-exception tests start a child process that crashes on
+      purpose. It is also copied next to the test assembly but never loaded.
+    -->
+    <ProjectReference
+      Include="..\GlitchPort.TestUnhandledChild\GlitchPort.TestUnhandledChild.csproj"
+      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <Target Name="CopyTestTerminalChild" AfterTargets="Build">
@@ -60,6 +71,21 @@
     <Copy
       SourceFiles="@(TestTerminalChildFiles)"
       DestinationFolder="$(OutDir)test-terminal-child\%(RecursiveDir)"
+      SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyTestUnhandledChild" AfterTargets="Build">
+    <ItemGroup>
+      <TestUnhandledChildFiles Include="$(TestUnhandledChildOutputDirectory)**\*" />
+    </ItemGroup>
+
+    <Warning
+      Condition="'@(TestUnhandledChildFiles)' == ''"
+      Text="The crashing unhandled-exception child was not built; its test will fail." />
+
+    <Copy
+      SourceFiles="@(TestUnhandledChildFiles)"
+      DestinationFolder="$(OutDir)test-unhandled-child\%(RecursiveDir)"
       SkipUnchangedFiles="true" />
   </Target>
 

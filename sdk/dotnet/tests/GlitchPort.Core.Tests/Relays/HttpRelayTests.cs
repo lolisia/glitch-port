@@ -1,6 +1,9 @@
 using System;
+using System.IO;
+using System.IO.Compression;
 using System.Net;
 using System.Net.Http;
+using System.Text;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -11,7 +14,7 @@ namespace GlitchPort.Tests
         private const string DsnString = "http://public-key@relay.example.com:5080/1";
 
         [Fact]
-        public async Task Handle_PostsTheEventToTheMessagesEndpoint()
+        public async Task Handle_PostsTheEventToTheEventsEndpoint()
         {
             using var handler = new TestHttpMessageHandler(
                 (_, _) => TestHttpMessageHandler.Response(HttpStatusCode.Accepted));
@@ -27,10 +30,52 @@ namespace GlitchPort.Tests
             Assert.Equal(1, handler.Attempts);
 
             Assert.Equal(HttpMethod.Post, handler.LastMethod);
-            Assert.Equal("http://relay.example.com:5080/api/1/messages", handler.LastRequestUri!.ToString());
+            Assert.Equal("http://relay.example.com:5080/api/1/events", handler.LastRequestUri!.ToString());
             Assert.Equal("public-key", handler.LastApiKey);
             Assert.Equal("application/json; charset=utf-8", handler.LastContentType);
             Assert.Equal(captured.Json, handler.LastBody);
+        }
+
+        [Fact]
+        public async Task Handle_WithASmallBody_SendsItUncompressed()
+        {
+            using var handler = new RecordingHttpMessageHandler();
+            using var httpClient = new HttpClient(handler);
+            using var relay = new HttpRelay(Dsn.Parse(DsnString), new HttpRelayOptions(), httpClient);
+            var captured = CreateEventWithBodyLength(HttpRelay.CompressionThresholdBytes - 1);
+
+            Assert.True(relay.TryEnqueue(captured));
+            var result = await relay.FlushAsync(TimeSpan.FromSeconds(5));
+
+            Assert.True(result.Succeeded);
+            Assert.Null(handler.ContentEncoding);
+            Assert.Equal(captured.Json, handler.Body);
+            Assert.Equal(Encoding.UTF8.GetBytes(captured.Json), handler.BodyBytes);
+        }
+
+        [Theory]
+        [InlineData(1024)]
+        [InlineData(4096)]
+        public async Task Handle_WithABodyOfAtLeast1024Bytes_SendsGzipCompressedContent(int bodyLength)
+        {
+            using var handler = new RecordingHttpMessageHandler();
+            using var httpClient = new HttpClient(handler);
+            using var relay = new HttpRelay(Dsn.Parse(DsnString), new HttpRelayOptions(), httpClient);
+            var captured = CreateEventWithBodyLength(bodyLength);
+
+            Assert.True(relay.TryEnqueue(captured));
+            var result = await relay.FlushAsync(TimeSpan.FromSeconds(5));
+
+            Assert.True(result.Succeeded);
+            Assert.Equal("gzip", handler.ContentEncoding);
+            Assert.Equal(HttpMethod.Post, handler.Method);
+            Assert.NotNull(handler.BodyBytes);
+
+            using var compressed = new MemoryStream(handler.BodyBytes!);
+            using var gzip = new GZipStream(compressed, CompressionMode.Decompress);
+            using var reader = new StreamReader(gzip, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+            Assert.Equal(captured.Json, reader.ReadToEnd());
         }
 
         [Fact]
@@ -118,6 +163,28 @@ namespace GlitchPort.Tests
 
             Assert.Contains("502", result.LastError, StringComparison.Ordinal);
             Assert.True(result.LastError!.Length < longBody.Length);
+        }
+
+        /// <summary>
+        /// Builds an event whose serialized body has exactly
+        /// <paramref name="bodyLength"/> UTF-8 bytes, so the compression threshold
+        /// can be tested precisely.
+        /// </summary>
+        private static CapturedEvent CreateEventWithBodyLength(int bodyLength)
+        {
+            const string prefix = "{\"message\":\"";
+            const string suffix = "\"}";
+            var json = prefix + new string('x', bodyLength - prefix.Length - suffix.Length) + suffix;
+            Assert.Equal(bodyLength, Encoding.UTF8.GetByteCount(json));
+
+            return new CapturedEvent(
+                Guid.NewGuid(),
+                DateTimeOffset.UtcNow,
+                Level.Info,
+                "hello",
+                GlitchPortOptions.DefaultSdkName,
+                "1.2.3",
+                json);
         }
     }
 }

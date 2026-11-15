@@ -1,7 +1,10 @@
 using System;
 using System.Globalization;
+using System.IO;
+using System.IO.Compression;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Threading;
 
@@ -9,9 +12,9 @@ namespace GlitchPort
 {
     /// <summary>
     /// Sends captured events to a glitch-port relay with
-    /// <c>POST /api/{projectId}/messages</c>. Delivery happens on the base class
-    /// worker thread; a failed attempt is retried once before it is counted as
-    /// failed.
+    /// <c>POST /api/{projectId}/events</c>. Bodies of 1024 UTF-8 bytes or more
+    /// are gzip-compressed. Delivery happens on the base class worker thread; a
+    /// failed attempt is retried once before it is counted as failed.
     /// </summary>
     public sealed class HttpRelay : QueuedRelay
     {
@@ -21,8 +24,14 @@ namespace GlitchPort
         private const int MaxAttempts = 2;
         private const int RetryDelayMilliseconds = 200;
 
+        /// <summary>
+        /// The minimum serialized body size, in UTF-8 bytes, at which the relay
+        /// compresses the request. Smaller bodies are sent as-is.
+        /// </summary>
+        internal const int CompressionThresholdBytes = 1024;
+
         private readonly HttpClient _httpClient;
-        private readonly Uri _messagesEndpoint;
+        private readonly Uri _eventsEndpoint;
         private readonly string _publicKey;
 
         /// <summary>Creates an HTTP relay.</summary>
@@ -53,15 +62,16 @@ namespace GlitchPort
 
             _httpClient = httpClient;
             _publicKey = dsn.PublicKey;
-            _messagesEndpoint = new Uri(
+            _eventsEndpoint = new Uri(
                 dsn.RelayBaseUri,
-                "/api/" + dsn.ProjectId.ToString(CultureInfo.InvariantCulture) + "/messages");
+                "/api/" + dsn.ProjectId.ToString(CultureInfo.InvariantCulture) + "/events");
         }
 
         /// <inheritdoc/>
         protected override void Handle(CapturedEvent e)
         {
             string? lastError = null;
+            var body = Encoding.UTF8.GetBytes(e.Json);
 
             for (var attempt = 1; attempt <= MaxAttempts; attempt++)
             {
@@ -72,10 +82,10 @@ namespace GlitchPort
 
                 try
                 {
-                    using (var request = new HttpRequestMessage(HttpMethod.Post, _messagesEndpoint))
+                    using (var request = new HttpRequestMessage(HttpMethod.Post, _eventsEndpoint))
                     {
                         request.Headers.TryAddWithoutValidation(ApiKeyHeaderName, _publicKey);
-                        request.Content = new StringContent(e.Json, Encoding.UTF8, "application/json");
+                        request.Content = CreateContent(body);
 
                         using (var response = _httpClient
                             .SendAsync(request, HttpCompletionOption.ResponseContentRead)
@@ -103,6 +113,41 @@ namespace GlitchPort
             }
 
             MarkFailed(lastError ?? "The relay request failed.");
+        }
+
+        /// <summary>
+        /// Creates the request content for one attempt. Large payloads are
+        /// compressed with gzip and advertised with <c>Content-Encoding: gzip</c>.
+        /// </summary>
+        private static HttpContent CreateContent(byte[] body)
+        {
+            HttpContent content;
+
+            if (body.Length >= CompressionThresholdBytes)
+            {
+                using (var buffer = new MemoryStream())
+                {
+                    using (var gzip = new GZipStream(buffer, CompressionLevel.Optimal, leaveOpen: true))
+                    {
+                        gzip.Write(body, 0, body.Length);
+                    }
+
+                    content = new ByteArrayContent(buffer.ToArray());
+                }
+
+                content.Headers.ContentEncoding.Add("gzip");
+            }
+            else
+            {
+                content = new ByteArrayContent(body);
+            }
+
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/json")
+            {
+                CharSet = "utf-8",
+            };
+
+            return content;
         }
 
         private static string DescribeStatus(HttpStatusCode statusCode, string? responseBody)

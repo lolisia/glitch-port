@@ -293,7 +293,7 @@
             </summary>
         </member>
         <member name="M:GlitchPort.CapturedEvent.#ctor(System.Guid,System.DateTimeOffset,GlitchPort.Level,System.String,System.String,System.String,System.String)">
-            <summary>Creates a captured event.</summary>
+            <summary>Creates a captured event without exception summaries, tags, release or environment.</summary>
             <param name="eventId">The unique event id.</param>
             <param name="timestamp">The capture timestamp; stored in UTC.</param>
             <param name="level">The event severity.</param>
@@ -301,6 +301,23 @@
             <param name="sdkName">The SDK name reported to relays.</param>
             <param name="sdkVersion">The SDK version reported to relays.</param>
             <param name="json">The serialized event JSON shared by every relay.</param>
+        </member>
+        <member name="M:GlitchPort.CapturedEvent.#ctor(System.Guid,System.DateTimeOffset,GlitchPort.Level,System.String,System.String,System.String,System.String,System.Collections.Generic.IEnumerable{GlitchPort.CapturedExceptionSummary},System.Collections.Generic.IEnumerable{System.Collections.Generic.KeyValuePair{System.String,System.String}},System.String,System.String)">
+            <summary>Creates a captured event with the display data exposed to relays and formatters.</summary>
+            <param name="eventId">The unique event id.</param>
+            <param name="timestamp">The capture timestamp; stored in UTC.</param>
+            <param name="level">The event severity.</param>
+            <param name="message">The captured message. Exception-only events use a type-and-message summary.</param>
+            <param name="sdkName">The SDK name reported to relays.</param>
+            <param name="sdkVersion">The SDK version reported to relays.</param>
+            <param name="json">The serialized event JSON shared by every relay.</param>
+            <param name="exceptions">
+            The exception summaries ordered from the innermost cause to the
+            outermost observed exception, or <see langword="null"/>.
+            </param>
+            <param name="tags">The merged event tags, or <see langword="null"/>.</param>
+            <param name="release">The release identifier, or <see langword="null"/>.</param>
+            <param name="environment">The deployment environment, or <see langword="null"/>.</param>
         </member>
         <member name="P:GlitchPort.CapturedEvent.EventId">
             <summary>Gets the unique event id.</summary>
@@ -322,6 +339,77 @@
         </member>
         <member name="P:GlitchPort.CapturedEvent.Json">
             <summary>Gets the serialized event JSON that every relay forwards.</summary>
+        </member>
+        <member name="P:GlitchPort.CapturedEvent.Exceptions">
+            <summary>
+            Gets the exception summaries ordered from the innermost cause (index
+            0) to the outermost observed exception (last item).
+            </summary>
+        </member>
+        <member name="P:GlitchPort.CapturedEvent.Exception">
+            <summary>
+            Gets the outermost observed exception, or <see langword="null"/> for a
+            message-only event.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.CapturedEvent.Tags">
+            <summary>Gets the merged event tags.</summary>
+        </member>
+        <member name="P:GlitchPort.CapturedEvent.Release">
+            <summary>Gets the release identifier, or <see langword="null"/>.</summary>
+        </member>
+        <member name="P:GlitchPort.CapturedEvent.Environment">
+            <summary>Gets the deployment environment, or <see langword="null"/>.</summary>
+        </member>
+        <member name="T:GlitchPort.CapturedExceptionSummary">
+            <summary>
+            A compact exception summary rendered by terminals and log formatters.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.CapturedExceptionSummary.#ctor">
+            <summary>Creates an empty summary.</summary>
+        </member>
+        <member name="M:GlitchPort.CapturedExceptionSummary.#ctor(System.String,System.String,System.Collections.Generic.IEnumerable{GlitchPort.CapturedStackFrame})">
+            <summary>Creates a summary from an exception type, value and selected frames.</summary>
+            <param name="type">The exception type name.</param>
+            <param name="value">The exception message.</param>
+            <param name="frames">
+            The frames ordered from the throw site backwards, or <see langword="null"/>.
+            </param>
+        </member>
+        <member name="P:GlitchPort.CapturedExceptionSummary.Type">
+            <summary>Gets or sets the exception type, for example <c>System.InvalidOperationException</c>.</summary>
+        </member>
+        <member name="P:GlitchPort.CapturedExceptionSummary.Value">
+            <summary>Gets or sets the exception message.</summary>
+        </member>
+        <member name="P:GlitchPort.CapturedExceptionSummary.Frames">
+            <summary>Gets or sets the selected stack frames, ordered from the throw site backwards.</summary>
+        </member>
+        <member name="T:GlitchPort.CapturedStackFrame">
+            <summary>One stack frame of a <see cref="T:GlitchPort.CapturedExceptionSummary"/>.</summary>
+        </member>
+        <member name="M:GlitchPort.CapturedStackFrame.#ctor">
+            <summary>Creates an empty frame.</summary>
+        </member>
+        <member name="M:GlitchPort.CapturedStackFrame.#ctor(System.String,System.String,System.String,System.Nullable{System.Int32})">
+            <summary>Creates a frame summary.</summary>
+            <param name="module">The module or namespace that contains the frame.</param>
+            <param name="function">The function or method name.</param>
+            <param name="fileName">The source file name, when available.</param>
+            <param name="lineNumber">The 1-based line number, or <see langword="null"/>.</param>
+        </member>
+        <member name="P:GlitchPort.CapturedStackFrame.Module">
+            <summary>Gets or sets the module or namespace that contains the frame.</summary>
+        </member>
+        <member name="P:GlitchPort.CapturedStackFrame.Function">
+            <summary>Gets or sets the function or method name.</summary>
+        </member>
+        <member name="P:GlitchPort.CapturedStackFrame.FileName">
+            <summary>Gets or sets the source file name, when available.</summary>
+        </member>
+        <member name="P:GlitchPort.CapturedStackFrame.LineNumber">
+            <summary>Gets or sets the 1-based line number, or <see langword="null"/> when unavailable.</summary>
         </member>
         <member name="T:GlitchPort.EventFormatter">
             <summary>
@@ -375,9 +463,10 @@
         </member>
         <member name="T:GlitchPort.GlitchPortClient">
             <summary>
-            Captures messages and fans them out to independent relays. Capture only
-            enqueues the event and returns immediately; delivery errors are reported by
-            <see cref="M:GlitchPort.GlitchPortClient.FlushAsync(System.Nullable{System.TimeSpan})"/> instead of thrown from capture.
+            Captures messages, exceptions and protocol v1 events and fans them out to
+            independent relays. Capture only enqueues the event and returns
+            immediately; delivery errors are reported by <see cref="M:GlitchPort.GlitchPortClient.FlushAsync(System.Nullable{System.TimeSpan})"/>
+            instead of thrown from capture.
             </summary>
         </member>
         <member name="M:GlitchPort.GlitchPortClient.#ctor(GlitchPort.GlitchPortOptions,System.Net.Http.HttpClient)">
@@ -393,6 +482,9 @@
             creates and owns a private instance.
             </param>
             <exception cref="T:System.ArgumentException">No relay is configured.</exception>
+        </member>
+        <member name="P:GlitchPort.GlitchPortClient.Options">
+            <summary>Gets the options this client was created with.</summary>
         </member>
         <member name="P:GlitchPort.GlitchPortClient.Relays">
             <summary>Gets the relay instances created for this client, in fan-out order.</summary>
@@ -412,6 +504,61 @@
             <param name="level">The event severity.</param>
             <param name="ct">A token that cancels the capture before it is queued.</param>
             <returns>The generated event id.</returns>
+        </member>
+        <member name="M:GlitchPort.GlitchPortClient.CaptureExceptionAsync(System.Exception,GlitchPort.Level,System.Threading.CancellationToken)">
+            <summary>
+            Captures an exception and its inner exception chain. The returned task
+            completes as soon as the event is queued; it never waits for the
+            network.
+            </summary>
+            <param name="ex">The exception to report.</param>
+            <param name="level">The event severity. Defaults to <see cref="F:GlitchPort.Level.Error"/>.</param>
+            <param name="ct">A token that cancels the capture before it is queued.</param>
+            <returns>The generated event id.</returns>
+        </member>
+        <member name="M:GlitchPort.GlitchPortClient.CaptureEventAsync(GlitchPort.GlitchPortEvent,System.Threading.CancellationToken)">
+            <summary>
+            Captures a fully built protocol v1 event. An empty event id or
+            timestamp is filled in before the event is queued.
+            </summary>
+            <param name="e">The event to report.</param>
+            <param name="ct">A token that cancels the capture before it is queued.</param>
+            <returns>The event id.</returns>
+        </member>
+        <member name="M:GlitchPort.GlitchPortClient.ConfigureScope(System.Action{GlitchPort.Scope})">
+            <summary>
+            Configures the innermost pushed scope of the current asynchronous flow,
+            or the global scope when no scope is pushed.
+            </summary>
+            <param name="configure">The callback that updates the scope.</param>
+            <exception cref="T:System.ArgumentNullException"><paramref name="configure"/> is <see langword="null"/>.</exception>
+        </member>
+        <member name="M:GlitchPort.GlitchPortClient.PushScope">
+            <summary>
+            Pushes a new scope for the current asynchronous flow and returns a
+            disposable that restores the previous scope. Nested and parallel async
+            flows each see their own scope; every scope is merged on top of the
+            global scope.
+            </summary>
+            <returns>The disposable that pops the scope.</returns>
+        </member>
+        <member name="M:GlitchPort.GlitchPortClient.SetTag(System.String,System.String)">
+            <summary>Sets a tag on the current pushed scope, or on the global scope.</summary>
+            <param name="key">The tag name.</param>
+            <param name="value">The tag value.</param>
+        </member>
+        <member name="M:GlitchPort.GlitchPortClient.SetUser(GlitchPort.UserInfo)">
+            <summary>Sets the affected user on the current pushed scope, or on the global scope.</summary>
+            <param name="user">The user information, or <see langword="null"/> to clear it.</param>
+        </member>
+        <member name="M:GlitchPort.GlitchPortClient.SetContext(System.String,System.Collections.Generic.IDictionary{System.String,System.Object})">
+            <summary>Sets a context namespace on the current pushed scope, or on the global scope.</summary>
+            <param name="key">The context name, for example <c>game</c>.</param>
+            <param name="value">The context entries.</param>
+        </member>
+        <member name="M:GlitchPort.GlitchPortClient.AddBreadcrumb(GlitchPort.Breadcrumb)">
+            <summary>Appends a breadcrumb to the current pushed scope, or to the global scope.</summary>
+            <param name="breadcrumb">The breadcrumb to add.</param>
         </member>
         <member name="M:GlitchPort.GlitchPortClient.FlushAsync(System.Nullable{System.TimeSpan})">
             <summary>
@@ -793,9 +940,15 @@
         <member name="T:GlitchPort.HttpRelay">
             <summary>
             Sends captured events to a glitch-port relay with
-            <c>POST /api/{projectId}/messages</c>. Delivery happens on the base class
-            worker thread; a failed attempt is retried once before it is counted as
-            failed.
+            <c>POST /api/{projectId}/events</c>. Bodies of 1024 UTF-8 bytes or more
+            are gzip-compressed. Delivery happens on the base class worker thread; a
+            failed attempt is retried once before it is counted as failed.
+            </summary>
+        </member>
+        <member name="F:GlitchPort.HttpRelay.CompressionThresholdBytes">
+            <summary>
+            The minimum serialized body size, in UTF-8 bytes, at which the relay
+            compresses the request. Smaller bodies are sent as-is.
             </summary>
         </member>
         <member name="M:GlitchPort.HttpRelay.#ctor(GlitchPort.Dsn,GlitchPort.HttpRelayOptions,System.Net.Http.HttpClient)">
@@ -806,6 +959,12 @@
         </member>
         <member name="M:GlitchPort.HttpRelay.Handle(GlitchPort.CapturedEvent)">
             <inheritdoc/>
+        </member>
+        <member name="M:GlitchPort.HttpRelay.CreateContent(System.Byte[])">
+            <summary>
+            Creates the request content for one attempt. Large payloads are
+            compressed with gzip and advertised with <c>Content-Encoding: gzip</c>.
+            </summary>
         </member>
         <member name="T:GlitchPort.IRelay">
             <summary>
@@ -1360,6 +1519,99 @@
         <member name="M:GlitchPort.WindowsJobObject.Close(System.IntPtr)">
             <summary>Closes a job handle created by <see cref="M:GlitchPort.WindowsJobObject.TryCreate(System.Diagnostics.Process)"/>; never throws.</summary>
             <param name="jobHandle">The job handle, or <see cref="F:System.IntPtr.Zero"/>.</param>
+        </member>
+        <member name="T:GlitchPort.Scope">
+            <summary>
+            The mutable state that is merged into every event captured by a
+            <see cref="T:GlitchPort.GlitchPortClient"/>: tags, the affected user, context
+            namespaces, breadcrumbs, a custom fingerprint and an optional level.
+            </summary>
+            <remarks>
+            A client always has one global scope. <see cref="M:GlitchPort.GlitchPortClient.PushScope"/>
+            additionally pushes a temporary scope for the current asynchronous flow.
+            Scopes are merged from the global scope through the outermost pushed scope
+            to the innermost one; the event wins over all of them for scalar values.
+            </remarks>
+        </member>
+        <member name="P:GlitchPort.Scope.Tags">
+            <summary>
+            Gets or sets the string tags used for filtering and grouping. Later
+            merges overwrite values with the same key.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.Scope.User">
+            <summary>Gets or sets information about the affected user, or <see langword="null"/>.</summary>
+        </member>
+        <member name="P:GlitchPort.Scope.Contexts">
+            <summary>
+            Gets or sets the free-form context namespaces. Later merges overwrite
+            individual keys inside a namespace.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.Scope.Breadcrumbs">
+            <summary>Gets or sets the breadcrumbs in chronological order (oldest first).</summary>
+        </member>
+        <member name="P:GlitchPort.Scope.Fingerprint">
+            <summary>Gets or sets the custom grouping fingerprint, at most ten components.</summary>
+        </member>
+        <member name="P:GlitchPort.Scope.Level">
+            <summary>
+            Gets or sets the level applied to captured events. When set, it
+            overrides the level passed to the capture method.
+            </summary>
+        </member>
+        <member name="P:GlitchPort.Scope.Parent">
+            <summary>
+            Gets the enclosing scope of a pushed scope, used to merge from the
+            outermost scope to the innermost one.
+            </summary>
+        </member>
+        <member name="M:GlitchPort.Scope.SetTag(System.String,System.String)">
+            <summary>Sets a tag, replacing any value already stored under the same key.</summary>
+            <param name="key">The tag name.</param>
+            <param name="value">The tag value.</param>
+            <exception cref="T:System.ArgumentNullException"><paramref name="key"/> is <see langword="null"/>.</exception>
+        </member>
+        <member name="M:GlitchPort.Scope.SetUser(GlitchPort.UserInfo)">
+            <summary>Sets the affected user, replacing the previous value.</summary>
+            <param name="user">The user information, or <see langword="null"/> to clear it.</param>
+        </member>
+        <member name="M:GlitchPort.Scope.SetContext(System.String,System.Collections.Generic.IDictionary{System.String,System.Object})">
+            <summary>Sets a context namespace, replacing any previous namespace with the same name.</summary>
+            <param name="key">The context name, for example <c>game</c>.</param>
+            <param name="value">The context entries.</param>
+            <exception cref="T:System.ArgumentNullException"><paramref name="key"/> or <paramref name="value"/> is <see langword="null"/>.</exception>
+        </member>
+        <member name="M:GlitchPort.Scope.AddBreadcrumb(GlitchPort.Breadcrumb)">
+            <summary>Appends a breadcrumb to the scope.</summary>
+            <param name="breadcrumb">The breadcrumb to add.</param>
+            <exception cref="T:System.ArgumentNullException"><paramref name="breadcrumb"/> is <see langword="null"/>.</exception>
+        </member>
+        <member name="T:GlitchPort.UnhandledExceptionIntegration">
+            <summary>
+            Captures exceptions that escape application code: fatal exceptions raised
+            through <see cref="E:System.AppDomain.UnhandledException"/> and unobserved faults
+            reported by <see cref="E:System.Threading.Tasks.TaskScheduler.UnobservedTaskException"/>.
+            </summary>
+            <remarks>
+            The native crash path is the only place where the SDK deliberately blocks:
+            after capturing a fatal exception it waits at most two seconds for the
+            queued event to reach the relays. Everything else stays asynchronous.
+            A <see cref="T:GlitchPort.GlitchPortClient"/> can register the integration automatically
+            by setting <see cref="P:GlitchPort.GlitchPortOptions.CaptureUnhandledExceptions"/>.
+            </remarks>
+        </member>
+        <member name="M:GlitchPort.UnhandledExceptionIntegration.Register(GlitchPort.GlitchPortClient)">
+            <summary>
+            Subscribes to the process-wide unhandled exception events and reports
+            them through <paramref name="client"/>.
+            </summary>
+            <param name="client">The client that receives the events.</param>
+            <returns>
+            A disposable that removes both subscriptions. Disposing it more than
+            once is safe.
+            </returns>
+            <exception cref="T:System.ArgumentNullException"><paramref name="client"/> is <see langword="null"/>.</exception>
         </member>
     </members>
 </doc>
