@@ -40,6 +40,8 @@ namespace GlitchPort.Unity.Tests.Editor
             Assert.That(_settings.SendDefaultPii, Is.False);
             Assert.That(_settings.MaxBreadcrumbs, Is.EqualTo(100));
             Assert.That(_settings.SampleRate, Is.EqualTo(1f));
+            Assert.That(_settings.OfflineQueue, Is.True);
+            Assert.That(_settings.OfflineQueueMaxEvents, Is.EqualTo(500));
             Assert.That(_settings.CaptureExceptions, Is.True);
             Assert.That(_settings.CaptureErrors, Is.True);
             Assert.That(_settings.CaptureWarnings, Is.False);
@@ -98,6 +100,8 @@ namespace GlitchPort.Unity.Tests.Editor
                 "SendDefaultPii",
                 "MaxBreadcrumbs",
                 "SampleRate",
+                "OfflineQueue",
+                "OfflineQueueMaxEvents",
                 "CaptureExceptions",
                 "CaptureErrors",
                 "CaptureWarnings",
@@ -144,6 +148,8 @@ namespace GlitchPort.Unity.Tests.Editor
             _settings.SendDefaultPii = true;
             _settings.MaxBreadcrumbs = 25;
             _settings.SampleRate = 0.5f;
+            _settings.OfflineQueue = false;
+            _settings.OfflineQueueMaxEvents = 7;
             _settings.CaptureExceptions = false;
             _settings.CaptureErrors = false;
             _settings.CaptureWarnings = true;
@@ -166,6 +172,8 @@ namespace GlitchPort.Unity.Tests.Editor
             Assert.That(serialized.FindProperty("SendDefaultPii")!.boolValue, Is.True);
             Assert.That(serialized.FindProperty("MaxBreadcrumbs")!.intValue, Is.EqualTo(25));
             Assert.That(serialized.FindProperty("SampleRate")!.floatValue, Is.EqualTo(0.5f));
+            Assert.That(serialized.FindProperty("OfflineQueue")!.boolValue, Is.False);
+            Assert.That(serialized.FindProperty("OfflineQueueMaxEvents")!.intValue, Is.EqualTo(7));
             Assert.That(serialized.FindProperty("CaptureBreadcrumbsFromLogs")!.boolValue, Is.False);
             Assert.That(serialized.FindProperty("TerminalMode")!.enumValueIndex, Is.EqualTo((int)GlitchPort.Unity.TerminalMode.On));
             Assert.That(serialized.FindProperty("FileMode")!.enumValueIndex, Is.EqualTo((int)GlitchPort.Unity.FileMode.On));

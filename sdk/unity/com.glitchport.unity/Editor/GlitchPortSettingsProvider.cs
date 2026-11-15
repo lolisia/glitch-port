@@ -52,6 +52,8 @@ namespace GlitchPort.Unity.Editor
             "breadcrumb",
             "sampling",
             "pii",
+            "offline",
+            "queue",
         };
 
         private GlitchPortSettings? _settings;
@@ -144,6 +146,7 @@ namespace GlitchPort.Unity.Editor
             _serializedSettings.Update();
 
             DrawGeneralSection(settings);
+            DrawOfflineQueueSection();
             DrawCaptureSection();
             DrawLocalRelaySection();
             DrawDiagnosticsSection();
@@ -175,6 +178,15 @@ namespace GlitchPort.Unity.Editor
             DrawProperty("SendDefaultPii");
             DrawProperty("MaxBreadcrumbs");
             DrawProperty("SampleRate");
+        }
+
+        private void DrawOfflineQueueSection()
+        {
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Offline queue", EditorStyles.boldLabel);
+
+            DrawProperty("OfflineQueue");
+            DrawProperty("OfflineQueueMaxEvents");
         }
 
         private void DrawCaptureSection()

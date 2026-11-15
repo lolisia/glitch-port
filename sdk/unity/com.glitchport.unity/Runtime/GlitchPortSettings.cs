@@ -81,6 +81,19 @@ namespace GlitchPort.Unity
         [Range(0f, 1f)]
         public float SampleRate = 1f;
 
+        /// <summary>
+        /// Gets or sets a value indicating whether the HTTP relay keeps events it
+        /// cannot deliver right now in an on-disk queue and resends them later.
+        /// </summary>
+        [Header("Offline queue")]
+        public bool OfflineQueue = true;
+
+        /// <summary>
+        /// Gets or sets the maximum number of events kept in the HTTP relay's
+        /// offline queue. Values below 1 are treated as 1.
+        /// </summary>
+        public int OfflineQueueMaxEvents = 500;
+
         /// <summary>Gets or sets a value indicating whether <see cref="LogType.Exception"/> messages are captured.</summary>
         [Header("Log capture")]
         public bool CaptureExceptions = true;

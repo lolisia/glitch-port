@@ -141,7 +141,10 @@ namespace GlitchPort.Unity
         /// relay setting and is parsed with <see cref="RelayConfigParser"/>; the
         /// method never reads the process environment itself. Without an
         /// environment DSN, the asset DSN, file mode and terminal mode rules add
-        /// the relay definitions described by <see cref="GlitchPortSettings"/>.
+        /// the relay definitions described by <see cref="GlitchPortSettings"/>,
+        /// and the HTTP relay's offline queue follows
+        /// <see cref="GlitchPortSettings.OfflineQueue"/> and
+        /// <see cref="GlitchPortSettings.OfflineQueueMaxEvents"/>.
         /// The platform, release, environment, PII, breadcrumb and sampling
         /// options are always derived from the settings and the platform facts.
         /// </remarks>
@@ -205,9 +208,28 @@ namespace GlitchPort.Unity
             {
                 if (!string.IsNullOrWhiteSpace(settings.Dsn) && platform.SupportsHttp)
                 {
+                    // The queue is part of the HTTP relay built from the asset
+                    // DSN only. An environment DSN brings its own offline_*
+                    // parameters through RelayConfigParser, so this branch is
+                    // never reached for it.
+                    var queueDirectory = settings.OfflineQueue
+                        ? Path.Combine(platform.PersistentDataPath, "glitchport", "queue")
+                        : null;
+                    var queueMaxEvents = Math.Max(1, settings.OfflineQueueMaxEvents);
+
                     options.Relays.Add(Relay.Http(
                         settings.Dsn,
-                        relay => relay.MinLevel = settings.HttpMinLevel));
+                        relay =>
+                        {
+                            relay.MinLevel = settings.HttpMinLevel;
+
+                            // A null directory keeps the queue disabled.
+                            if (queueDirectory != null)
+                            {
+                                relay.OfflineQueue.Directory = queueDirectory;
+                                relay.OfflineQueue.MaxEvents = queueMaxEvents;
+                            }
+                        }));
                 }
 
                 if (IsFileEnabled(settings.FileMode, platform))

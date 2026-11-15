@@ -91,6 +91,8 @@ SDK initializes before the first scene loads and starts reporting.
 | `SendDefaultPii`             | `false` | Enables the hashed device user id described in [Contexts and tags](#contexts-and-tags). No other personal data is collected automatically.         |
 | `MaxBreadcrumbs`             | `100`   | Maximum number of breadcrumbs kept for each event; the newest entries win.                                                                         |
 | `SampleRate`                 | `1.0`   | Fraction of events that is sent, from `0` to `1`; values outside the range are clamped. `1.0` sends every event, `0` sends none.                   |
+| `OfflineQueue`               | `true`  | Keep events the HTTP relay cannot deliver in an on-disk queue and resend them later. See [Offline queue](#offline-queue).                          |
+| `OfflineQueueMaxEvents`      | `500`   | Maximum number of queued events. Values below `1` are clamped to `1`; the oldest events are dropped first.                                         |
 | `CaptureExceptions`          | `true`  | Capture `LogType.Exception` messages as structured exception events.                                                                               |
 | `CaptureErrors`              | `true`  | Capture `LogType.Error` and `LogType.Assert` messages.                                                                                             |
 | `CaptureWarnings`            | `false` | Capture `LogType.Warning` messages as `warning` events.                                                                                            |
@@ -392,7 +394,10 @@ you need a deterministic result (for example to pick the exit code).
 Each `GlitchPortSettings` value is combined with the current platform:
 
 - **HTTP relay** — added when `Dsn` is not blank and the platform supports HTTP.
-  `HttpMinLevel` filters what is sent.
+  `HttpMinLevel` filters what is sent. With `OfflineQueue` enabled (the default)
+  the relay keeps events it cannot deliver right now in
+  `Application.persistentDataPath/glitchport/queue` and resends them later; see
+  [Offline queue](#offline-queue).
 - **File relay** — `Auto` enables it in the editor and in development builds;
   `On` always enables it; `Off` disables it. The default directory is
   `Application.persistentDataPath/glitchport/logs`.
@@ -419,16 +424,52 @@ The resulting matrix for the default `Auto` modes:
 `On` overrides the `Auto` column for the file and terminal relays; the terminal
 relay still requires Windows and an executable.
 
+## Offline queue
+
+The HTTP relay built from the asset `Dsn` keeps events it cannot deliver right
+now in an on-disk queue and resends them later, so a player that loses
+connectivity does not lose the events captured during that time. The queue is
+**on by default**.
+
+| Setting                 | Meaning                                                                                                                                  |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `OfflineQueue`          | `true` enables the queue, `false` disables it.                                                                                           |
+| `OfflineQueueMaxEvents` | Maximum number of queued events, `500` by default. Values below `1` are clamped to `1`; when the limit is exceeded the **oldest events are dropped first**. |
+
+- Only the HTTP relay built from the asset `Dsn` is affected. The file and
+  terminal relays never queue, and when `Dsn` is blank or the platform does not
+  support HTTP there is no HTTP relay, so no queue either.
+- Queued events are written to
+  `Application.persistentDataPath/glitchport/queue`.
+- A reachable relay still delivers immediately: the queue receives only events
+  whose delivery failed transiently (for example the collector is down or the
+  device is offline), and the relay retries them in the background and before
+  the next delivery.
+- `MaxAgeHours` stays at its Core default of `72` hours and
+  `RetryIntervalSeconds` at `30` seconds; the Unity settings do not change them.
+- `GLITCHPORT_DSN` ignores `OfflineQueue` and `OfflineQueueMaxEvents`. An HTTP
+  relay from the environment DSN follows its own `offline_dir`,
+  `offline_max_events`, `offline_max_age_hours` and
+  `offline_retry_interval_seconds` parameters instead, and has no queue without
+  `offline_dir`. See [.NET SDK relays](sdk-dotnet-relays.md) for the queue file
+  format, directory lock and retry behaviour.
+
 ## `GLITCHPORT_DSN`: overriding the asset
 
 When the `GLITCHPORT_DSN` environment variable is set to a non-blank value, the
-SDK ignores the asset's relay fields (`Dsn`, `HttpMinLevel`, `FileMode`,
-`FileDirectory`, `FileMinLevel`, `TerminalMode`, `TerminalWindow`) and parses the
-variable with the same syntax as the .NET SDK. Only the relay fields are
-replaced: `Release`, `Environment`, `SendDefaultPii`, `MaxBreadcrumbs`,
-`SampleRate` and the log capture flags still come from the asset or their
-defaults. `Enabled` still gates initialization, and `AutoInitialize` still
-decides whether the automatic hook runs.
+SDK ignores the asset's relay fields (`Dsn`, `HttpMinLevel`, `OfflineQueue`,
+`OfflineQueueMaxEvents`, `FileMode`, `FileDirectory`, `FileMinLevel`,
+`TerminalMode`, `TerminalWindow`) and parses the variable with the same syntax as
+the .NET SDK. Only the relay fields are replaced: `Release`, `Environment`,
+`SendDefaultPii`, `MaxBreadcrumbs`, `SampleRate` and the log capture flags still
+come from the asset or their defaults. `Enabled` still gates initialization, and
+`AutoInitialize` still decides whether the automatic hook runs.
+
+The HTTP relay's offline queue is part of the relay configuration, so the
+variable decides it too: `offline_dir` and `offline_max_events` (plus
+`offline_max_age_hours` and `offline_retry_interval_seconds`) replace
+`OfflineQueue` and `OfflineQueueMaxEvents`, and a DSN without `offline_dir` has
+no queue. See [Offline queue](#offline-queue).
 
 ```text
 http://<publicKey>@<host>:<port>/<projectId>
