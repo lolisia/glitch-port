@@ -13,7 +13,9 @@ https://<public-key>@<relay-host>/<project-id>
 
 The SDK posts to `https://<relay-host>/api/<project-id>/events` and sends the
 public key in the `X-GlitchPort-Key` header. The key is write-only: it can
-submit events but cannot read them.
+submit events but cannot read them. Projects and their public keys are created
+and revoked through the [Management API](management-api.md), which returns the
+DSN of a new project.
 
 ## Endpoints
 
@@ -35,6 +37,60 @@ Every request must include the project's public key:
 
 The path project id and the key must belong together. Keys are safe to embed
 in game clients; they grant write access only.
+
+Public keys are managed through the [Management API](management-api.md):
+`POST /api/manage/projects` creates a project with its first key and returns a
+DSN, `POST /api/manage/projects/{projectId}/keys` adds more keys, and
+`DELETE /api/manage/keys/{keyId}` revokes a key. Only active keys are accepted.
+A revoked or unknown key returns `401 Unauthorized` with
+`{"error": "A valid X-GlitchPort-Key header is required."}`, exactly like a
+missing key.
+
+The Relay loads keys from the Processor and refreshes them periodically
+(`Relay:ConfigRefreshSeconds`, default 60 seconds). A revoked key stops working
+after the next refresh unless the same key is also listed in the Relay's static
+`Relay:Projects` configuration; a newly created key starts working after the
+next refresh. Unknown `(project id, key)` pairs are also kept in an in-memory
+negative cache for `Relay:UnknownKeyCacheSeconds` (default 30 seconds) so
+repeated bad keys do not cause repeated lookups. That cache is an internal
+optimization only and does not change the contract: a key that is not valid for
+the project always returns `401`, even while it is cached.
+
+## Rate limits
+
+The Relay applies ingest rate limits after authentication and before reading
+the request body, so an invalid key always returns `401` even when the project
+is over its limit.
+
+| Scope | Configuration | Default | Meaning |
+| --- | --- | --- | --- |
+| Project | `Relay:RateLimit:PerProjectPerMinute` | `6000` | Requests per minute across all keys of a project. `0` means unlimited. |
+| Key | `rate_limit_per_minute` of the key in the Management API | `null` | Independent requests-per-minute limit for one key; the project limit still applies. `null` means no per-key limit; `0` means unlimited. |
+
+Both limits use token buckets that refill continuously. A request must pass
+every applicable bucket, and a rejected request does not consume tokens from
+any bucket. The counters live in memory in each Relay instance, so with several
+Relay instances the effective limit is approximately the configured value
+multiplied by the number of instances: counts are approximate and a request can
+pass on one instance after another instance rejected it.
+
+When a limit is exceeded the Relay returns `429 Too Many Requests` without
+storing the event. The response carries `Retry-After` in whole seconds (at
+least `1`) until the next token becomes available, and the body is:
+
+```json
+{ "error": "rate limit exceeded" }
+```
+
+```http
+HTTP/1.1 429 Too Many Requests
+Retry-After: 2
+
+{"error":"rate limit exceeded"}
+```
+
+Retry the same request after `Retry-After` seconds. Because events are stored
+idempotently by `event_id`, the retry is safe.
 
 ## Request headers and size limit
 
@@ -203,14 +259,15 @@ returns `400`. The successful response is `202` with the same
 | --- | --- | --- |
 | `202 Accepted` | The event was validated, normalized and handed to the Processor. | `{"id": "<event_id>"}` with the event id as a lowercase UUID. |
 | `400 Bad Request` | The JSON or a field format is invalid. | `{"error": "<field path>: <reason>"}`, for example `{"error": "exception[0].type: must not be blank"}`. |
-| `401 Unauthorized` | `X-GlitchPort-Key` is missing or does not belong to the project. | `{"error": "A valid X-GlitchPort-Key header is required."}` |
+| `401 Unauthorized` | `X-GlitchPort-Key` is missing, unknown, revoked or does not belong to the project. | `{"error": "A valid X-GlitchPort-Key header is required."}` |
 | `413 Payload Too Large` | The decompressed body exceeds 1 MB. | `{"error": "<reason>"}` |
+| `429 Too Many Requests` | The project or key exceeded its ingest rate limit. The event was not stored. | `{"error": "rate limit exceeded"}` and `Retry-After: <seconds>`. |
 | `503 Service Unavailable` | The event could not be published (for example the Processor is temporarily unavailable). The event was not acknowledged and can be retried. | `{"error": "<reason>"}` and `Retry-After: 5`. |
 
-Clients should retry `503` after at least the number of seconds in
-`Retry-After` (5 seconds). Do not retry other `4xx` responses without changing
-the request. Because the Processor stores events idempotently by `event_id`,
-retrying with the same id is safe.
+Clients should retry `429` and `503` after at least the number of seconds in
+`Retry-After` (`5` seconds for `503`). Do not retry other `4xx` responses
+without changing the request. Because the Processor stores events idempotently
+by `event_id`, retrying with the same id is safe.
 
 ## Example
 
@@ -250,6 +307,7 @@ from your DSN.
 
 ## See also
 
+- [Management API](management-api.md)
 - [Event protocol v1 schema](../sdk/protocol/event.v1.schema.json)
 - [Event protocol README](../sdk/protocol/README.md)
 - [Verification hooks](../scripts/verify.d/README.md)

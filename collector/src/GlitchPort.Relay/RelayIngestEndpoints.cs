@@ -1,14 +1,17 @@
 using System.Net;
 using System.Text.Json;
 using GlitchPort.Collector.Contracts;
+using GlitchPort.Relay.Config;
+using GlitchPort.Relay.RateLimit;
 
 namespace GlitchPort.Relay;
 
 /// <summary>
 /// Shared ingest pipeline used by both <c>POST /api/{projectId}/events</c> and
-/// the legacy <c>POST /api/{projectId}/messages</c> endpoint: authorize,
-/// enforce the decompressed body limit, decompress, validate, normalize, build
-/// a protocol v2 envelope and publish it to the Processor.
+/// the legacy <c>POST /api/{projectId}/messages</c> endpoint: authorize, apply
+/// the project and key rate limits, enforce the decompressed body limit,
+/// decompress, validate, normalize, build a protocol v2 envelope and publish it
+/// to the Processor.
 /// </summary>
 internal static class RelayIngestEndpoints
 {
@@ -16,14 +19,16 @@ internal static class RelayIngestEndpoints
     public static Task<IResult> HandleEventAsync(
         long projectId,
         HttpContext httpContext,
-        RelayOptions options,
+        ProjectConfigProvider projectConfigs,
+        ProjectRateLimiter rateLimiter,
         IEnvelopePublisher publisher,
         ILogger<Program> logger,
         CancellationToken cancellationToken) =>
         HandleAsync(
             projectId,
             httpContext,
-            options,
+            projectConfigs,
+            rateLimiter,
             publisher,
             logger,
             isLegacyMessage: false,
@@ -33,14 +38,16 @@ internal static class RelayIngestEndpoints
     public static Task<IResult> HandleMessageAsync(
         long projectId,
         HttpContext httpContext,
-        RelayOptions options,
+        ProjectConfigProvider projectConfigs,
+        ProjectRateLimiter rateLimiter,
         IEnvelopePublisher publisher,
         ILogger<Program> logger,
         CancellationToken cancellationToken) =>
         HandleAsync(
             projectId,
             httpContext,
-            options,
+            projectConfigs,
+            rateLimiter,
             publisher,
             logger,
             isLegacyMessage: true,
@@ -49,18 +56,21 @@ internal static class RelayIngestEndpoints
     private static async Task<IResult> HandleAsync(
         long projectId,
         HttpContext httpContext,
-        RelayOptions options,
+        ProjectConfigProvider projectConfigs,
+        ProjectRateLimiter rateLimiter,
         IEnvelopePublisher publisher,
         ILogger<Program> logger,
         bool isLegacyMessage,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(httpContext);
-        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(projectConfigs);
+        ArgumentNullException.ThrowIfNull(rateLimiter);
         ArgumentNullException.ThrowIfNull(publisher);
         ArgumentNullException.ThrowIfNull(logger);
 
-        if (!HasValidPublicKey(httpContext.Request, projectId, options))
+        var authorization = Authorize(httpContext.Request, projectId, projectConfigs);
+        if (authorization is null)
         {
             // Never log the supplied key or the configured keys.
             logger.LogWarning(
@@ -68,6 +78,25 @@ internal static class RelayIngestEndpoints
                 projectId);
 
             return RelayResults.Unauthorized();
+        }
+
+        // Enforcement happens before the body is read: a rate-limited client
+        // must not be able to make the Relay decompress a payload.
+        var decision = rateLimiter.Acquire(
+            authorization.ProjectId,
+            authorization.Key,
+            authorization.RateLimitPerMinute);
+
+        if (!decision.IsAllowed)
+        {
+            logger.LogDebug(
+                "Rate limited ingest request for project {ProjectId}; retry after {RetryAfterSeconds}s.",
+                projectId,
+                decision.RetryAfterSeconds);
+
+            return RelayResults.RateLimited(
+                httpContext.Response,
+                decision.RetryAfterSeconds);
         }
 
         var body = await RequestBodyReader
@@ -169,21 +198,22 @@ internal static class RelayIngestEndpoints
             : address.ToString();
     }
 
-    private static bool HasValidPublicKey(HttpRequest request, long projectId, RelayOptions options)
+    private static PublicKeyAuthorization? Authorize(
+        HttpRequest request,
+        long projectId,
+        ProjectConfigProvider projectConfigs)
     {
         if (!request.Headers.TryGetValue(RelayConstants.PublicKeyHeader, out var headerValues))
         {
-            return false;
+            return null;
         }
 
         var providedKey = headerValues.ToString();
         if (string.IsNullOrEmpty(providedKey))
         {
-            return false;
+            return null;
         }
 
-        return options.Projects.TryGetValue(projectId, out var projectKeys)
-            && projectKeys is not null
-            && projectKeys.Contains(providedKey, StringComparer.Ordinal);
+        return projectConfigs.Authorize(projectId, providedKey);
     }
 }

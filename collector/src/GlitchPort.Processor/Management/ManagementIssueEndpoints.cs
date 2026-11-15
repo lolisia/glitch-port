@@ -1,3 +1,4 @@
+using GlitchPort.Processor.Projects;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -35,8 +36,14 @@ internal static class ManagementIssueEndpoints
         string? limit,
         string? cursor,
         ManagementIssueStore store,
+        ProjectStore projects,
         CancellationToken cancellationToken)
     {
+        if (!await projects.ExistsAsync(projectId, cancellationToken).ConfigureAwait(false))
+        {
+            return ManagementHttp.NotFound($"Project {projectId} was not found.");
+        }
+
         if (!ManagementValidation.TryNormalizeStatusFilter(status, out var statusFilter))
         {
             return ManagementHttp.BadRequest("status must be one of unresolved, resolved, ignored or all.");

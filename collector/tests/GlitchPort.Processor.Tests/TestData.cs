@@ -12,6 +12,12 @@ internal static class TestData
 {
     public const string InternalHeader = "X-GlitchPort-Internal";
 
+    /// <summary>
+    /// Project id of the legacy envelopes built by <see cref="CreateEnvelope"/>.
+    /// It is one of the ids seeded by <see cref="ProcessorFixture"/>.
+    /// </summary>
+    public const long DefaultProjectId = ProcessorFixture.FirstSeededProjectId;
+
     private static readonly (string Module, string Function, bool InApp)[] DefaultFrames =
     [
         ("UnityEngine.CoreModule", "UnityAction.Invoke", false),
@@ -19,14 +25,14 @@ internal static class TestData
         ("Assembly-CSharp", "Weapon.Fire", true),
     ];
 
-    private static long _projectIdCounter = 100_000;
+    private static long _projectIdCounter = DefaultProjectId;
 
     public static long NextProjectId() => Interlocked.Increment(ref _projectIdCounter);
 
     public static Envelope CreateEnvelope(Guid eventId, DateTimeOffset receivedAt, string message) => new()
     {
         EventId = eventId,
-        ProjectId = 7,
+        ProjectId = DefaultProjectId,
         ReceivedAt = receivedAt,
         Endpoint = "POST /api/1/messages",
         Message = message,
