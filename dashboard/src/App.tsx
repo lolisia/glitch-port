@@ -4,6 +4,7 @@ import type { ProjectListItem } from './api/types';
 import { IssueDetailPage } from './pages/issues/IssueDetailPage';
 import { IssuesPage } from './pages/issues/IssuesPage';
 import { MessagesPage } from './pages/messages/MessagesPage';
+import { ProjectDetailPage } from './pages/projects/ProjectDetailPage';
 import { ProjectsPage } from './pages/projects/ProjectsPage';
 import {
   clearStoredProjectId,
@@ -203,18 +204,11 @@ export default function App() {
         )}
 
         {route.name === 'project' && route.projectId !== null && (
-          <section
-            className="project-placeholder"
-            data-testid="project-detail-placeholder"
-          >
-            <header className="page-header">
-              <h2>Project {route.projectId}</h2>
-            </header>
-            <p>
-              Project details are not available yet.{' '}
-              <a href="#/projects">Back to projects</a>
-            </p>
-          </section>
+          <ProjectDetailPage
+            key={route.projectId}
+            projectId={route.projectId}
+            onProjectsChanged={reloadProjects}
+          />
         )}
 
         {route.name === 'issue' && route.issueId !== null && (

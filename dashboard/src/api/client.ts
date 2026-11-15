@@ -3,6 +3,7 @@ import type {
   BulkIssuesResponse,
   CreatedProject,
   CreateLabelRequest,
+  CreateProjectKeyRequest,
   CreateProjectRequest,
   EventDetail,
   EventSummaryList,
@@ -12,10 +13,14 @@ import type {
   IssueListResponse,
   Label,
   Message,
+  ProjectDetail,
+  ProjectKey,
   ProjectListItem,
   StatsBucket,
   UpdateIssueRequest,
   UpdateLabelRequest,
+  UpdateProjectKeyRequest,
+  UpdateProjectRequest,
 } from './types';
 
 // An empty value keeps requests relative to the dashboard origin, which lets a
@@ -169,6 +174,65 @@ export function createProject(
   return apiRequest<CreatedProject>('/projects', {
     method: 'POST',
     body: input,
+  });
+}
+
+/** GET /api/manage/projects/{projectId} */
+export function getProject(projectId: number): Promise<ProjectDetail> {
+  return apiRequest<ProjectDetail>(`/projects/${projectId}`);
+}
+
+/** PATCH /api/manage/projects/{projectId} — only the sent fields change. */
+export function updateProject(
+  projectId: number,
+  input: UpdateProjectRequest,
+): Promise<ProjectDetail> {
+  return apiRequest<ProjectDetail>(`/projects/${projectId}`, {
+    method: 'PATCH',
+    body: input,
+  });
+}
+
+/** DELETE /api/manage/projects/{projectId} — 204 with no body. */
+export function deleteProject(projectId: number): Promise<void> {
+  return apiRequest<void>(`/projects/${projectId}`, {
+    method: 'DELETE',
+    parseResponse: false,
+  });
+}
+
+/** GET /api/manage/projects/{projectId}/keys — includes revoked keys. */
+export function listProjectKeys(projectId: number): Promise<ProjectKey[]> {
+  return apiRequest<ProjectKey[]>(`/projects/${projectId}/keys`);
+}
+
+/** POST /api/manage/projects/{projectId}/keys — 201 with the new key and DSN. */
+export function createProjectKey(
+  projectId: number,
+  input: CreateProjectKeyRequest = {},
+): Promise<ProjectKey> {
+  return apiRequest<ProjectKey>(`/projects/${projectId}/keys`, {
+    method: 'POST',
+    body: input,
+  });
+}
+
+/** PATCH /api/manage/keys/{keyId} — an explicit null clears the rate limit. */
+export function updateProjectKey(
+  keyId: number,
+  input: UpdateProjectKeyRequest,
+): Promise<ProjectKey> {
+  return apiRequest<ProjectKey>(`/keys/${keyId}`, {
+    method: 'PATCH',
+    body: input,
+  });
+}
+
+/** DELETE /api/manage/keys/{keyId} — revokes the key and answers 204. */
+export function revokeProjectKey(keyId: number): Promise<void> {
+  return apiRequest<void>(`/keys/${keyId}`, {
+    method: 'DELETE',
+    parseResponse: false,
   });
 }
 

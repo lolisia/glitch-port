@@ -6,20 +6,27 @@ import {
   bulkUpdateIssues,
   createLabel,
   createProject,
+  createProjectKey,
   deleteEvent,
   deleteIssue,
   deleteLabel,
+  deleteProject,
   fetchMessages,
   getEvent,
   getIssue,
+  getProject,
   getStats,
   listIssueEvents,
   listIssues,
   listLabels,
+  listProjectKeys,
   listProjects,
   parseConfiguredProjectId,
+  revokeProjectKey,
   updateIssue,
   updateLabel,
+  updateProject,
+  updateProjectKey,
 } from './client';
 import type {
   BulkIssuesRequest,
@@ -30,6 +37,8 @@ import type {
   IssueDetail,
   Label,
   Message,
+  ProjectDetail,
+  ProjectKey,
   ProjectListItem,
   StatsBucket,
 } from './types';
@@ -178,6 +187,22 @@ const createdProject: CreatedProject = {
   dsn: 'http://dev-public-key@localhost:5080/9',
 };
 
+const projectDetail: ProjectDetail = {
+  ...projectList[0],
+  dsn: 'http://public-key@localhost:5080/1',
+};
+
+const projectKey: ProjectKey = {
+  id: 5,
+  public_key: 'a1b2c3d4e5f60718293a4b5c6d7e8f90',
+  label: 'production',
+  is_active: true,
+  rate_limit_per_minute: null,
+  created_at: '2026-01-03T00:00:00Z',
+  revoked_at: null,
+  dsn: 'http://a1b2c3d4e5f60718293a4b5c6d7e8f90@localhost:5080/1',
+};
+
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.resetModules();
@@ -248,6 +273,130 @@ describe('createProject', () => {
     expect(error.message).toBe(
       "HTTP 409: A project with slug 'dup' already exists.",
     );
+  });
+});
+
+describe('getProject', () => {
+  it('fetches one project with its counts and DSN', async () => {
+    const fetchMock = stubFetch(jsonResponse(projectDetail));
+
+    await expect(getProject(1)).resolves.toEqual(projectDetail);
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/projects/1`, {
+      headers: AUTH_HEADERS,
+    });
+  });
+});
+
+describe('updateProject', () => {
+  it('patches only the fields it is given', async () => {
+    const updated = { ...projectDetail, name: 'Renamed' };
+    const fetchMock = stubFetch(jsonResponse(updated));
+
+    await expect(updateProject(1, { name: 'Renamed' })).resolves.toEqual(
+      updated,
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/projects/1`, {
+      method: 'PATCH',
+      headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Renamed' }),
+    });
+  });
+
+  it('surfaces a blank platform validation error', async () => {
+    stubFetch(errorResponse({ error: 'platform must not be blank.' }, 400));
+
+    const error = await captureError(updateProject(1, { platform: '' }));
+
+    expect(error.status).toBe(400);
+    expect(error.message).toBe('HTTP 400: platform must not be blank.');
+  });
+});
+
+describe('deleteProject', () => {
+  it('deletes the project and resolves undefined without parsing JSON', async () => {
+    const { response, json } = noContentResponse();
+    const fetchMock = stubFetch(response);
+
+    await expect(deleteProject(1)).resolves.toBeUndefined();
+
+    expect(json).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/projects/1`, {
+      method: 'DELETE',
+      headers: AUTH_HEADERS,
+    });
+  });
+});
+
+describe('listProjectKeys', () => {
+  it('fetches every key of the project', async () => {
+    const fetchMock = stubFetch(jsonResponse([projectKey]));
+
+    await expect(listProjectKeys(1)).resolves.toEqual([projectKey]);
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/projects/1/keys`, {
+      headers: AUTH_HEADERS,
+    });
+  });
+});
+
+describe('createProjectKey', () => {
+  it('posts the optional label and rate limit', async () => {
+    const fetchMock = stubFetch(jsonResponse(projectKey, 201));
+    const input = { label: 'production', rate_limit_per_minute: 600 };
+
+    await expect(createProjectKey(1, input)).resolves.toEqual(projectKey);
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/projects/1/keys`, {
+      method: 'POST',
+      headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+  });
+});
+
+describe('updateProjectKey', () => {
+  it('sends an explicit null to clear the rate limit', async () => {
+    const cleared = { ...projectKey, rate_limit_per_minute: null };
+    const fetchMock = stubFetch(jsonResponse(cleared));
+
+    await expect(
+      updateProjectKey(5, { rate_limit_per_minute: null }),
+    ).resolves.toEqual(cleared);
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/keys/5`, {
+      method: 'PATCH',
+      headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rate_limit_per_minute: null }),
+    });
+  });
+
+  it('patches the active state when re-enabling a key', async () => {
+    const fetchMock = stubFetch(jsonResponse(projectKey));
+
+    await updateProjectKey(5, { is_active: true });
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/keys/5`, {
+      method: 'PATCH',
+      headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_active: true }),
+    });
+  });
+});
+
+describe('revokeProjectKey', () => {
+  it('revokes the key and resolves undefined without parsing JSON', async () => {
+    const { response, json } = noContentResponse();
+    const fetchMock = stubFetch(response);
+
+    await expect(revokeProjectKey(5)).resolves.toBeUndefined();
+
+    expect(json).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/keys/5`, {
+      method: 'DELETE',
+      headers: AUTH_HEADERS,
+    });
   });
 });
 

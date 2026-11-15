@@ -2,7 +2,13 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
-import type { EventDetail, IssueDetail, ProjectListItem } from './api/types';
+import type {
+  EventDetail,
+  IssueDetail,
+  ProjectDetail,
+  ProjectKey,
+  ProjectListItem,
+} from './api/types';
 
 interface MockResponse {
   ok: boolean;
@@ -86,17 +92,63 @@ const eventDetail: EventDetail = {
   payload: { message: 'Crash on startup' },
 };
 
+const projectDetail: ProjectDetail = {
+  ...projects[0],
+  dsn: 'http://a1b2c3d4e5f60718293a4b5c6d7e8f90@localhost:5080/1',
+};
+
+const projectKeys: ProjectKey[] = [
+  {
+    id: 5,
+    public_key: 'a1b2c3d4e5f60718293a4b5c6d7e8f90',
+    label: 'production',
+    is_active: true,
+    rate_limit_per_minute: null,
+    created_at: '2026-01-01T00:00:00Z',
+    revoked_at: null,
+    dsn: 'http://a1b2c3d4e5f60718293a4b5c6d7e8f90@localhost:5080/1',
+  },
+];
+
+const createdKey: ProjectKey = {
+  id: 9,
+  public_key: '0123456789abcdef0123456789abcdef',
+  label: 'staging',
+  is_active: true,
+  rate_limit_per_minute: null,
+  created_at: '2026-01-04T00:00:00Z',
+  revoked_at: null,
+  dsn: 'http://0123456789abcdef0123456789abcdef@localhost:5080/1',
+};
+
 type ProjectsResponder =
   | MockResponse
   | Promise<MockResponse>
   | (() => MockResponse | Promise<MockResponse>);
 
+type ProjectResponder = (
+  projectId: number,
+) => MockResponse | Promise<MockResponse>;
+
+interface StubOptions {
+  projects?: ProjectsResponder;
+  /** Overrides GET /projects/{id}; defaults to a copy of `projectDetail`. */
+  projectDetail?: ProjectResponder;
+  /** Overrides GET /projects/{id}/keys. */
+  projectKeys?: ProjectResponder;
+  /** Invoked when DELETE /projects/{id} is served the 204 response. */
+  onProjectDeleted?: (projectId: number) => void;
+  /** Invoked when PATCH /projects/{id} is served the updated project. */
+  onProjectUpdated?: (projectId: number) => void;
+}
+
 /**
  * Dispatches by URL, matching the most specific route first. The project list
  * can be overridden (with a promise) to test the loading, empty and error
- * states of the selector.
+ * states of the selector. Project detail and key routes default to the single
+ * fixture project so the project routes can be exercised end to end.
  */
-function stubFetch(options: { projects?: ProjectsResponder } = {}) {
+function stubFetch(options: StubOptions = {}) {
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input), 'http://localhost');
@@ -119,6 +171,48 @@ function stubFetch(options: { projects?: ProjectsResponder } = {}) {
           },
           201,
         );
+      }
+      if (/^\/api\/manage\/projects\/\d+\/keys$/.test(path)) {
+        const projectId = Number(path.split('/')[4]);
+
+        if (method === 'GET') {
+          const responder =
+            options.projectKeys ?? (() => jsonResponse(projectKeys));
+          return responder(projectId);
+        }
+        if (method === 'POST') {
+          return jsonResponse(createdKey, 201);
+        }
+      }
+      const projectMatch = /^\/api\/manage\/projects\/(\d+)$/.exec(path);
+      if (projectMatch !== null) {
+        const projectId = Number(projectMatch[1]);
+
+        if (method === 'GET') {
+          const responder =
+            options.projectDetail ??
+            (() => jsonResponse({ ...projectDetail, id: projectId }));
+          return responder(projectId);
+        }
+        if (method === 'PATCH') {
+          const patch =
+            typeof init?.body === 'string' ? JSON.parse(init.body) : {};
+          options.onProjectUpdated?.(projectId);
+          return jsonResponse({ ...projectDetail, id: projectId, ...patch });
+        }
+        if (method === 'DELETE') {
+          options.onProjectDeleted?.(projectId);
+          return jsonResponse(undefined, 204);
+        }
+      }
+      const keyMatch = /^\/api\/manage\/keys\/(\d+)$/.exec(path);
+      if (keyMatch !== null) {
+        if (method === 'PATCH') {
+          return jsonResponse(projectKeys[0]);
+        }
+        if (method === 'DELETE') {
+          return jsonResponse(undefined, 204);
+        }
       }
       if (/^\/api\/manage\/messages$/.test(path)) {
         return jsonResponse([]);
@@ -557,18 +651,113 @@ describe('App', () => {
     expect(projectScopedRequests(fetchMock)).toHaveLength(0);
   });
 
-  it('renders the project detail placeholder with a link back', async () => {
+  it('renders the project detail page for #/projects/3', async () => {
     window.history.replaceState(null, '', '/#/projects/3');
     stubFetch();
 
     render(<App />);
 
+    expect(screen.queryByTestId('issues-page')).not.toBeInTheDocument();
     expect(
-      await screen.findByTestId('project-detail-placeholder'),
+      await screen.findByRole('heading', { level: 2, name: 'Starter' }),
     ).toBeInTheDocument();
+    expect(screen.getByTestId('project-detail-page')).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: 'Projects' }),
+    ).toHaveAttribute('aria-current', 'page');
+    expect(await screen.findByText(projectKeys[0].public_key)).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/projects/3');
+  });
+
+  it('reloads the project selector after a rename on the detail page', async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, '', '/#/projects/3');
+
+    let renamed = false;
+    stubFetch({
+      projects: () =>
+        jsonResponse(
+          renamed
+            ? [{ ...projects[0], name: 'Starter Renamed' }, projects[1]]
+            : projects,
+        ),
+      projectDetail: (projectId) =>
+        jsonResponse({
+          ...projectDetail,
+          id: projectId,
+          name: renamed ? 'Starter Renamed' : 'Starter',
+        }),
+      onProjectUpdated: () => {
+        renamed = true;
+      },
+    });
+
+    render(<App />);
+
+    await screen.findByRole('heading', { level: 2, name: 'Starter' });
+
+    const nameInput = screen.getByLabelText('Name');
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Starter Renamed');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() =>
+      expect(optionLabels(screen.getByLabelText('Project'))).toContain(
+        'Starter Renamed',
+      ),
+    );
+    expect(screen.getByLabelText('Project')).toHaveValue('1');
+  });
+
+  it('deletes the active project, navigates to #/projects and falls back to the first remaining project', async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, '', '/#/projects/1');
+    window.localStorage.setItem('gp.projectId', '1');
+
+    let deleted = false;
+    stubFetch({
+      projects: () => jsonResponse(deleted ? [projects[1]] : projects),
+      projectDetail: (projectId) =>
+        jsonResponse({ ...projectDetail, id: projectId, name: 'Starter' }),
+      onProjectDeleted: () => {
+        deleted = true;
+      },
+    });
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'Starter' }),
+    ).toBeInTheDocument();
+    expect(await screen.findByLabelText('Project')).toHaveValue('1');
+
+    await user.type(screen.getByLabelText('Confirm project name'), 'Starter');
+    await user.click(screen.getByRole('button', { name: 'Delete project' }));
+
+    await waitFor(() => expect(window.location.hash).toBe('#/projects'));
+    expect(await screen.findByTestId('projects-page')).toBeInTheDocument();
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Project')).toHaveValue('2'),
+    );
+    expect(window.localStorage.getItem('gp.projectId')).toBe('2');
+  });
+
+  it('shows the project not-found state for an unknown project id', async () => {
+    window.history.replaceState(null, '', '/#/projects/99');
+    stubFetch({
+      projectDetail: () =>
+        errorResponse(404, { error: 'Project 99 was not found.' }),
+      projectKeys: () =>
+        errorResponse(404, { error: 'Project 99 was not found.' }),
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Project not found')).toBeInTheDocument();
     expect(
       screen.getByRole('link', { name: 'Back to projects' }),
     ).toHaveAttribute('href', '#/projects');
-    expect(window.location.hash).toBe('#/projects/3');
+    expect(window.location.hash).toBe('#/projects/99');
   });
 });
