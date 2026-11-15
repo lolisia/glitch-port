@@ -5,6 +5,7 @@ import {
   apiBase,
   bulkUpdateIssues,
   createLabel,
+  createProject,
   deleteEvent,
   deleteIssue,
   deleteLabel,
@@ -15,17 +16,21 @@ import {
   listIssueEvents,
   listIssues,
   listLabels,
-  projectId,
+  listProjects,
+  parseConfiguredProjectId,
   updateIssue,
   updateLabel,
 } from './client';
 import type {
   BulkIssuesRequest,
+  CreatedProject,
+  CreateProjectRequest,
   EventDetail,
   Issue,
   IssueDetail,
   Label,
   Message,
+  ProjectListItem,
   StatsBucket,
 } from './types';
 
@@ -152,16 +157,42 @@ const event: EventDetail = {
 const issueDetail: IssueDetail = { ...issue, latest_event: event };
 const stats: StatsBucket[] = [{ bucket: '2026-01-02T00:00:00Z', count: 7 }];
 
+const projectList: ProjectListItem[] = [
+  {
+    id: 1,
+    name: 'Starter',
+    slug: 'starter',
+    platform: 'unreal',
+    created_at: '2026-01-01T00:00:00Z',
+    issue_count: 3,
+    key_count: 1,
+  },
+];
+
+const createdProject: CreatedProject = {
+  id: 9,
+  name: 'New project',
+  slug: 'new-project',
+  platform: 'godot',
+  created_at: '2026-01-03T00:00:00Z',
+  dsn: 'http://dev-public-key@localhost:5080/9',
+};
+
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.resetModules();
 });
 
 describe('configuration', () => {
-  it('uses the default API base, admin token and project id', () => {
+  it('uses the default API base and admin token', () => {
     expect(apiBase).toBe('http://localhost:5090');
     expect(adminToken).toBe('dev-admin-token');
-    expect(projectId).toBe(1);
+  });
+
+  it('re-exports the configured project id parser', () => {
+    expect(parseConfiguredProjectId('4')).toBe(4);
+    expect(parseConfiguredProjectId('  ')).toBeNull();
+    expect(parseConfiguredProjectId(undefined)).toBeNull();
   });
 });
 
@@ -177,6 +208,49 @@ describe('fetchMessages', () => {
   });
 });
 
+describe('listProjects', () => {
+  it('fetches the project list', async () => {
+    const fetchMock = stubFetch(jsonResponse(projectList));
+
+    await expect(listProjects()).resolves.toEqual(projectList);
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/projects`, {
+      headers: AUTH_HEADERS,
+    });
+  });
+});
+
+describe('createProject', () => {
+  it('posts the project and resolves the created DSN', async () => {
+    const fetchMock = stubFetch(jsonResponse(createdProject, 201));
+    const input: CreateProjectRequest = {
+      name: 'New project',
+      platform: 'godot',
+    };
+
+    await expect(createProject(input)).resolves.toEqual(createdProject);
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/projects`, {
+      method: 'POST',
+      headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+  });
+
+  it('surfaces the API error text for a conflicting slug', async () => {
+    stubFetch(
+      errorResponse({ error: "A project with slug 'dup' already exists." }, 409),
+    );
+
+    const error = await captureError(createProject({ name: 'Dup' }));
+
+    expect(error.status).toBe(409);
+    expect(error.message).toBe(
+      "HTTP 409: A project with slug 'dup' already exists.",
+    );
+  });
+});
+
 describe('listIssues', () => {
   it('serializes every filter in the documented order', async () => {
     const fetchMock = stubFetch(
@@ -184,7 +258,7 @@ describe('listIssues', () => {
     );
 
     await expect(
-      listIssues({
+      listIssues(3, {
         status: 'unresolved',
         level: 'error',
         environment: 'production',
@@ -198,7 +272,7 @@ describe('listIssues', () => {
     ).resolves.toEqual({ items: [issue], next_cursor: 'next' });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `${API}/projects/1/issues?status=unresolved&level=error&environment=production&release=1.0.0&label=crash&q=boom&sort=last_seen&limit=25&cursor=next`,
+      `${API}/projects/3/issues?status=unresolved&level=error&environment=production&release=1.0.0&label=crash&q=boom&sort=last_seen&limit=25&cursor=next`,
       { headers: AUTH_HEADERS },
     );
   });
@@ -209,7 +283,7 @@ describe('listIssues', () => {
     );
 
     await expect(
-      listIssues({
+      listIssues(3, {
         status: undefined,
         level: '',
         environment: undefined,
@@ -222,7 +296,7 @@ describe('listIssues', () => {
       }),
     ).resolves.toEqual({ items: [], next_cursor: null });
 
-    expect(fetchMock).toHaveBeenCalledWith(`${API}/projects/1/issues`, {
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/projects/3/issues`, {
       headers: AUTH_HEADERS,
     });
   });
@@ -352,9 +426,9 @@ describe('listLabels', () => {
   it('fetches the project labels', async () => {
     const fetchMock = stubFetch(jsonResponse([label]));
 
-    await expect(listLabels()).resolves.toEqual([label]);
+    await expect(listLabels(4)).resolves.toEqual([label]);
 
-    expect(fetchMock).toHaveBeenCalledWith(`${API}/projects/1/labels`, {
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/projects/4/labels`, {
       headers: AUTH_HEADERS,
     });
   });
@@ -365,9 +439,9 @@ describe('createLabel', () => {
     const fetchMock = stubFetch(jsonResponse(label));
     const input = { name: 'crash', color: '#ff0000' };
 
-    await expect(createLabel(input)).resolves.toEqual(label);
+    await expect(createLabel(4, input)).resolves.toEqual(label);
 
-    expect(fetchMock).toHaveBeenCalledWith(`${API}/projects/1/labels`, {
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/projects/4/labels`, {
       method: 'POST',
       headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -409,10 +483,10 @@ describe('getStats', () => {
   it('defaults to the 24h period', async () => {
     const fetchMock = stubFetch(jsonResponse(stats));
 
-    await expect(getStats()).resolves.toEqual(stats);
+    await expect(getStats(2)).resolves.toEqual(stats);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `${API}/projects/1/stats?period=24h`,
+      `${API}/projects/2/stats?period=24h`,
       { headers: AUTH_HEADERS },
     );
   });
@@ -420,10 +494,10 @@ describe('getStats', () => {
   it('requests the 14d period when asked', async () => {
     const fetchMock = stubFetch(jsonResponse(stats));
 
-    await getStats('14d');
+    await getStats(2, '14d');
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `${API}/projects/1/stats?period=14d`,
+      `${API}/projects/2/stats?period=14d`,
       { headers: AUTH_HEADERS },
     );
   });
@@ -488,44 +562,29 @@ describe('response bodies', () => {
     const { response, json } = emptyOkResponse();
     stubFetch(response);
 
-    await expect(listLabels()).resolves.toBeUndefined();
+    await expect(listLabels(1)).resolves.toBeUndefined();
 
     expect(json).not.toHaveBeenCalled();
   });
 });
 
 describe('environment configuration', () => {
-  it('uses VITE_PROJECT_ID for every project-scoped path', async () => {
-    vi.stubEnv('VITE_PROJECT_ID', '7');
-    vi.resetModules();
+  it('uses the explicit project id for every project-scoped path', async () => {
     const fetchMock = stubFetch(
       jsonResponse({ items: [], next_cursor: null }),
     );
-    const client = await import('./client');
 
-    await client.listIssues();
-    await client.listLabels();
-    await client.createLabel({ name: 'crash' });
-    await client.getStats('14d');
+    await listIssues(7);
+    await listLabels(7);
+    await createLabel(7, { name: 'crash' });
+    await getStats(7, '14d');
 
-    expect(client.projectId).toBe(7);
     expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
       `${API}/projects/7/issues`,
       `${API}/projects/7/labels`,
       `${API}/projects/7/labels`,
       `${API}/projects/7/stats?period=14d`,
     ]);
-  });
-
-  it('defaults the project id to 1 when unset or blank', async () => {
-    vi.resetModules();
-    const unset = await import('./client');
-    expect(unset.projectId).toBe(1);
-
-    vi.stubEnv('VITE_PROJECT_ID', '   ');
-    vi.resetModules();
-    const blank = await import('./client');
-    expect(blank.projectId).toBe(1);
   });
 
   it('strips trailing slashes from VITE_API_BASE', async () => {
@@ -566,7 +625,7 @@ describe('environment configuration', () => {
     const fetchMock = stubFetch(jsonResponse([label]));
     const client = await import('./client');
 
-    await client.listLabels();
+    await client.listLabels(1);
 
     expect(fetchMock).toHaveBeenCalledWith(`${API}/projects/1/labels`, {
       headers: { Authorization: 'Bearer secret-token' },

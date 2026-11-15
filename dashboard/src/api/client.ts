@@ -1,7 +1,9 @@
 import type {
   BulkIssuesRequest,
   BulkIssuesResponse,
+  CreatedProject,
   CreateLabelRequest,
+  CreateProjectRequest,
   EventDetail,
   EventSummaryList,
   Issue,
@@ -10,6 +12,7 @@ import type {
   IssueListResponse,
   Label,
   Message,
+  ProjectListItem,
   StatsBucket,
   UpdateIssueRequest,
   UpdateLabelRequest,
@@ -29,23 +32,10 @@ export const apiBase = configuredApiBase.replace(/\/+$/, '');
 export const adminToken =
   (import.meta.env.VITE_ADMIN_TOKEN as string | undefined) ?? 'dev-admin-token';
 
-function resolveProjectId(value: string | undefined): number {
-  if (value === undefined) {
-    return 1;
-  }
-
-  const trimmed = value.trim();
-  if (trimmed === '') {
-    return 1;
-  }
-
-  const parsed = Number(trimmed);
-  return Number.isInteger(parsed) ? parsed : 1;
-}
-
-export const projectId = resolveProjectId(
-  import.meta.env.VITE_PROJECT_ID as string | undefined,
-);
+// The active project is a dashboard concern (persisted selection), not client
+// configuration; re-exported here so callers that only read the API module can
+// still parse VITE_PROJECT_ID.
+export { parseConfiguredProjectId } from '../project/activeProject';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -167,8 +157,24 @@ export function fetchMessages(): Promise<Message[]> {
   return apiRequest<Message[]>('/messages', { query: { limit: 100 } });
 }
 
+/** GET /api/manage/projects */
+export function listProjects(): Promise<ProjectListItem[]> {
+  return apiRequest<ProjectListItem[]>('/projects');
+}
+
+/** POST /api/manage/projects — 201 with the project and its first key's DSN. */
+export function createProject(
+  input: CreateProjectRequest,
+): Promise<CreatedProject> {
+  return apiRequest<CreatedProject>('/projects', {
+    method: 'POST',
+    body: input,
+  });
+}
+
 /** GET /api/manage/projects/{projectId}/issues */
 export function listIssues(
+  projectId: number,
   query: IssueListQuery = {},
 ): Promise<IssueListResponse> {
   return apiRequest<IssueListResponse>(`/projects/${projectId}/issues`, {
@@ -229,12 +235,15 @@ export function deleteEvent(eventId: string): Promise<void> {
 }
 
 /** GET /api/manage/projects/{projectId}/labels */
-export function listLabels(): Promise<Label[]> {
+export function listLabels(projectId: number): Promise<Label[]> {
   return apiRequest<Label[]>(`/projects/${projectId}/labels`);
 }
 
 /** POST /api/manage/projects/{projectId}/labels */
-export function createLabel(input: CreateLabelRequest): Promise<Label> {
+export function createLabel(
+  projectId: number,
+  input: CreateLabelRequest,
+): Promise<Label> {
   return apiRequest<Label>(`/projects/${projectId}/labels`, {
     method: 'POST',
     body: input,
@@ -259,6 +268,7 @@ export function deleteLabel(id: number): Promise<void> {
 
 /** GET /api/manage/projects/{projectId}/stats?period=... */
 export function getStats(
+  projectId: number,
   period: '24h' | '14d' = '24h',
 ): Promise<StatsBucket[]> {
   return apiRequest<StatsBucket[]>(`/projects/${projectId}/stats`, {

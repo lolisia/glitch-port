@@ -1,8 +1,8 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
-import type { EventDetail, IssueDetail } from './api/types';
+import type { EventDetail, IssueDetail, ProjectListItem } from './api/types';
 
 interface MockResponse {
   ok: boolean;
@@ -17,6 +17,44 @@ function jsonResponse(body: unknown, status = 200): MockResponse {
     json: async () => body,
   };
 }
+
+function errorResponse(status: number, body: unknown = {}): MockResponse {
+  return {
+    ok: false,
+    status,
+    json: async () => body,
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+
+  return { promise, resolve };
+}
+
+const projects: ProjectListItem[] = [
+  {
+    id: 1,
+    name: 'Starter',
+    slug: 'starter',
+    platform: 'unreal',
+    created_at: '2026-01-01T00:00:00Z',
+    issue_count: 3,
+    key_count: 1,
+  },
+  {
+    id: 2,
+    name: 'Second project',
+    slug: 'second-project',
+    platform: 'unity',
+    created_at: '2026-01-02T00:00:00Z',
+    issue_count: 0,
+    key_count: 2,
+  },
+];
 
 const issueDetail: IssueDetail = {
   id: 42,
@@ -48,64 +86,123 @@ const eventDetail: EventDetail = {
   payload: { message: 'Crash on startup' },
 };
 
+type ProjectsResponder =
+  | MockResponse
+  | Promise<MockResponse>
+  | (() => MockResponse | Promise<MockResponse>);
+
 /**
- * Dispatches by URL, matching the most specific route first. The placeholders
- * do not fetch yet, but the stub already covers every endpoint the upcoming
- * issues screens use so those tests can build on it.
+ * Dispatches by URL, matching the most specific route first. The project list
+ * can be overridden (with a promise) to test the loading, empty and error
+ * states of the selector.
  */
-function stubFetch() {
-  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-    const path = new URL(String(input), 'http://localhost').pathname;
+function stubFetch(options: { projects?: ProjectsResponder } = {}) {
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), 'http://localhost');
+      const path = url.pathname;
+      const method = (init?.method ?? 'GET').toUpperCase();
 
-    if (/^\/api\/manage\/messages$/.test(path)) {
-      return jsonResponse([]);
-    }
-    if (/^\/api\/manage\/projects\/\d+\/issues$/.test(path)) {
-      return jsonResponse({ items: [], next_cursor: null });
-    }
-    if (/^\/api\/manage\/projects\/\d+\/stats$/.test(path)) {
-      return jsonResponse([]);
-    }
-    if (/^\/api\/manage\/projects\/\d+\/labels$/.test(path)) {
-      return jsonResponse([]);
-    }
-    if (/^\/api\/manage\/issues\/\d+\/events$/.test(path)) {
-      return jsonResponse({ items: [], next_cursor: null });
-    }
-    if (/^\/api\/manage\/issues\/\d+$/.test(path)) {
-      return jsonResponse(issueDetail);
-    }
-    if (/^\/api\/manage\/events\/[^/]+$/.test(path)) {
-      return jsonResponse(eventDetail);
-    }
+      if (path === '/api/manage/projects' && method === 'GET') {
+        const responder = options.projects ?? jsonResponse(projects);
+        return typeof responder === 'function' ? responder() : responder;
+      }
+      if (path === '/api/manage/projects' && method === 'POST') {
+        return jsonResponse(
+          {
+            id: 9,
+            name: 'Created',
+            slug: 'created',
+            platform: null,
+            created_at: '2026-01-03T00:00:00Z',
+            dsn: 'http://public-key@localhost:5080/9',
+          },
+          201,
+        );
+      }
+      if (/^\/api\/manage\/messages$/.test(path)) {
+        return jsonResponse([]);
+      }
+      if (/^\/api\/manage\/projects\/\d+\/issues$/.test(path)) {
+        return jsonResponse({ items: [], next_cursor: null });
+      }
+      if (/^\/api\/manage\/projects\/\d+\/stats$/.test(path)) {
+        return jsonResponse([]);
+      }
+      if (/^\/api\/manage\/projects\/\d+\/labels$/.test(path)) {
+        return jsonResponse([]);
+      }
+      if (/^\/api\/manage\/issues\/\d+\/events$/.test(path)) {
+        return jsonResponse({ items: [], next_cursor: null });
+      }
+      if (/^\/api\/manage\/issues\/\d+$/.test(path)) {
+        return jsonResponse(issueDetail);
+      }
+      if (/^\/api\/manage\/events\/[^/]+$/.test(path)) {
+        return jsonResponse(eventDetail);
+      }
 
-    throw new Error(`Unexpected fetch: ${path}`);
-  });
+      throw new Error(`Unexpected fetch: ${path}`);
+    },
+  );
 
   vi.stubGlobal('fetch', fetchMock);
   return fetchMock;
 }
 
+type FetchMock = ReturnType<typeof stubFetch>;
+
+function requestUrls(fetchMock: FetchMock): URL[] {
+  return fetchMock.mock.calls.map(([input]) =>
+    new URL(String(input), 'http://localhost'),
+  );
+}
+
+function issueRequests(fetchMock: FetchMock, projectId: number): URL[] {
+  return requestUrls(fetchMock).filter(
+    (url) => url.pathname === `/api/manage/projects/${projectId}/issues`,
+  );
+}
+
+/** Requests whose path is scoped to a concrete project. */
+function projectScopedRequests(fetchMock: FetchMock): URL[] {
+  return requestUrls(fetchMock).filter((url) =>
+    /^\/api\/manage\/projects\/\d+\//.test(url.pathname),
+  );
+}
+
+function optionLabels(select: HTMLElement): string[] {
+  return Array.from(select.querySelectorAll('option')).map(
+    (option) => option.textContent ?? '',
+  );
+}
+
 beforeEach(() => {
   window.history.replaceState(null, '', '/');
-  stubFetch();
+  window.localStorage.clear();
 });
 
 describe('App', () => {
   it('renders the issues page for a blank hash and rewrites it to #/issues', async () => {
+    stubFetch();
+
     render(<App />);
 
     expect(
       screen.getByRole('heading', { level: 1, name: 'glitch-port' }),
     ).toBeInTheDocument();
-    expect(screen.getByText('Project 1')).toBeInTheDocument();
     expect(screen.getByTestId('issues-page')).toBeInTheDocument();
+
+    const picker = await screen.findByLabelText('Project');
+    expect(picker).toHaveValue('1');
+    expect(optionLabels(picker)).toEqual(['Starter', 'Second project']);
 
     await waitFor(() => expect(window.location.hash).toBe('#/issues'));
   });
 
   it('rewrites an unknown hash to #/issues', async () => {
-    window.history.replaceState(null, '', '/#/projects');
+    window.history.replaceState(null, '', '/#/not-a-route');
+    stubFetch();
 
     render(<App />);
 
@@ -114,18 +211,34 @@ describe('App', () => {
     await waitFor(() => expect(window.location.hash).toBe('#/issues'));
   });
 
-  it('renders the issue detail page for #/issues/42', () => {
+  it('keeps the projects routes instead of rewriting them', async () => {
+    window.history.replaceState(null, '', '/#/projects');
+    stubFetch();
+
+    render(<App />);
+
+    expect(await screen.findByTestId('projects-page')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/projects');
+  });
+
+  it('renders the issue detail page for #/issues/42', async () => {
     window.history.replaceState(null, '', '/#/issues/42');
+    stubFetch();
 
     render(<App />);
 
     expect(screen.getByTestId('issue-detail-page')).toBeInTheDocument();
     expect(screen.queryByTestId('issues-page')).not.toBeInTheDocument();
+
+    // The issue detail waits for the active project (labels are project scoped)
+    // and then loads the issue.
+    expect(await screen.findByTestId('issue-detail-header')).toBeInTheDocument();
     expect(window.location.hash).toBe('#/issues/42');
   });
 
   it('renders the messages page for #/messages', async () => {
     window.history.replaceState(null, '', '/#/messages');
+    stubFetch();
 
     render(<App />);
 
@@ -139,13 +252,16 @@ describe('App', () => {
   it('switches screens and aria-current when the tabs are clicked', async () => {
     const user = userEvent.setup();
     window.history.replaceState(null, '', '/#/issues');
+    stubFetch();
 
     render(<App />);
 
     const issuesTab = screen.getByRole('link', { name: 'Issues' });
     const messagesTab = screen.getByRole('link', { name: 'Messages' });
+    const projectsTab = screen.getByRole('link', { name: 'Projects' });
     expect(issuesTab).toHaveAttribute('aria-current', 'page');
     expect(messagesTab).not.toHaveAttribute('aria-current');
+    expect(projectsTab).not.toHaveAttribute('aria-current');
 
     await user.click(messagesTab);
 
@@ -154,15 +270,25 @@ describe('App', () => {
     expect(issuesTab).not.toHaveAttribute('aria-current');
     expect(window.location.hash).toBe('#/messages');
 
+    await user.click(projectsTab);
+
+    expect(await screen.findByTestId('projects-page')).toBeInTheDocument();
+    expect(projectsTab).toHaveAttribute('aria-current', 'page');
+    expect(issuesTab).not.toHaveAttribute('aria-current');
+    expect(messagesTab).not.toHaveAttribute('aria-current');
+    expect(window.location.hash).toBe('#/projects');
+
     await user.click(issuesTab);
 
     expect(await screen.findByTestId('issues-page')).toBeInTheDocument();
     expect(issuesTab).toHaveAttribute('aria-current', 'page');
     expect(messagesTab).not.toHaveAttribute('aria-current');
+    expect(projectsTab).not.toHaveAttribute('aria-current');
   });
 
   it('switches screens on a hashchange event (back/forward)', () => {
     window.history.replaceState(null, '', '/#/issues');
+    stubFetch();
 
     render(<App />);
 
@@ -181,10 +307,268 @@ describe('App', () => {
 
   it('keeps the query for a filtered issues route', () => {
     window.history.replaceState(null, '', '/#/issues?status=resolved&q=null');
+    stubFetch();
 
     render(<App />);
 
     expect(screen.getByTestId('issues-page')).toBeInTheDocument();
     expect(window.location.hash).toBe('#/issues?status=resolved&q=null');
+  });
+
+  it('persists the first project when nothing is stored or configured', async () => {
+    stubFetch();
+
+    render(<App />);
+
+    expect(await screen.findByLabelText('Project')).toHaveValue('1');
+    expect(window.localStorage.getItem('gp.projectId')).toBe('1');
+  });
+
+  it('selects the stored project and loads its issues', async () => {
+    window.localStorage.setItem('gp.projectId', '2');
+    const fetchMock = stubFetch();
+
+    render(<App />);
+
+    expect(await screen.findByLabelText('Project')).toHaveValue('2');
+
+    await waitFor(() =>
+      expect(issueRequests(fetchMock, 2).length).toBeGreaterThan(0),
+    );
+    expect(issueRequests(fetchMock, 1)).toHaveLength(0);
+  });
+
+  it('uses a valid VITE_PROJECT_ID when nothing is stored', async () => {
+    vi.stubEnv('VITE_PROJECT_ID', '2');
+    const fetchMock = stubFetch();
+
+    render(<App />);
+
+    expect(await screen.findByLabelText('Project')).toHaveValue('2');
+    expect(window.localStorage.getItem('gp.projectId')).toBe('2');
+    await waitFor(() =>
+      expect(issueRequests(fetchMock, 2).length).toBeGreaterThan(0),
+    );
+  });
+
+  it('ignores an invalid VITE_PROJECT_ID and selects the first project', async () => {
+    vi.stubEnv('VITE_PROJECT_ID', 'not-a-project');
+    const fetchMock = stubFetch();
+
+    render(<App />);
+
+    expect(await screen.findByLabelText('Project')).toHaveValue('1');
+    expect(window.localStorage.getItem('gp.projectId')).toBe('1');
+    await waitFor(() =>
+      expect(issueRequests(fetchMock, 1).length).toBeGreaterThan(0),
+    );
+  });
+
+  it('ignores a VITE_PROJECT_ID that is not in the loaded project list', async () => {
+    vi.stubEnv('VITE_PROJECT_ID', '99');
+    stubFetch();
+
+    render(<App />);
+
+    expect(await screen.findByLabelText('Project')).toHaveValue('1');
+    expect(window.localStorage.getItem('gp.projectId')).toBe('1');
+  });
+
+  it('passes the active project to the issue detail label list', async () => {
+    window.localStorage.setItem('gp.projectId', '2');
+    window.history.replaceState(null, '', '/#/issues/42');
+    const fetchMock = stubFetch();
+
+    render(<App />);
+
+    expect(
+      await screen.findByTestId('issue-detail-header'),
+    ).toBeInTheDocument();
+
+    const scopedPaths = projectScopedRequests(fetchMock).map(
+      (url) => url.pathname,
+    );
+    expect(scopedPaths).toContain('/api/manage/projects/2/labels');
+    expect(
+      scopedPaths.every((path) => path.startsWith('/api/manage/projects/2/')),
+    ).toBe(true);
+  });
+
+  it.each(['99', 'abc', '0', '-4', '2.5'])(
+    'falls back to the first project when gp.projectId is %j',
+    async (stored) => {
+      window.localStorage.setItem('gp.projectId', stored);
+      stubFetch();
+
+      render(<App />);
+
+      expect(await screen.findByLabelText('Project')).toHaveValue('1');
+      expect(window.localStorage.getItem('gp.projectId')).toBe('1');
+    },
+  );
+
+  it('stores the selected project and refetches its issues', async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch();
+
+    render(<App />);
+
+    const picker = await screen.findByLabelText('Project');
+    await waitFor(() =>
+      expect(issueRequests(fetchMock, 1).length).toBeGreaterThan(0),
+    );
+
+    await user.selectOptions(picker, '2');
+
+    expect(window.localStorage.getItem('gp.projectId')).toBe('2');
+    expect(screen.getByLabelText('Project')).toHaveValue('2');
+    await waitFor(() =>
+      expect(issueRequests(fetchMock, 2).length).toBeGreaterThan(0),
+    );
+    expect(issueRequests(fetchMock, 1).length).toBeGreaterThan(0);
+  });
+
+  it('shows an inline state and sends no project-scoped requests while loading', async () => {
+    const pending = deferred<MockResponse>();
+    const fetchMock = stubFetch({ projects: () => pending.promise });
+
+    render(<App />);
+
+    expect(screen.getByTestId('project-picker-state')).toHaveTextContent(
+      'Loading projects...',
+    );
+    expect(screen.queryByLabelText('Project')).not.toBeInTheDocument();
+    expect(screen.getByText(/No project selected/)).toBeInTheDocument();
+    expect(projectScopedRequests(fetchMock)).toHaveLength(0);
+
+    pending.resolve(jsonResponse(projects));
+
+    expect(await screen.findByLabelText('Project')).toHaveValue('1');
+    await waitFor(() =>
+      expect(projectScopedRequests(fetchMock).length).toBeGreaterThan(0),
+    );
+  });
+
+  it('renders an inline state for an empty project list without project requests', async () => {
+    const fetchMock = stubFetch({ projects: jsonResponse([]) });
+
+    render(<App />);
+
+    expect(await screen.findByTestId('project-picker-state')).toHaveTextContent(
+      'No projects yet',
+    );
+    expect(screen.queryByLabelText('Project')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByText(/No project selected/)).toBeInTheDocument(),
+    );
+    expect(projectScopedRequests(fetchMock)).toHaveLength(0);
+    expect(window.localStorage.getItem('gp.projectId')).toBeNull();
+  });
+
+  it('clears a stale stored id when the project list is empty', async () => {
+    window.localStorage.setItem('gp.projectId', '9');
+    stubFetch({ projects: jsonResponse([]) });
+
+    render(<App />);
+
+    expect(await screen.findByTestId('project-picker-state')).toHaveTextContent(
+      'No projects yet',
+    );
+    await waitFor(() =>
+      expect(window.localStorage.getItem('gp.projectId')).toBeNull(),
+    );
+  });
+
+  it('falls back to the first project when a reload drops the active one', async () => {
+    const user = userEvent.setup();
+    const createdItem: ProjectListItem = {
+      id: 9,
+      name: 'Created',
+      slug: 'created',
+      platform: null,
+      created_at: '2026-01-03T00:00:00Z',
+      issue_count: 0,
+      key_count: 1,
+    };
+    let listCalls = 0;
+
+    window.localStorage.setItem('gp.projectId', '2');
+    const fetchMock = stubFetch({
+      projects: () => {
+        listCalls += 1;
+
+        if (listCalls === 1) {
+          // Initial App load: the stored project still exists.
+          return jsonResponse(projects);
+        }
+        if (listCalls === 2) {
+          // The projects screen loads its own copy while project 2 is gone.
+          return jsonResponse([projects[0]]);
+        }
+
+        // The reload after a create re-resolves the selection.
+        return jsonResponse([projects[0], createdItem]);
+      },
+    });
+
+    render(<App />);
+
+    expect(await screen.findByLabelText('Project')).toHaveValue('2');
+
+    await user.click(screen.getByRole('link', { name: 'Projects' }));
+
+    const page = await screen.findByTestId('projects-page');
+    await within(page).findByRole('table');
+
+    await user.type(screen.getByLabelText('Name'), 'Created');
+    await user.click(screen.getByRole('button', { name: 'Create project' }));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Project')).toHaveValue('1'),
+    );
+    expect(window.localStorage.getItem('gp.projectId')).toBe('1');
+    await waitFor(() =>
+      expect(screen.getByLabelText('Project')).toHaveTextContent('Created'),
+    );
+    expect(listCalls).toBeGreaterThanOrEqual(3);
+
+    // The issues screen follows the re-resolved project instead of issuing
+    // new requests for the deleted one.
+    const deletedProjectRequests = issueRequests(fetchMock, 2).length;
+    await user.click(screen.getByRole('link', { name: 'Issues' }));
+
+    await waitFor(() =>
+      expect(issueRequests(fetchMock, 1).length).toBeGreaterThan(0),
+    );
+    expect(issueRequests(fetchMock, 2)).toHaveLength(deletedProjectRequests);
+  });
+
+  it('renders an inline state when the project list fails without project requests', async () => {
+    const fetchMock = stubFetch({ projects: errorResponse(500) });
+
+    render(<App />);
+
+    expect(await screen.findByTestId('project-picker-state')).toHaveTextContent(
+      'Projects unavailable.',
+    );
+    await waitFor(() =>
+      expect(screen.getByText(/No project selected/)).toBeInTheDocument(),
+    );
+    expect(projectScopedRequests(fetchMock)).toHaveLength(0);
+  });
+
+  it('renders the project detail placeholder with a link back', async () => {
+    window.history.replaceState(null, '', '/#/projects/3');
+    stubFetch();
+
+    render(<App />);
+
+    expect(
+      await screen.findByTestId('project-detail-placeholder'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: 'Back to projects' }),
+    ).toHaveAttribute('href', '#/projects');
+    expect(window.location.hash).toBe('#/projects/3');
   });
 });

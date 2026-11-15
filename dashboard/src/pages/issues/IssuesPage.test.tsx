@@ -186,7 +186,7 @@ describe('IssuesPage', () => {
       issues: issuePage([first, second]),
     });
 
-    render(<IssuesPage />);
+    render(<IssuesPage projectId={1} />);
 
     expect(screen.getByTestId('issues-page')).toBeInTheDocument();
     expect(screen.getByText('Loading...')).toBeInTheDocument();
@@ -265,7 +265,7 @@ describe('IssuesPage', () => {
     ];
     const fetchMock = stubApi({ stats: jsonResponse(buckets) });
 
-    render(<IssuesPage />);
+    render(<IssuesPage projectId={1} />);
 
     expect(
       await screen.findByRole('heading', {
@@ -294,7 +294,7 @@ describe('IssuesPage', () => {
       issues: issuePage([makeIssue()]),
     });
 
-    render(<IssuesPage />);
+    render(<IssuesPage projectId={1} />);
 
     expect(await screen.findByRole('link', { name: 'Boom' })).toBeInTheDocument();
     expect(screen.queryByText('Events (last 24 hours)')).not.toBeInTheDocument();
@@ -307,7 +307,7 @@ describe('IssuesPage', () => {
     const user = userEvent.setup();
     const fetchMock = stubApi({ issues: issuePage([makeIssue()]) });
 
-    render(<IssuesPage />);
+    render(<IssuesPage projectId={1} />);
     await screen.findByRole('table');
 
     expect(optionValues(screen.getByLabelText('Level'))).toEqual([
@@ -443,7 +443,7 @@ describe('IssuesPage', () => {
     );
     const fetchMock = stubApi();
 
-    render(<IssuesPage />);
+    render(<IssuesPage projectId={1} />);
 
     expect(screen.getByRole('button', { name: 'Unresolved' })).toHaveAttribute(
       'aria-pressed',
@@ -465,7 +465,7 @@ describe('IssuesPage', () => {
       issues: issuePage([makeIssue({ status: 'resolved' })]),
     });
 
-    render(<IssuesPage />);
+    render(<IssuesPage projectId={1} />);
 
     expect(screen.getByLabelText('Search issues')).toHaveValue('null');
     expect(screen.getByRole('button', { name: 'Resolved' })).toHaveAttribute(
@@ -486,7 +486,7 @@ describe('IssuesPage', () => {
   it('debounces the search box and writes the trimmed query once', async () => {
     const fetchMock = stubApi();
 
-    render(<IssuesPage />);
+    render(<IssuesPage projectId={1} />);
     await screen.findByText('No issues found.');
 
     const search = screen.getByLabelText('Search issues');
@@ -522,7 +522,7 @@ describe('IssuesPage', () => {
     const user = userEvent.setup();
     stubApi({ issues: issuePage([makeIssue()]) });
 
-    render(<IssuesPage />);
+    render(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'Boom' });
 
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
@@ -547,7 +547,7 @@ describe('IssuesPage', () => {
       issues: [issuePage([first], 'cursor-1'), () => nextPage.promise],
     });
 
-    render(<IssuesPage />);
+    render(<IssuesPage projectId={1} />);
 
     expect(await screen.findByRole('link', { name: 'First' })).toBeInTheDocument();
     expect(
@@ -591,7 +591,7 @@ describe('IssuesPage', () => {
       ]),
     });
 
-    render(<IssuesPage />);
+    render(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'First' });
 
     const selectAll = screen.getByRole('checkbox', { name: 'Select all' });
@@ -623,7 +623,7 @@ describe('IssuesPage', () => {
       ],
     });
 
-    render(<IssuesPage />);
+    render(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'First' });
 
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
@@ -665,7 +665,7 @@ describe('IssuesPage', () => {
       ],
     });
 
-    render(<IssuesPage />);
+    render(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'First' });
 
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
@@ -727,7 +727,7 @@ describe('IssuesPage', () => {
       ],
     });
 
-    render(<IssuesPage />);
+    render(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'First' });
 
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
@@ -752,7 +752,7 @@ describe('IssuesPage', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     const fetchMock = stubApi({ issues: issuePage([makeIssue()]) });
 
-    render(<IssuesPage />);
+    render(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'Boom' });
 
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
@@ -771,7 +771,7 @@ describe('IssuesPage', () => {
       bulk: errorResponse(500, { error: 'nope' }),
     });
 
-    render(<IssuesPage />);
+    render(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'Boom' });
 
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
@@ -786,7 +786,7 @@ describe('IssuesPage', () => {
   it('renders the empty state when no issues match', async () => {
     stubApi({ issues: issuePage([]) });
 
-    render(<IssuesPage />);
+    render(<IssuesPage projectId={1} />);
 
     expect(screen.getByText('Loading...')).toBeInTheDocument();
     expect(await screen.findByText('No issues found.')).toBeInTheDocument();
@@ -799,7 +799,7 @@ describe('IssuesPage', () => {
   it('renders an error state for a failed list request', async () => {
     stubApi({ issues: errorResponse(500) });
 
-    render(<IssuesPage />);
+    render(<IssuesPage projectId={1} />);
 
     expect(
       await screen.findByText('Failed to load issues: HTTP 500'),
@@ -811,7 +811,7 @@ describe('IssuesPage', () => {
   it('renders the VITE_ADMIN_TOKEN guidance for a 401 response', async () => {
     stubApi({ issues: errorResponse(401, { error: 'unauthorized' }) });
 
-    render(<IssuesPage />);
+    render(<IssuesPage projectId={1} />);
 
     expect(
       await screen.findByText('Failed to load issues: HTTP 401: unauthorized'),
@@ -829,7 +829,7 @@ describe('IssuesPage', () => {
       issues: issuePage([makeIssue()]),
     });
 
-    render(<IssuesPage />);
+    render(<IssuesPage projectId={1} />);
     await screen.findByRole('table');
 
     expect(optionValues(screen.getByLabelText('Label'))).toEqual(['']);
@@ -843,7 +843,7 @@ describe('IssuesPage', () => {
     );
     const fetchMock = stubApi({ issues: issuePage([makeIssue()]) });
 
-    render(<IssuesPage />);
+    render(<IssuesPage projectId={1} />);
     await screen.findByRole('table');
 
     expect(optionValues(screen.getByLabelText('Environment'))).toEqual([
@@ -860,5 +860,39 @@ describe('IssuesPage', () => {
     const query = lastIssueRequest(fetchMock).searchParams;
     expect(query.get('environment')).toBe('staging');
     expect(query.get('release')).toBe('9.9.9');
+  });
+
+  it('renders the no-project state without calling the API', () => {
+    const fetchMock = stubApi();
+
+    render(<IssuesPage projectId={null} />);
+
+    expect(screen.getByTestId('issues-page')).toBeInTheDocument();
+    expect(screen.getByText(/No project selected/)).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: 'choose a project' }),
+    ).toHaveAttribute('href', '#/projects');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('refetches every project-scoped request when the project changes', async () => {
+    const fetchMock = stubApi();
+    const requestedUrls = () =>
+      fetchMock.mock.calls.map(([input]) => String(input));
+    const { rerender } = render(<IssuesPage projectId={1} />);
+
+    expect(await screen.findByText('No issues found.')).toBeInTheDocument();
+    expect(requestedUrls()).toContain(`${API}/projects/1/labels`);
+
+    rerender(<IssuesPage projectId={2} />);
+
+    await waitFor(() =>
+      expect(requestedUrls()).toContain(
+        `${API}/projects/2/issues?status=unresolved&sort=last_seen&limit=25`,
+      ),
+    );
+    expect(requestedUrls()).toContain(`${API}/projects/2/labels`);
+    expect(requestedUrls()).toContain(`${API}/projects/2/stats?period=24h`);
+    expect(await screen.findByText('No issues found.')).toBeInTheDocument();
   });
 });

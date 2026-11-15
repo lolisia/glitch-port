@@ -12,6 +12,41 @@ export interface Message {
   message: string;
 }
 
+/** One entry of `GET /api/manage/projects`. */
+export interface ProjectListItem {
+  id: number;
+  name: string;
+  slug: string;
+  platform: string | null;
+  created_at: string;
+  /** Unresolved issues, used by the project list. */
+  issue_count: number;
+  /** Active (non-revoked) public keys. */
+  key_count: number;
+}
+
+/** `GET /api/manage/projects/{id}`: the list entry plus its active DSN. */
+export interface ProjectDetail extends ProjectListItem {
+  dsn: string | null;
+}
+
+/** The project returned by `POST /api/manage/projects`, including its key's DSN. */
+export interface CreatedProject {
+  id: number;
+  name: string;
+  slug: string;
+  platform: string | null;
+  created_at: string;
+  dsn: string;
+}
+
+/** Request body of `POST /api/manage/projects`. */
+export interface CreateProjectRequest {
+  name: string;
+  slug?: string;
+  platform?: string;
+}
+
 export type IssueStatus = 'unresolved' | 'resolved' | 'ignored';
 
 export type IssueLevel = 'debug' | 'info' | 'warning' | 'error' | 'fatal';
