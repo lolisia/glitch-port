@@ -11,6 +11,7 @@ import { EmptyState, ErrorState, LoadingState } from '../../ui';
 import { BulkActionBar } from './components/BulkActionBar';
 import { IssueFilterBar } from './components/IssueFilterBar';
 import { IssueTable } from './components/IssueTable';
+import { NoProjectState } from './components/NoProjectState';
 import { StatsSummary } from './components/StatsSummary';
 import {
   SEARCH_DEBOUNCE_MS,
@@ -29,8 +30,12 @@ import './issues.css';
  * the current view. Changing a filter navigates with `replace` and the route
  * query change is what triggers the list request; the cursor never reaches the
  * URL.
+ *
+ * The project comes from the dashboard's active project selection. Without one
+ * the page renders a "No project selected" state instead of calling any
+ * project-scoped endpoint.
  */
-export function IssuesPage() {
+export function IssuesPage({ projectId }: { projectId: number | null }) {
   const route = useHashRoute();
   const filters = readIssueFilters(route.query);
   const { status, level, environment, release, label, q, sort } = filters;
@@ -62,9 +67,14 @@ export function IssuesPage() {
   });
 
   useEffect(() => {
+    if (projectId === null) {
+      setStats(null);
+      return;
+    }
+
     let cancelled = false;
 
-    getStats('24h')
+    getStats(projectId, '24h')
       .then((buckets) => {
         if (!cancelled) {
           setStats(Array.isArray(buckets) ? buckets : []);
@@ -77,12 +87,17 @@ export function IssuesPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [projectId]);
 
   useEffect(() => {
+    if (projectId === null) {
+      setLabelNames([]);
+      return;
+    }
+
     let cancelled = false;
 
-    listLabels()
+    listLabels(projectId)
       .then((labels) => {
         if (!cancelled) {
           setLabelNames(
@@ -97,48 +112,76 @@ export function IssuesPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [projectId]);
 
-  const loadFirstPage = useCallback(async (active: IssueFilters) => {
-    const requestId = ++requestIdRef.current;
-
-    setItems([]);
-    setNextCursor(null);
-    setSelection(new Set<number>());
-    setLoading(true);
-    setLoadingMore(false);
-    setListError(null);
-    setMoreError(null);
-    setBulkError(null);
-
-    try {
-      const response = await listIssues(buildIssueListQuery(active));
-
-      if (requestId !== requestIdRef.current) {
+  const loadFirstPage = useCallback(
+    async (active: IssueFilters) => {
+      if (projectId === null) {
         return;
       }
 
-      setItems(Array.isArray(response.items) ? response.items : []);
-      setNextCursor(response.next_cursor ?? null);
-    } catch (error) {
-      if (requestId !== requestIdRef.current) {
-        return;
-      }
+      const requestId = ++requestIdRef.current;
 
-      setListError(error);
-    } finally {
-      if (requestId === requestIdRef.current) {
-        setLoading(false);
+      setItems([]);
+      setNextCursor(null);
+      setSelection(new Set<number>());
+      setLoading(true);
+      setLoadingMore(false);
+      setListError(null);
+      setMoreError(null);
+      setBulkError(null);
+
+      try {
+        const response = await listIssues(
+          projectId,
+          buildIssueListQuery(active),
+        );
+
+        if (requestId !== requestIdRef.current) {
+          return;
+        }
+
+        setItems(Array.isArray(response.items) ? response.items : []);
+        setNextCursor(response.next_cursor ?? null);
+      } catch (error) {
+        if (requestId !== requestIdRef.current) {
+          return;
+        }
+
+        setListError(error);
+      } finally {
+        if (requestId === requestIdRef.current) {
+          setLoading(false);
+        }
       }
-    }
-  }, []);
+    },
+    [projectId],
+  );
 
   useEffect(() => {
+    if (projectId === null) {
+      return;
+    }
+
     void loadFirstPage({ status, level, environment, release, label, q, sort });
-  }, [loadFirstPage, status, level, environment, release, label, q, sort]);
+  }, [
+    loadFirstPage,
+    projectId,
+    status,
+    level,
+    environment,
+    release,
+    label,
+    q,
+    sort,
+  ]);
 
   const loadMore = useCallback(
     async (active: IssueFilters, cursor: string) => {
+      if (projectId === null) {
+        return;
+      }
+
       const requestId = requestIdRef.current;
 
       setLoadingMore(true);
@@ -146,6 +189,7 @@ export function IssuesPage() {
 
       try {
         const response = await listIssues(
+          projectId,
           buildIssueListQuery(active, cursor),
         );
 
@@ -168,7 +212,7 @@ export function IssuesPage() {
         }
       }
     },
-    [],
+    [projectId],
   );
 
   const runBulk = useCallback(
@@ -292,6 +336,18 @@ export function IssuesPage() {
     () => collectFilterOptions(items.map((item) => item.last_release), release),
     [items, release],
   );
+
+  if (projectId === null) {
+    return (
+      <section className="issues-page" data-testid="issues-page">
+        <header className="page-header">
+          <h2>Issues</h2>
+        </header>
+
+        <NoProjectState />
+      </section>
+    );
+  }
 
   return (
     <section className="issues-page" data-testid="issues-page">

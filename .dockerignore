@@ -8,6 +8,8 @@
 !deploy/
 !deploy/lightsail/
 !deploy/lightsail/**
+!deploy/local/
+!deploy/local/**
 **/bin
 **/obj
 **/node_modules

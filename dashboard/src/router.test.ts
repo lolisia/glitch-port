@@ -18,6 +18,7 @@ describe('parseHash', () => {
       const route = parseHash(hash);
       expect(route.name).toBe('issues');
       expect(route.issueId).toBeNull();
+      expect(route.projectId).toBeNull();
       expect(Array.from(route.query.entries())).toEqual([]);
     }
   });
@@ -25,14 +26,36 @@ describe('parseHash', () => {
   it('maps the known routes and rejects everything else', () => {
     expect(parseHash('#/issues').name).toBe('issues');
     expect(parseHash('#/messages').name).toBe('messages');
+    expect(parseHash('#/projects').name).toBe('projects');
+    expect(parseHash('#/projects').projectId).toBeNull();
+    expect(parseHash('#/projects').issueId).toBeNull();
 
     const detail = parseHash('#/issues/42');
     expect(detail.name).toBe('issue');
     expect(detail.issueId).toBe(42);
+    expect(detail.projectId).toBeNull();
+
+    const project = parseHash('#/projects/7');
+    expect(project.name).toBe('project');
+    expect(project.projectId).toBe(7);
+    expect(project.issueId).toBeNull();
 
     expect(parseHash('#/issues/not-a-number').name).toBe('unknown');
-    expect(parseHash('#/projects').name).toBe('unknown');
+    expect(parseHash('#/projects/0').name).toBe('unknown');
+    expect(parseHash('#/projects/-1').name).toBe('unknown');
+    expect(parseHash('#/projects/7/keys').name).toBe('unknown');
+    expect(parseHash('#/project/7').name).toBe('unknown');
     expect(parseHash('#/messages/extra').name).toBe('unknown');
+    expect(parseHash('#/issues/7/events').name).toBe('unknown');
+  });
+
+  it('carries the project id only on the project route', () => {
+    expect(parseHash('#/projects/12').projectId).toBe(12);
+    expect(parseHash('#/projects/12?tab=keys').projectId).toBe(12);
+    expect(parseHash('#/projects/12?tab=keys').query.get('tab')).toBe('keys');
+    expect(parseHash('#/projects').projectId).toBeNull();
+    expect(parseHash('#/issues').projectId).toBeNull();
+    expect(parseHash('#/messages').projectId).toBeNull();
   });
 
   it('parses the query from the substring after the question mark', () => {
@@ -62,6 +85,14 @@ describe('buildHash', () => {
         new URLSearchParams({ status: 'resolved', q: 'null' }),
       ),
     ).toBe('#/issues?status=resolved&q=null');
+  });
+
+  it('builds project hashes from the id and an optional query', () => {
+    expect(buildHash('/projects')).toBe('#/projects');
+    expect(buildHash('projects/7')).toBe('#/projects/7');
+    expect(
+      buildHash('/projects/7', new URLSearchParams({ tab: 'keys' })),
+    ).toBe('#/projects/7?tab=keys');
   });
 });
 
@@ -132,5 +163,20 @@ describe('useHashRoute', () => {
 
     expect(result.current.name).toBe('issues');
     expect(result.current.query.get('status')).toBe('resolved');
+  });
+
+  it('routes to the project list and detail screens', () => {
+    window.history.replaceState(null, '', '/#/projects');
+    const { result } = renderHook(() => useHashRoute());
+
+    expect(result.current.name).toBe('projects');
+
+    act(() => {
+      window.history.replaceState(null, '', '/#/projects/4');
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+
+    expect(result.current.name).toBe('project');
+    expect(result.current.projectId).toBe(4);
   });
 });

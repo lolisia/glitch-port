@@ -1,8 +1,10 @@
 import { useMemo, useSyncExternalStore } from 'react';
 
 export interface AppRoute {
-  name: 'issues' | 'issue' | 'messages' | 'unknown';
+  name: 'issues' | 'issue' | 'messages' | 'projects' | 'project' | 'unknown';
   issueId: number | null;
+  /** Set for `#/projects/<id>`; null for every other route. */
+  projectId: number | null;
   query: URLSearchParams;
 }
 
@@ -10,6 +12,9 @@ export interface AppRoute {
 export const ROUTE_CHANGE_EVENT = 'gp-route-change';
 
 const ISSUE_PATH = /^issues\/(\d+)$/;
+// Project ids are positive integers, unlike the collector's 64-bit ids the
+// dashboard only ever sees the small serial values it links to.
+const PROJECT_PATH = /^projects\/([1-9]\d*)$/;
 
 function splitHash(hash: string): { path: string; query: URLSearchParams } {
   const withoutHash = hash.startsWith('#') ? hash.slice(1) : hash;
@@ -28,23 +33,42 @@ export function parseHash(hash: string): AppRoute {
   const { path, query } = splitHash(hash);
 
   if (path === '') {
-    return { name: 'issues', issueId: null, query };
+    return { name: 'issues', issueId: null, projectId: null, query };
   }
 
   if (path === 'messages') {
-    return { name: 'messages', issueId: null, query };
+    return { name: 'messages', issueId: null, projectId: null, query };
   }
 
   if (path === 'issues') {
-    return { name: 'issues', issueId: null, query };
+    return { name: 'issues', issueId: null, projectId: null, query };
+  }
+
+  if (path === 'projects') {
+    return { name: 'projects', issueId: null, projectId: null, query };
+  }
+
+  const projectMatch = PROJECT_PATH.exec(path);
+  if (projectMatch !== null) {
+    return {
+      name: 'project',
+      issueId: null,
+      projectId: Number(projectMatch[1]),
+      query,
+    };
   }
 
   const issueMatch = ISSUE_PATH.exec(path);
   if (issueMatch !== null) {
-    return { name: 'issue', issueId: Number(issueMatch[1]), query };
+    return {
+      name: 'issue',
+      issueId: Number(issueMatch[1]),
+      projectId: null,
+      query,
+    };
   }
 
-  return { name: 'unknown', issueId: null, query };
+  return { name: 'unknown', issueId: null, projectId: null, query };
 }
 
 export function buildHash(path: string, query?: URLSearchParams): string {

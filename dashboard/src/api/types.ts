@@ -12,6 +12,80 @@ export interface Message {
   message: string;
 }
 
+/** One entry of `GET /api/manage/projects`. */
+export interface ProjectListItem {
+  id: number;
+  name: string;
+  slug: string;
+  platform: string | null;
+  created_at: string;
+  /** Unresolved issues, used by the project list. */
+  issue_count: number;
+  /** Active (non-revoked) public keys. */
+  key_count: number;
+}
+
+/** `GET /api/manage/projects/{id}`: the list entry plus its active DSN. */
+export interface ProjectDetail extends ProjectListItem {
+  dsn: string | null;
+}
+
+/** The project returned by `POST /api/manage/projects`, including its key's DSN. */
+export interface CreatedProject {
+  id: number;
+  name: string;
+  slug: string;
+  platform: string | null;
+  created_at: string;
+  dsn: string;
+}
+
+/** Request body of `POST /api/manage/projects`. */
+export interface CreateProjectRequest {
+  name: string;
+  slug?: string;
+  platform?: string;
+}
+
+/** Request body of `PATCH /api/manage/projects/{id}`; omitted fields stay unchanged. */
+export interface UpdateProjectRequest {
+  name?: string;
+  platform?: string;
+}
+
+/**
+ * One public ingest key of a project, returned by the key endpoints.
+ *
+ * `rate_limit_per_minute` is `null` when no per-key limit is configured and `0`
+ * when the key is explicitly unlimited.
+ */
+export interface ProjectKey {
+  id: number;
+  /** 32 lowercase hexadecimal characters, sent as `X-GlitchPort-Key`. */
+  public_key: string;
+  label: string | null;
+  /** `false` for a revoked key; the row is retained. */
+  is_active: boolean;
+  rate_limit_per_minute: number | null;
+  created_at: string;
+  revoked_at: string | null;
+  /** Ingest DSN built from the key and the Processor's public Relay URL. */
+  dsn: string;
+}
+
+/** Request body of `POST /api/manage/projects/{id}/keys`. */
+export interface CreateProjectKeyRequest {
+  label?: string;
+  rate_limit_per_minute?: number | null;
+}
+
+/** Request body of `PATCH /api/manage/keys/{id}`; omitted fields stay unchanged. */
+export interface UpdateProjectKeyRequest {
+  label?: string;
+  rate_limit_per_minute?: number | null;
+  is_active?: boolean;
+}
+
 export type IssueStatus = 'unresolved' | 'resolved' | 'ignored';
 
 export type IssueLevel = 'debug' | 'info' | 'warning' | 'error' | 'fatal';

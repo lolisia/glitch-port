@@ -23,6 +23,7 @@ import { EventPanel } from './detail/EventPanel';
 import { IssueActions } from './detail/IssueActions';
 import { IssueHeader } from './detail/IssueHeader';
 import { LabelsEditor } from './detail/LabelsEditor';
+import { NoProjectState } from './components/NoProjectState';
 import './issue-detail.css';
 
 const EVENTS_PAGE_SIZE = 25;
@@ -86,7 +87,13 @@ function mergeLabels(base: Label[], extra: Label[]): Label[] {
   return merged;
 }
 
-export function IssueDetailPage({ issueId }: { issueId: number }) {
+export function IssueDetailPage({
+  issueId,
+  projectId,
+}: {
+  issueId: number;
+  projectId: number | null;
+}) {
   const [state, setState] = useState<IssueState>({ status: 'loading' });
   const [selected, setSelected] = useState<EventDetail | null>(null);
   const [checkedNames, setCheckedNames] = useState<string[]>([]);
@@ -117,12 +124,24 @@ export function IssueDetailPage({ issueId }: { issueId: number }) {
     setLoadingMore(false);
     setDeletingEvent(false);
 
-    async function load() {
+    // The issue itself is not project scoped, but the label list is: without
+    // an active project the page waits instead of guessing one.
+    const activeProjectId = projectId;
+
+    if (activeProjectId === null) {
+      return () => {
+        if (issueToken.current === token) {
+          issueToken.current = token + 1;
+        }
+      };
+    }
+
+    async function load(activeProjectIdForLabels: number) {
       try {
         const [issue, page, labels] = await Promise.all([
           getIssue(issueId),
           listIssueEvents(issueId, { limit: EVENTS_PAGE_SIZE }),
-          listLabels(),
+          listLabels(activeProjectIdForLabels),
         ]);
 
         if (issueToken.current !== token) {
@@ -149,7 +168,7 @@ export function IssueDetailPage({ issueId }: { issueId: number }) {
       }
     }
 
-    void load();
+    void load(activeProjectId);
 
     return () => {
       // Invalidate in-flight loads and mutations for this issue.
@@ -157,7 +176,7 @@ export function IssueDetailPage({ issueId }: { issueId: number }) {
         issueToken.current = token + 1;
       }
     };
-  }, [issueId]);
+  }, [issueId, projectId]);
 
   const changeStatus = useCallback(
     async (status: IssueStatus) => {
@@ -457,13 +476,15 @@ export function IssueDetailPage({ issueId }: { issueId: number }) {
 
   return (
     <section className="issue-detail-page" data-testid="issue-detail-page">
-      {state.status === 'loading' && <LoadingState />}
+      {projectId === null && <NoProjectState />}
 
-      {state.status === 'error' && (
+      {projectId !== null && state.status === 'loading' && <LoadingState />}
+
+      {projectId !== null && state.status === 'error' && (
         <ErrorState error={state.error} prefix="Failed to load issue" />
       )}
 
-      {loaded !== null && (
+      {projectId !== null && loaded !== null && (
         <>
           <IssueHeader issue={loaded.issue} />
 

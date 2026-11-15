@@ -1,0 +1,460 @@
+using System.Net;
+using GlitchPort.Relay.Config;
+using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
+
+namespace GlitchPort.Relay.Tests;
+
+public sealed class ProjectConfigCacheTests
+{
+    [Fact]
+    public async Task RefreshOnceAsync_LoadsSnapshotAndSendsInternalHeader()
+    {
+        using var harness = new CacheHarness(["http://processor-a:5090"]);
+        harness.Handler.EnqueueConfig("v1", (7, "processor-key", 5));
+
+        var refreshed = await harness.Cache.RefreshOnceAsync(CancellationToken.None);
+
+        Assert.True(refreshed);
+        var request = Assert.Single(harness.Handler.Requests);
+        Assert.Equal(HttpMethod.Get, request.Method);
+        Assert.Equal(
+            "http://processor-a:5090/internal/project-configs",
+            request.RequestUri.ToString());
+        Assert.Equal("internal-secret", request.InternalSecret);
+        Assert.Null(request.IfNoneMatch);
+
+        Assert.Equal("processor", harness.Provider.Source);
+        Assert.NotNull(harness.Provider.LastRefresh);
+        Assert.Equal("v1", harness.Provider.Snapshot.Version);
+
+        var authorization = harness.Provider.Authorize(7, "processor-key");
+        Assert.NotNull(authorization);
+        Assert.Equal(7, authorization.ProjectId);
+        Assert.Equal("processor-key", authorization.Key);
+        Assert.Equal(5, authorization.RateLimitPerMinute);
+    }
+
+    [Fact]
+    public async Task RefreshOnceAsync_TriesEndpointsInOrderUntilSuccess()
+    {
+        using var harness = new CacheHarness(
+            [
+                "http://processor-a:5090",
+                "http://processor-b:5090",
+                "http://processor-c:5090",
+            ]);
+        harness.Handler
+            .Enqueue(_ => throw new HttpRequestException("connection refused"))
+            .EnqueueStatus(HttpStatusCode.InternalServerError)
+            .EnqueueConfig("v1", (1, "processor-key", null));
+
+        var refreshed = await harness.Cache.RefreshOnceAsync(CancellationToken.None);
+
+        Assert.True(refreshed);
+        Assert.Equal(
+            [
+                "http://processor-a:5090",
+                "http://processor-b:5090",
+                "http://processor-c:5090",
+            ],
+            harness.Handler.Requests
+                .Select(request => request.RequestUri.GetLeftPart(UriPartial.Authority))
+                .ToArray());
+        Assert.NotNull(harness.Provider.Authorize(1, "processor-key"));
+    }
+
+    [Fact]
+    public async Task RefreshOnceAsync_WhenVersionIsKnown_SendsIfNoneMatchAndKeepsSnapshotOn304()
+    {
+        using var harness = new CacheHarness(["http://processor-a:5090"]);
+        harness.Handler.EnqueueConfig("v1", (1, "processor-key", 9));
+        Assert.True(await harness.Cache.RefreshOnceAsync(CancellationToken.None));
+
+        var firstRefresh = harness.Provider.LastRefresh;
+        var originalSnapshot = harness.Provider.Snapshot;
+
+        harness.Handler.EnqueueStatus(HttpStatusCode.NotModified);
+        var refreshed = await harness.Cache.RefreshOnceAsync(CancellationToken.None);
+
+        Assert.True(refreshed);
+        Assert.Equal(2, harness.Handler.Requests.Count);
+        Assert.Equal("\"v1\"", harness.Handler.Requests[1].IfNoneMatch);
+        Assert.Same(originalSnapshot, harness.Provider.Snapshot);
+        Assert.Equal("v1", harness.Provider.Snapshot.Version);
+        Assert.Equal("processor", harness.Provider.Source);
+        Assert.NotNull(harness.Provider.LastRefresh);
+        Assert.True(harness.Provider.LastRefresh >= firstRefresh);
+
+        var authorization = harness.Provider.Authorize(1, "processor-key");
+        Assert.NotNull(authorization);
+        Assert.Equal(9, authorization.RateLimitPerMinute);
+    }
+
+    [Fact]
+    public async Task RefreshOnceAsync_When304_ClearsUnknownKeyNegativeCache()
+    {
+        using var harness = new CacheHarness(["http://processor-a:5090"]);
+        harness.Handler.EnqueueConfig("v1", (1, "processor-key", null));
+        Assert.True(await harness.Cache.RefreshOnceAsync(CancellationToken.None));
+
+        Assert.Null(harness.Provider.Authorize(1, "unknown-key"));
+        Assert.Null(harness.Provider.Authorize(1, "unknown-key"));
+        Assert.Equal(1, harness.Provider.UnknownKeyCacheHits);
+        Assert.Equal(1, harness.Provider.UnknownKeyCacheCount);
+
+        harness.Handler.EnqueueStatus(HttpStatusCode.NotModified);
+        Assert.True(await harness.Cache.RefreshOnceAsync(CancellationToken.None));
+
+        Assert.Equal(0, harness.Provider.UnknownKeyCacheCount);
+
+        // The next lookup misses again instead of being served negatively.
+        Assert.Null(harness.Provider.Authorize(1, "unknown-key"));
+        Assert.Equal(1, harness.Provider.UnknownKeyCacheHits);
+        Assert.Equal(1, harness.Provider.UnknownKeyCacheCount);
+    }
+
+    [Fact]
+    public async Task RefreshOnceAsync_WhenFirstResponseIs304_CountsAsSuccessfulRefresh()
+    {
+        using var harness = new CacheHarness(["http://processor-a:5090"]);
+        harness.Handler.EnqueueStatus(HttpStatusCode.NotModified);
+
+        var refreshed = await harness.Cache.RefreshOnceAsync(CancellationToken.None);
+
+        Assert.True(refreshed);
+        Assert.Equal("processor", harness.Provider.Source);
+        Assert.NotNull(harness.Provider.LastRefresh);
+        Assert.Equal(0, harness.Provider.Snapshot.ProjectCount);
+        Assert.NotNull(harness.Provider.Authorize(1, "static-key"));
+    }
+
+    [Fact]
+    public async Task RefreshOnceAsync_WhenRefreshFailsAfterSuccess_KeepsSnapshotAndProcessorSource()
+    {
+        using var harness = new CacheHarness(["http://processor-a:5090"]);
+        harness.Handler.EnqueueConfig("v1", (1, "processor-key", null));
+        Assert.True(await harness.Cache.RefreshOnceAsync(CancellationToken.None));
+
+        var originalSnapshot = harness.Provider.Snapshot;
+        var lastRefresh = harness.Provider.LastRefresh;
+
+        var refreshed = await harness.Cache.RefreshOnceAsync(CancellationToken.None);
+
+        Assert.False(refreshed);
+        Assert.Same(originalSnapshot, harness.Provider.Snapshot);
+        Assert.Equal(lastRefresh, harness.Provider.LastRefresh);
+        Assert.Equal("processor", harness.Provider.Source);
+        Assert.NotNull(harness.Provider.Authorize(1, "processor-key"));
+    }
+
+    [Fact]
+    public async Task RefreshOnceAsync_WhenJsonIsInvalid_KeepsPreviousSnapshot()
+    {
+        using var harness = new CacheHarness(["http://processor-a:5090"]);
+        harness.Handler.EnqueueConfig("v1", (1, "processor-key", null));
+        Assert.True(await harness.Cache.RefreshOnceAsync(CancellationToken.None));
+
+        var originalSnapshot = harness.Provider.Snapshot;
+        harness.Handler.EnqueueJson("{ this is not valid json");
+
+        var refreshed = await harness.Cache.RefreshOnceAsync(CancellationToken.None);
+
+        Assert.False(refreshed);
+        Assert.Same(originalSnapshot, harness.Provider.Snapshot);
+        Assert.NotNull(harness.Provider.Authorize(1, "processor-key"));
+    }
+
+    [Fact]
+    public async Task RefreshOnceAsync_WhenNoRefreshEverSucceeded_UsesStaticConfigurationOnly()
+    {
+        using var harness = new CacheHarness(["http://processor-a:5090"]);
+
+        var refreshed = await harness.Cache.RefreshOnceAsync(CancellationToken.None);
+
+        Assert.False(refreshed);
+        Assert.Equal("static", harness.Provider.Source);
+        Assert.Null(harness.Provider.LastRefresh);
+        Assert.Equal(0, harness.Provider.Snapshot.ProjectCount);
+        Assert.Equal(1, harness.Provider.ProjectCount);
+
+        var authorization = harness.Provider.Authorize(1, "static-key");
+        Assert.NotNull(authorization);
+        Assert.Null(authorization.RateLimitPerMinute);
+        Assert.Null(harness.Provider.Authorize(7, "processor-key"));
+    }
+
+    [Fact]
+    public async Task RefreshOnceAsync_AfterRefresh_ClearsUnknownKeyNegativeCache()
+    {
+        using var harness = new CacheHarness(["http://processor-a:5090"]);
+        harness.Handler.EnqueueConfig("v1", (1, "known-key", null));
+        Assert.True(await harness.Cache.RefreshOnceAsync(CancellationToken.None));
+
+        Assert.Null(harness.Provider.Authorize(1, "new-key"));
+
+        harness.Handler.EnqueueConfig("v2", (1, "new-key", 3));
+        Assert.True(await harness.Cache.RefreshOnceAsync(CancellationToken.None));
+
+        var authorization = harness.Provider.Authorize(1, "new-key");
+        Assert.NotNull(authorization);
+        Assert.Equal(3, authorization.RateLimitPerMinute);
+    }
+
+    [Fact]
+    public async Task RefreshOnceAsync_AfterRefresh_RejectsRevokedKeys()
+    {
+        using var harness = new CacheHarness(["http://processor-a:5090"]);
+        harness.Handler.EnqueueConfig("v1", (1, "revoked-key", null));
+        Assert.True(await harness.Cache.RefreshOnceAsync(CancellationToken.None));
+        Assert.NotNull(harness.Provider.Authorize(1, "revoked-key"));
+
+        harness.Handler.EnqueueConfig("v2", (1, "replacement-key", null));
+        Assert.True(await harness.Cache.RefreshOnceAsync(CancellationToken.None));
+
+        Assert.Null(harness.Provider.Authorize(1, "revoked-key"));
+        Assert.NotNull(harness.Provider.Authorize(1, "replacement-key"));
+    }
+
+    [Fact]
+    public void Authorize_UnknownKey_IsNegativelyCachedUntilItExpires()
+    {
+        var start = new DateTimeOffset(2026, 11, 15, 9, 0, 0, TimeSpan.Zero);
+        var clock = new ManualTimeProvider(start);
+        var provider = new ProjectConfigProvider(
+            new RelayOptions { UnknownKeyCacheSeconds = 30 },
+            clock);
+
+        Assert.Null(provider.Authorize(1, "unknown-key"));
+        Assert.Equal(1, provider.UnknownKeyCacheCount);
+        Assert.Equal(0, provider.UnknownKeyCacheHits);
+
+        Assert.Null(provider.Authorize(1, "unknown-key"));
+        Assert.Equal(1, provider.UnknownKeyCacheHits);
+
+        clock.Advance(TimeSpan.FromSeconds(29));
+        Assert.Null(provider.Authorize(1, "unknown-key"));
+        Assert.Equal(2, provider.UnknownKeyCacheHits);
+
+        // At the expiry instant the pair is looked up again and re-cached.
+        clock.Advance(TimeSpan.FromSeconds(1));
+        Assert.Null(provider.Authorize(1, "unknown-key"));
+        Assert.Equal(2, provider.UnknownKeyCacheHits);
+        Assert.Equal(1, provider.UnknownKeyCacheCount);
+
+        Assert.Null(provider.Authorize(1, "unknown-key"));
+        Assert.Equal(3, provider.UnknownKeyCacheHits);
+    }
+
+    [Fact]
+    public void Authorize_WithUnknownKeyCacheDisabled_DoesNotCacheUnknownKeys()
+    {
+        var clock = new ManualTimeProvider(
+            new DateTimeOffset(2026, 11, 15, 9, 0, 0, TimeSpan.Zero));
+        var provider = new ProjectConfigProvider(
+            new RelayOptions { UnknownKeyCacheSeconds = 0 },
+            clock);
+
+        Assert.Null(provider.Authorize(1, "unknown-key"));
+        Assert.Null(provider.Authorize(1, "unknown-key"));
+        Assert.Null(provider.Authorize(1, "unknown-key"));
+
+        Assert.Equal(0, provider.UnknownKeyCacheCount);
+        Assert.Equal(0, provider.UnknownKeyCacheHits);
+    }
+
+    [Fact]
+    public void Authorize_WithKeyLongerThanCacheLimit_DoesNotStoreIt()
+    {
+        var provider = new ProjectConfigProvider(new RelayOptions());
+        var longKey = new string('k', ProjectConfigProvider.MaxUnknownKeyCacheKeyLength + 1);
+
+        Assert.Null(provider.Authorize(1, longKey));
+        Assert.Null(provider.Authorize(1, longKey));
+
+        Assert.Equal(0, provider.UnknownKeyCacheCount);
+        Assert.Equal(0, provider.UnknownKeyCacheHits);
+    }
+
+    [Fact]
+    public void Authorize_WithOverlongStaticKey_AcceptsTheKey()
+    {
+        var longKey = new string('k', ProjectConfigProvider.MaxUnknownKeyCacheKeyLength + 1);
+        var provider = new ProjectConfigProvider(
+            new RelayOptions
+            {
+                Projects = new Dictionary<long, string[]>
+                {
+                    [1] = [longKey],
+                },
+            });
+
+        var authorization = provider.Authorize(1, longKey);
+
+        Assert.NotNull(authorization);
+        Assert.Equal(longKey, authorization.Key);
+        Assert.Equal(0, provider.UnknownKeyCacheCount);
+    }
+
+    [Fact]
+    public void Authorize_WithManyDistinctUnknownKeys_KeepsNegativeCacheBounded()
+    {
+        var provider = new ProjectConfigProvider(new RelayOptions());
+        var attempts = ProjectConfigProvider.MaxUnknownKeyCacheEntries * 2;
+
+        for (var index = 0; index < attempts; index++)
+        {
+            Assert.Null(provider.Authorize(1, $"unknown-{index}"));
+        }
+
+        Assert.InRange(
+            provider.UnknownKeyCacheCount,
+            1,
+            ProjectConfigProvider.MaxUnknownKeyCacheEntries);
+    }
+
+    [Fact]
+    public void MarkRefreshed_ClearsTheUnknownKeyNegativeCache()
+    {
+        var provider = new ProjectConfigProvider(new RelayOptions());
+        Assert.Null(provider.Authorize(1, "unknown-key"));
+        Assert.Null(provider.Authorize(1, "unknown-key"));
+        Assert.Equal(1, provider.UnknownKeyCacheHits);
+        Assert.Equal(1, provider.UnknownKeyCacheCount);
+
+        provider.MarkRefreshed(DateTimeOffset.UtcNow);
+
+        Assert.Equal(0, provider.UnknownKeyCacheCount);
+        Assert.Null(provider.Authorize(1, "unknown-key"));
+        Assert.Equal(1, provider.UnknownKeyCacheHits);
+    }
+
+    [Fact]
+    public void ApplySnapshot_ClearsTheUnknownKeyNegativeCache()
+    {
+        var provider = new ProjectConfigProvider(new RelayOptions());
+        Assert.Null(provider.Authorize(1, "unknown-key"));
+        Assert.Null(provider.Authorize(1, "unknown-key"));
+        Assert.Equal(1, provider.UnknownKeyCacheHits);
+
+        provider.ApplySnapshot(
+            ProjectConfigTestData.Snapshot("v1", (1, "unknown-key", 4)),
+            DateTimeOffset.UtcNow);
+
+        Assert.Equal(0, provider.UnknownKeyCacheCount);
+        var authorization = provider.Authorize(1, "unknown-key");
+        Assert.NotNull(authorization);
+        Assert.Equal(4, authorization.RateLimitPerMinute);
+    }
+
+    [Fact]
+    public async Task RefreshOnceAsync_WhenBodyExceedsResponseLimit_KeepsPreviousSnapshot()
+    {
+        using var harness = new CacheHarness(["http://processor-a:5090"]);
+        harness.Handler.EnqueueConfig("v1", (1, "processor-key", null));
+        Assert.True(await harness.Cache.RefreshOnceAsync(CancellationToken.None));
+
+        var originalSnapshot = harness.Provider.Snapshot;
+        harness.Handler.EnqueueOversizedResponse();
+
+        var refreshed = await harness.Cache.RefreshOnceAsync(CancellationToken.None);
+
+        Assert.False(refreshed);
+        Assert.Same(originalSnapshot, harness.Provider.Snapshot);
+        Assert.NotNull(harness.Provider.Authorize(1, "processor-key"));
+    }
+
+    [Fact]
+    public async Task RefreshOnceAsync_WhenFirstEndpointBodyIsTooLarge_TriesNextEndpoint()
+    {
+        using var harness = new CacheHarness(
+            ["http://processor-a:5090", "http://processor-b:5090"]);
+        harness.Handler
+            .EnqueueOversizedResponse()
+            .EnqueueConfig("v1", (1, "processor-key", null));
+
+        var refreshed = await harness.Cache.RefreshOnceAsync(CancellationToken.None);
+
+        Assert.True(refreshed);
+        Assert.Equal(
+            ["http://processor-a:5090", "http://processor-b:5090"],
+            harness.Handler.Requests
+                .Select(request => request.RequestUri.GetLeftPart(UriPartial.Authority))
+                .ToArray());
+        Assert.Equal("v1", harness.Provider.Snapshot.Version);
+    }
+
+    [Fact]
+    public void RefreshInterval_UsesConfiguredRefreshSeconds()
+    {
+        using var harness = new CacheHarness(
+            ["http://processor-a:5090"],
+            configRefreshSeconds: 7);
+
+        Assert.Equal(TimeSpan.FromSeconds(7), harness.Cache.RefreshInterval);
+    }
+
+    [Fact]
+    public async Task StartAsync_PerformsImmediateRefresh()
+    {
+        using var harness = new CacheHarness(["http://processor-a:5090"]);
+        harness.Handler.EnqueueConfig("v1", (1, "processor-key", null));
+
+        await harness.Cache.StartAsync(CancellationToken.None);
+        try
+        {
+            await harness.Handler.WaitForRequestCountAsync(1);
+
+            var request = Assert.Single(harness.Handler.Requests);
+            Assert.Equal(
+                "http://processor-a:5090/internal/project-configs",
+                request.RequestUri.ToString());
+            Assert.Equal(TimeSpan.FromSeconds(60), harness.Cache.RefreshInterval);
+        }
+        finally
+        {
+            await harness.Cache.StopAsync(CancellationToken.None);
+        }
+    }
+
+    private sealed class CacheHarness : IDisposable
+    {
+        private readonly HttpClient _httpClient;
+
+        public CacheHarness(string[] endpoints, int configRefreshSeconds = 60)
+        {
+            Handler = new FakeProjectConfigHandler();
+            Options = new RelayOptions
+            {
+                ProcessorEndpoints = endpoints,
+                InternalSharedSecret = "internal-secret",
+                ConfigRefreshSeconds = configRefreshSeconds,
+                Projects = new Dictionary<long, string[]>
+                {
+                    [1] = ["static-key"],
+                },
+            };
+            Provider = new ProjectConfigProvider(Options);
+            _httpClient = new HttpClient(Handler);
+            Cache = new ProjectConfigCache(
+                new ProjectConfigClient(_httpClient, NullLogger<ProjectConfigClient>.Instance),
+                Provider,
+                Options,
+                NullLogger<ProjectConfigCache>.Instance);
+        }
+
+        public FakeProjectConfigHandler Handler { get; }
+
+        public RelayOptions Options { get; }
+
+        public ProjectConfigProvider Provider { get; }
+
+        public ProjectConfigCache Cache { get; }
+
+        public void Dispose()
+        {
+            Cache.Dispose();
+            _httpClient.Dispose();
+        }
+    }
+}

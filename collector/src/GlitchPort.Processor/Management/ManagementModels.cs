@@ -98,6 +98,82 @@ internal sealed record UpdateLabelRequest(string? Name, string? Color);
 /// <summary>Error body returned by the management API for 4xx responses.</summary>
 internal sealed record ManagementErrorResponse(string Error);
 
+/// <summary>
+/// Response body of <c>GET /api/manage/maintenance/retention</c>: the
+/// configured retention window and the counters of the newest retention run.
+/// </summary>
+/// <param name="Days">Configured retention in days. 0 means retention is disabled.</param>
+/// <param name="LastRunAt">Finish time of the newest retention run, or null when none ran yet.</param>
+/// <param name="LastDeletedEvents">Events deleted by the newest retention run.</param>
+/// <param name="LastDeletedIssues">Issues deleted by the newest retention run.</param>
+internal sealed record RetentionStatusResponse(
+    int Days,
+    DateTimeOffset? LastRunAt,
+    long LastDeletedEvents,
+    long LastDeletedIssues);
+
+/// <summary>One entry of <c>GET /api/manage/projects</c>.</summary>
+internal sealed record ProjectListItemResponse(
+    long Id,
+    string Name,
+    string Slug,
+    string? Platform,
+    DateTimeOffset CreatedAt,
+    long IssueCount,
+    long KeyCount);
+
+/// <summary>The project detail returned by <c>GET/PATCH /api/manage/projects/{id}</c>.</summary>
+internal sealed record ProjectDetailResponse(
+    long Id,
+    string Name,
+    string Slug,
+    string? Platform,
+    DateTimeOffset CreatedAt,
+    long IssueCount,
+    long KeyCount,
+    string? Dsn);
+
+/// <summary>
+/// The project created by <c>POST /api/manage/projects</c>, including the DSN
+/// of the key created alongside it.
+/// </summary>
+internal sealed record CreatedProjectResponse(
+    long Id,
+    string Name,
+    string Slug,
+    string? Platform,
+    DateTimeOffset CreatedAt,
+    string Dsn);
+
+/// <summary>A project key as exposed by the key management endpoints.</summary>
+internal sealed record ProjectKeyResponse(
+    long Id,
+    string PublicKey,
+    string? Label,
+    bool IsActive,
+    int? RateLimitPerMinute,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? RevokedAt,
+    string Dsn);
+
+/// <summary>Request body of <c>POST /api/manage/projects</c>.</summary>
+internal sealed record CreateProjectRequest(string? Name, string? Slug, string? Platform);
+
+/// <summary>Request body of <c>PATCH /api/manage/projects/{id}</c>.</summary>
+internal sealed record UpdateProjectRequest(string? Name, string? Platform);
+
+/// <summary>Request body of <c>POST /api/manage/projects/{id}/keys</c>.</summary>
+internal sealed record CreateProjectKeyRequest(string? Label, int? RateLimitPerMinute);
+
+/// <summary>
+/// Request body of <c>PATCH /api/manage/keys/{keyId}</c>. The properties are
+/// JSON elements so an omitted field can be told apart from an explicit null.
+/// </summary>
+internal sealed record UpdateProjectKeyRequest(
+    JsonElement Label,
+    JsonElement RateLimitPerMinute,
+    JsonElement IsActive);
+
 /// <summary>Supported issue sort orders.</summary>
 internal enum IssueSort
 {

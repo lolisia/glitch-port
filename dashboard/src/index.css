@@ -63,10 +63,32 @@ main {
   font-weight: 600;
 }
 
-.project-id {
+.project-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   margin-left: auto;
   color: #57606a;
   font-size: 0.875rem;
+}
+
+.project-picker select {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background-color: #ffffff;
+  color: #1f2328;
+  font: inherit;
+}
+
+.project-picker-state {
+  margin-left: auto;
+  color: #57606a;
+  font-size: 0.875rem;
+}
+
+.project-placeholder p {
+  color: #57606a;
 }
 
 h1 {
