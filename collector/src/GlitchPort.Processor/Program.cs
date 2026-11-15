@@ -4,6 +4,7 @@ using GlitchPort.Processor.Endpoints;
 using GlitchPort.Processor.Management;
 using GlitchPort.Processor.Migrations;
 using GlitchPort.Processor.Projects;
+using GlitchPort.Processor.Retention;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -13,6 +14,8 @@ var builder = WebApplication.CreateBuilder(args);
 const string CorsPolicyName = "dashboard";
 
 builder.Services.Configure<ProcessorOptions>(builder.Configuration.GetSection(ProcessorOptions.SectionName));
+builder.Services.Configure<RetentionOptions>(
+    builder.Configuration.GetSection($"{ProcessorOptions.SectionName}:{RetentionOptions.SectionName}"));
 
 // The policy is built from options so that the origins are read once the
 // configuration (including test and environment overrides) is final.
@@ -44,8 +47,11 @@ builder.Services.AddSingleton<ManagementEventStore>();
 builder.Services.AddSingleton<ManagementIssueStore>();
 builder.Services.AddSingleton<ManagementLabelStore>();
 builder.Services.AddSingleton<ManagementStatsStore>();
+builder.Services.AddSingleton<ManagementMaintenanceStore>();
 builder.Services.AddSingleton<PublicKeyGenerator>();
 builder.Services.AddSingleton<ProjectStore>();
+builder.Services.AddSingleton<RetentionRunner>();
+builder.Services.AddHostedService<RetentionWorker>();
 
 var app = builder.Build();
 

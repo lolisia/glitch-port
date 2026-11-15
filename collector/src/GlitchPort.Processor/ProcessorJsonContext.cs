@@ -29,6 +29,7 @@ namespace GlitchPort.Processor;
 [JsonSerializable(typeof(CreateLabelRequest))]
 [JsonSerializable(typeof(UpdateLabelRequest))]
 [JsonSerializable(typeof(ManagementErrorResponse))]
+[JsonSerializable(typeof(RetentionStatusResponse))]
 [JsonSerializable(typeof(ProjectListItemResponse))]
 [JsonSerializable(typeof(List<ProjectListItemResponse>))]
 [JsonSerializable(typeof(ProjectDetailResponse))]
