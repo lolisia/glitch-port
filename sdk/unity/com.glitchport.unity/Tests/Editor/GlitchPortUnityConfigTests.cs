@@ -58,6 +58,64 @@ namespace GlitchPort.Unity.Tests.Editor
         }
 
         [Test]
+        public void HttpRelayQueuesUndeliverableEventsByDefault()
+        {
+            ConfigureHttpOnly();
+
+            var options = GlitchPortUnityConfig.BuildOptions(_settings, Platform(), null);
+
+            var relay = SingleRelay(options);
+            Assert.That(relay.Type, Is.EqualTo("http"));
+            var httpOptions = (HttpRelayOptions)relay.Options;
+            Assert.That(
+                httpOptions.OfflineQueue.Directory,
+                Is.EqualTo(Path.Combine(DefaultPersistentDataPath, "glitchport", "queue")));
+            Assert.That(httpOptions.OfflineQueue.MaxEvents, Is.EqualTo(500));
+            Assert.That(httpOptions.OfflineQueue.MaxAgeHours, Is.EqualTo(72));
+            Assert.That(httpOptions.OfflineQueue.RetryIntervalSeconds, Is.EqualTo(30));
+        }
+
+        [Test]
+        public void HttpRelayHasNoOfflineQueueWhenItIsDisabled()
+        {
+            ConfigureHttpOnly();
+            _settings.OfflineQueue = false;
+
+            var options = GlitchPortUnityConfig.BuildOptions(_settings, Platform(), null);
+
+            var httpOptions = (HttpRelayOptions)SingleRelay(options).Options;
+            Assert.That(httpOptions.OfflineQueue.Directory, Is.Null);
+        }
+
+        [TestCase(25, 25)]
+        [TestCase(0, 1)]
+        [TestCase(-3, 1)]
+        public void OfflineQueueMaxEventsIsCopiedAndClampedToAtLeastOne(int maxEvents, int expected)
+        {
+            ConfigureHttpOnly();
+            _settings.OfflineQueueMaxEvents = maxEvents;
+
+            var options = GlitchPortUnityConfig.BuildOptions(_settings, Platform(), null);
+
+            var httpOptions = (HttpRelayOptions)SingleRelay(options).Options;
+            Assert.That(httpOptions.OfflineQueue.MaxEvents, Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void BlankDsnHasNoOfflineQueue()
+        {
+            _settings.Dsn = string.Empty;
+            _settings.OfflineQueue = true;
+            _settings.FileMode = GlitchPort.Unity.FileMode.On;
+            _settings.TerminalMode = GlitchPort.Unity.TerminalMode.Off;
+
+            var options = GlitchPortUnityConfig.BuildOptions(_settings, Platform(), null);
+
+            Assert.That(options, Is.Not.Null);
+            Assert.That(options!.Relays.Any(relay => relay.Type == "http"), Is.False);
+        }
+
+        [Test]
         public void HttpFileAndTerminalRelaysAreAddedTogetherAccordingToTheirRules()
         {
             _settings.Dsn = "http://public@localhost:5080/1";
@@ -533,6 +591,41 @@ namespace GlitchPort.Unity.Tests.Editor
             Assert.That(relay.MinLevel, Is.EqualTo(Level.Error));
         }
 
+        [TestCase(true)]
+        [TestCase(false)]
+        public void EnvironmentDsnHttpRelayUsesItsOwnOfflineQueue(bool assetQueueEnabled)
+        {
+            _settings.Dsn = "http://asset@localhost:5080/1";
+            _settings.OfflineQueue = assetQueueEnabled;
+            _settings.OfflineQueueMaxEvents = 13;
+            _settings.FileMode = GlitchPort.Unity.FileMode.Off;
+            _settings.TerminalMode = GlitchPort.Unity.TerminalMode.Off;
+
+            var options = GlitchPortUnityConfig.BuildOptions(
+                _settings,
+                Platform(),
+                "http://public@localhost:5080/7?offline_dir=env-queue&offline_max_events=7");
+
+            var httpOptions = (HttpRelayOptions)SingleRelay(options).Options;
+            Assert.That(httpOptions.OfflineQueue.Directory, Is.EqualTo("env-queue"));
+            Assert.That(httpOptions.OfflineQueue.MaxEvents, Is.EqualTo(7));
+        }
+
+        [Test]
+        public void EnvironmentDsnWithoutOfflineDirHasNoOfflineQueue()
+        {
+            _settings.OfflineQueue = true;
+            _settings.OfflineQueueMaxEvents = 13;
+
+            var options = GlitchPortUnityConfig.BuildOptions(
+                _settings,
+                Platform(),
+                "http://public@localhost:5080/7");
+
+            var httpOptions = (HttpRelayOptions)SingleRelay(options).Options;
+            Assert.That(httpOptions.OfflineQueue.Directory, Is.Null);
+        }
+
         [Test]
         public void EnvironmentDsnAddsEveryParsedRelay()
         {
@@ -905,6 +998,14 @@ namespace GlitchPort.Unity.Tests.Editor
                 packageVersion,
                 terminalExecutablePath,
                 productVersion);
+        }
+
+        private void ConfigureHttpOnly()
+        {
+            _settings.Dsn = "http://public@localhost:5080/1";
+            _settings.HttpMinLevel = Level.Debug;
+            _settings.FileMode = GlitchPort.Unity.FileMode.Off;
+            _settings.TerminalMode = GlitchPort.Unity.TerminalMode.Off;
         }
 
         private void ConfigureFileOnly(GlitchPort.Unity.FileMode fileMode)
