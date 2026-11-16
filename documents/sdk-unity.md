@@ -611,6 +611,183 @@ attached exactly as on the automatic path. Other members:
 | `GlitchPortUnity.FlushAsync`       | Flushes every relay and returns a `DeliveryReport`.                |
 | `GlitchPortUnity.Close`            | Flushes briefly, disposes the client and allows a later `Init`.    |
 
+## Several assemblies, one terminal
+
+A Unity game often runs code from other assemblies in the same process. Examples
+are a shared simulation or battle package referenced through UPM (`file:` or
+git), a precompiled DLL, or game modules split into asmdefs. Report from these
+assemblies through the client that `GlitchPortUnity` already owns. That way
+every event reaches the same relays and the same `glitchport-terminal` window.
+
+Each `GlitchPortClient` starts its own terminal renderer. If a library creates a
+second client with a terminal relay, a second console window opens. That client
+also has its own scope, rate of flushing and offline queue. Do not create a
+second client inside a library that runs in the Unity player.
+
+### What already reaches the terminal
+
+Unhandled exceptions and `UnityEngine.Debug` logs from any assembly need no
+extra wiring. The SDK listens to `Application.logMessageReceivedThreaded`, so it
+captures them from every thread. Only diagnostics that the library wants to
+report itself still need wiring. Examples are a desync, a rejected command or an
+invariant that was repaired.
+
+### Recommended: a diagnostics hook in the library
+
+The library has no dependency on glitch-port or UnityEngine. It exposes a small
+hook. The game's startup code connects that hook to `GlitchPortUnity`. A server,
+a headless simulator or a test runner can connect the same hook to its own
+logger, or leave it unset. With no sink set, reporting does nothing. This keeps
+deterministic or engine-independent code free of SDK and I/O concerns.
+
+In the library (for example a `Contracts` assembly that every module already
+references):
+
+```csharp
+using System;
+
+namespace MyGame.Battle
+{
+    public enum BattleLogLevel { Debug, Info, Warning, Error }
+
+    public readonly struct BattleLogEntry
+    {
+        public BattleLogEntry(BattleLogLevel level, string category, string message, Exception? exception = null)
+        {
+            Level = level;
+            Category = category;
+            Message = message;
+            Exception = exception;
+        }
+
+        public BattleLogLevel Level { get; }
+        public string Category { get; }   // e.g. "sync", "rules", "net"
+        public string Message { get; }
+        public Exception? Exception { get; }
+    }
+
+    public static class BattleDiagnostics
+    {
+        // Set once by the host (Unity client, server, tests). Null means "drop".
+        public static Action<BattleLogEntry>? Sink { get; set; }
+
+        public static void Report(BattleLogLevel level, string category, string message, Exception? exception = null)
+        {
+            var sink = Sink;
+            if (sink is null)
+            {
+                return;
+            }
+
+            try
+            {
+                sink(new BattleLogEntry(level, category, message, exception));
+            }
+            catch
+            {
+                // Diagnostics must never break the simulation.
+            }
+        }
+    }
+}
+```
+
+Library code calls `BattleDiagnostics.Report(...)` and nothing else:
+
+```csharp
+BattleDiagnostics.Report(BattleLogLevel.Warning, "sync", $"checksum mismatch at tick {tick}");
+```
+
+In the Unity client, connect the hook once at startup. The bridge can be
+installed before the SDK initializes (the SDK does so at `BeforeSceneLoad`).
+It reads `GlitchPortUnity.Client` on every entry and drops entries while no
+client is active.
+
+```csharp
+using System.Collections.Generic;
+using GlitchPort;
+using GlitchPort.Unity;
+using MyGame.Battle;
+using UnityEngine;
+
+static class BattleDiagnosticsBridge
+{
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterAssembliesLoaded)]
+    static void Install()
+    {
+        BattleDiagnostics.Sink = Forward;
+        Application.quitting += () => BattleDiagnostics.Sink = null;
+    }
+
+    static void Forward(BattleLogEntry entry)
+    {
+        var client = GlitchPortUnity.Client;
+        if (client is null)
+        {
+            return;
+        }
+
+        // Low levels become breadcrumbs: they appear with the next event, not as events.
+        if (entry.Level <= BattleLogLevel.Info)
+        {
+            GlitchPortUnity.AddBreadcrumb(new Breadcrumb
+            {
+                Category = "battle." + entry.Category,
+                Message = entry.Message,
+                Level = entry.Level == BattleLogLevel.Debug ? Level.Debug : Level.Info,
+            });
+            return;
+        }
+
+        // A pushed scope tags only this event, so the terminal shows where it came from.
+        using (client.PushScope())
+        {
+            client.ConfigureScope(scope =>
+            {
+                scope.SetTag("source", "battle");
+                scope.SetTag("battle.category", entry.Category);
+            });
+
+            var level = entry.Level == BattleLogLevel.Error ? Level.Error : Level.Warning;
+            if (entry.Exception is not null)
+            {
+                GlitchPortUnity.CaptureException(entry.Exception, level);
+            }
+            else
+            {
+                GlitchPortUnity.CaptureMessage(entry.Message, level);
+            }
+        }
+    }
+}
+```
+
+The result is one terminal window with the client's and the library's events
+side by side. Library events carry `source=battle`, which the terminal prints
+with the other tags. In the dashboard, filter on that tag. Repeat the pattern for
+every further assembly: one hook per library, one bridge in the game, one
+`source` tag value per library.
+
+Notes:
+
+- `PushScope` is async-local. Capture inside the `using` block, on the same
+  flow, as above. A sink called from worker threads works the same way.
+- Map levels on the bridge side. The library then keeps its own small enum and
+  never references `GlitchPort.Level`.
+- For a server or tool built from the same library, connect the hook to that
+  host's own logging. If the host is a .NET process that reports to glitch-port,
+  connect it to its own `GlitchPortClient`. Separate processes always have
+  separate terminals.
+
+### Alternative: inject the client
+
+The library can instead reference `GlitchPort.Core` (`netstandard2.1`, no
+package dependencies) and receive a `GlitchPortClient` from the host. In Unity
+the host passes `GlitchPortUnity.Client`. This is simpler, but every build of
+the library then depends on glitch-port. It also has to handle the client being
+`null` before initialization and after `Close()`. Prefer the hook unless the
+library is glitch-port-specific anyway.
+
 ## Preparing the terminal executable
 
 The terminal relay needs the `glitchport-terminal` renderer for win-x64. Build

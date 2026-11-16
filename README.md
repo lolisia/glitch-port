@@ -405,6 +405,14 @@ default, the relay rules per editor/development/release/platform, the manual
 `GlitchPortUnity` API and the constraints (WebGL is unsupported; IL2CPP,
 mobile and console builds are unverified).
 
+The game may also load other assemblies, such as a shared simulation package or
+a precompiled DLL. Those assemblies should not create their own client: each
+client opens its own terminal window. Instead, give the library a small
+diagnostics hook with no glitch-port dependency, and connect it to
+`GlitchPortUnity` in the game. All events then appear in one terminal window,
+and the library's events carry a `source` tag. See
+[Several assemblies, one terminal](documents/sdk-unity.md#several-assemblies-one-terminal).
+
 ### Supabase Edge Functions SDK
 
 ```ts
