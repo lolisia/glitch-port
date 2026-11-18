@@ -13,6 +13,15 @@ namespace GlitchPort.Relay.Config;
 /// <see cref="HttpClientName"/>, keeps this traffic separate from the envelope
 /// publisher.
 /// </summary>
+/// <remarks>
+/// A failed attempt is expected while the Processor is still starting, so every
+/// per-endpoint failure (connection error, timeout, non-<c>200</c> status,
+/// oversized body, invalid JSON) is logged at <see cref="LogLevel.Debug"/> with
+/// the endpoint host and, where one exists, the exception. The refresh cadence
+/// in <see cref="ProjectConfigCache"/> decides when the failure is worth a
+/// warning, which keeps the startup retry (first and every tenth attempt) and
+/// the periodic refresh to one warning per real outage.
+/// </remarks>
 public sealed class ProjectConfigClient
 {
     /// <summary>Name of the dedicated project-config <see cref="HttpClient"/>.</summary>
@@ -62,7 +71,7 @@ public sealed class ProjectConfigClient
 
         if (endpoints.Count == 0)
         {
-            _logger.LogWarning(
+            _logger.LogDebug(
                 "No Processor endpoints are configured; cannot refresh project configuration.");
             return ProjectConfigFetchResult.Failure;
         }
@@ -81,7 +90,7 @@ public sealed class ProjectConfigClient
                     UriKind.Absolute,
                     out var requestUri))
             {
-                _logger.LogWarning(
+                _logger.LogDebug(
                     "A configured Processor project config endpoint is not a valid absolute URL.");
                 continue;
             }
@@ -106,14 +115,14 @@ public sealed class ProjectConfigClient
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                _logger.LogWarning(
+                _logger.LogDebug(
                     "Timed out while fetching project configuration from {Endpoint}.",
                     endpointLabel);
                 continue;
             }
             catch (HttpRequestException exception)
             {
-                _logger.LogWarning(
+                _logger.LogDebug(
                     exception,
                     "Failed to fetch project configuration from {Endpoint}.",
                     endpointLabel);
@@ -129,7 +138,7 @@ public sealed class ProjectConfigClient
 
                 if (response.StatusCode != HttpStatusCode.OK)
                 {
-                    _logger.LogWarning(
+                    _logger.LogDebug(
                         "Processor project config endpoint {Endpoint} returned HTTP {StatusCode}.",
                         endpointLabel,
                         (int)response.StatusCode);
@@ -138,7 +147,7 @@ public sealed class ProjectConfigClient
 
                 if (response.Content is null)
                 {
-                    _logger.LogWarning(
+                    _logger.LogDebug(
                         "Processor project config endpoint {Endpoint} returned an empty response.",
                         endpointLabel);
                     continue;
@@ -147,7 +156,7 @@ public sealed class ProjectConfigClient
                 if (response.Content.Headers.ContentLength is long declaredLength
                     && declaredLength > MaxResponseBytes)
                 {
-                    _logger.LogWarning(
+                    _logger.LogDebug(
                         "Processor project config endpoint {Endpoint} announced a {ContentLength} byte body, exceeding the {MaxBytes} byte limit.",
                         endpointLabel,
                         declaredLength,
@@ -163,7 +172,7 @@ public sealed class ProjectConfigClient
 
                     if (boundedBody is null)
                     {
-                        _logger.LogWarning(
+                        _logger.LogDebug(
                             "Processor project config endpoint {Endpoint} returned a body larger than the {MaxBytes} byte limit.",
                             endpointLabel,
                             MaxResponseBytes);
@@ -174,14 +183,14 @@ public sealed class ProjectConfigClient
                 }
                 catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
-                    _logger.LogWarning(
+                    _logger.LogDebug(
                         "Timed out while reading project configuration from {Endpoint}.",
                         endpointLabel);
                     continue;
                 }
                 catch (HttpRequestException exception)
                 {
-                    _logger.LogWarning(
+                    _logger.LogDebug(
                         exception,
                         "Failed to read the project configuration from {Endpoint}.",
                         endpointLabel);
@@ -189,7 +198,7 @@ public sealed class ProjectConfigClient
                 }
                 catch (IOException exception)
                 {
-                    _logger.LogWarning(
+                    _logger.LogDebug(
                         exception,
                         "Failed to read the project configuration from {Endpoint}.",
                         endpointLabel);
@@ -205,7 +214,7 @@ public sealed class ProjectConfigClient
                 }
                 catch (JsonException exception)
                 {
-                    _logger.LogWarning(
+                    _logger.LogDebug(
                         exception,
                         "Processor project config endpoint {Endpoint} returned invalid JSON.",
                         endpointLabel);
@@ -214,7 +223,7 @@ public sealed class ProjectConfigClient
 
                 if (payload is null)
                 {
-                    _logger.LogWarning(
+                    _logger.LogDebug(
                         "Processor project config endpoint {Endpoint} returned an empty response.",
                         endpointLabel);
                     continue;

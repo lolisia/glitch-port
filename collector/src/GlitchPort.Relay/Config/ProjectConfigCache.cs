@@ -15,6 +15,12 @@ namespace GlitchPort.Relay.Config;
 /// instead of waiting a full interval while ingest answers <c>503</c>. After the
 /// first success the regular cadence starts and a failed refresh only loses that
 /// tick: the next attempt happens after the configured interval.
+/// <para>
+/// This service is the only source of failure warnings: the client logs every
+/// per-endpoint failure at debug level including the exception, so a startup
+/// retry warns at the first and every tenth attempt instead of once per
+/// endpoint, and a failed periodic refresh warns once per tick.
+/// </para>
 /// </remarks>
 public sealed class ProjectConfigCache : BackgroundService
 {

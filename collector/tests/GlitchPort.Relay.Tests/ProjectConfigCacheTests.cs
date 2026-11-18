@@ -518,6 +518,20 @@ public sealed class ProjectConfigCacheTests
                     "keeping the last known configuration",
                     StringComparison.Ordinal));
 
+            // A failed periodic refresh still warns exactly once through the
+            // cache; the client reports the endpoint failure at debug level.
+            Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Warning);
+            Assert.DoesNotContain(
+                logger.Entries,
+                entry => entry.Message.Contains("startup attempt", StringComparison.Ordinal));
+            Assert.DoesNotContain(
+                harness.ClientLogger.Entries,
+                entry => entry.Level >= LogLevel.Warning);
+            Assert.Contains(
+                harness.ClientLogger.Entries,
+                entry => entry.Level == LogLevel.Debug
+                    && entry.Message.Contains("returned HTTP 500", StringComparison.Ordinal));
+
             // A failed refresh after the first success must not schedule a 1s,
             // 2s or 4s startup retry: nothing happens before the interval ends.
             clock.Advance(TimeSpan.FromSeconds(59));
@@ -586,6 +600,26 @@ public sealed class ProjectConfigCacheTests
                 retryEntries.Where(entry => entry.Level != LogLevel.Warning),
                 entry => Assert.Equal(LogLevel.Debug, entry.Level));
             Assert.Equal(2, logger.Entries.Count(entry => entry.Level == LogLevel.Warning));
+
+            // The client keeps the per-endpoint failure detail visible, but at
+            // debug level only: attempts 2-9 must not warn, so at the default
+            // Information level the two cache warnings above are the only ones.
+            Assert.DoesNotContain(
+                harness.ClientLogger.Entries,
+                entry => entry.Level >= LogLevel.Warning);
+
+            var clientFailures = harness.ClientLogger.Entries
+                .Where(entry => entry.Message.Contains("returned HTTP 500", StringComparison.Ordinal))
+                .ToArray();
+
+            Assert.Equal(10, clientFailures.Length);
+            Assert.All(
+                clientFailures,
+                entry =>
+                {
+                    Assert.Equal(LogLevel.Debug, entry.Level);
+                    Assert.Contains("processor-a:5090", entry.Message, StringComparison.Ordinal);
+                });
         }
         finally
         {
@@ -626,10 +660,9 @@ public sealed class ProjectConfigCacheTests
                 ConfigRefreshSeconds = configRefreshSeconds,
             };
             Provider = new ProjectConfigProvider(Options, timeProvider);
+            ClientLogger = new RecordingLogger<ProjectConfigClient>();
             _httpClient = new HttpClient(Handler);
-            var client = new ProjectConfigClient(
-                _httpClient,
-                NullLogger<ProjectConfigClient>.Instance);
+            var client = new ProjectConfigClient(_httpClient, ClientLogger);
             var cacheLogger = logger ?? NullLogger<ProjectConfigCache>.Instance;
 
             // Tests without a fake clock keep the four-argument construction so
@@ -644,6 +677,9 @@ public sealed class ProjectConfigCacheTests
         public RelayOptions Options { get; }
 
         public ProjectConfigProvider Provider { get; }
+
+        /// <summary>Log entries written by the project-config client.</summary>
+        public RecordingLogger<ProjectConfigClient> ClientLogger { get; }
 
         public ProjectConfigCache Cache { get; }
 
