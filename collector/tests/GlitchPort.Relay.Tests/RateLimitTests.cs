@@ -238,7 +238,7 @@ public sealed class RateLimitTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = CreateProjectLimitedFactory(publisher, perProjectPerMinute: "2");
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         for (var index = 0; index < 2; index++)
         {
@@ -271,18 +271,18 @@ public sealed class RateLimitTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = CreateProjectLimitedFactory(publisher, perProjectPerMinute: "1");
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using (var accepted = await RelayTestClient.PostEventAsync(
             client,
-            """{ "message": "boom" }"""))
+            """{ "message": "boom", "platform": "unity" }"""))
         {
             Assert.Equal(HttpStatusCode.Accepted, accepted.StatusCode);
         }
 
         using var rejected = await RelayTestClient.PostEventAsync(
             client,
-            """{ "message": "boom" }""");
+            """{ "message": "boom", "platform": "unity" }""");
 
         Assert.Equal(HttpStatusCode.TooManyRequests, rejected.StatusCode);
         Assert.True(ReadRetryAfter(rejected) >= 1);
@@ -294,7 +294,7 @@ public sealed class RateLimitTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = CreateProjectLimitedFactory(publisher, perProjectPerMinute: "1");
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using (var accepted = await RelayTestClient.PostMessageAsync(
             client,
@@ -322,7 +322,7 @@ public sealed class RateLimitTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = CreateProjectLimitedFactory(publisher, perProjectPerMinute: "1");
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using (var accepted = await RelayTestClient.PostMessageAsync(
             client,
@@ -358,7 +358,7 @@ public sealed class RateLimitTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = CreateProjectLimitedFactory(publisher, perProjectPerMinute: "0");
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         for (var index = 0; index < 20; index++)
         {

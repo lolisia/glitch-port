@@ -77,10 +77,12 @@ internal static class ManagementApiData
         string fingerprint,
         string level = "error",
         string? environment = "production",
-        string? release = "star-raiders@1.2.3")
+        string? release = "star-raiders@1.2.3",
+        string platform = "unity")
     {
         var payload = TestData.CreateExceptionPayload(
             level: level,
+            platform: platform,
             timestamp: timestamp,
             environment: environment,
             release: release,
@@ -171,14 +173,15 @@ internal static class ManagementApiData
         DateTimeOffset firstSeen,
         DateTimeOffset lastSeen,
         string status = "unresolved",
-        long eventCount = 0)
+        long eventCount = 0,
+        string platform = "unity")
     {
         var fingerprint = Guid.NewGuid().ToString("N");
         await TestDatabase.ExecuteAsync(
             connectionString,
             $"""
              insert into issues (project_id, fingerprint, title, level, platform, status, first_seen, last_seen, event_count)
-             values ({projectId}, '{fingerprint}', '{title.Replace("'", "''")}', 'error', 'unity', '{status}',
+             values ({projectId}, '{fingerprint}', '{title.Replace("'", "''")}', 'error', '{platform}', '{status}',
                      '{firstSeen.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture)}',
                      '{lastSeen.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture)}',
                      {eventCount})

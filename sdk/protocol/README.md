@@ -10,6 +10,9 @@ and uses `snake_case` field names.
 
 ## Rules
 
+- `platform` is required (`required` at the top level): an event without a
+  usable value is rejected with `400`. The Relay trims it, truncates it to 32
+  characters, lowercases it and validates it against `[a-z0-9._-]`.
 - At least one of `message` or `exception` is required (`anyOf` at the top
   level). Everything else is optional; the Relay supplies defaults.
 - `exception` is ordered **inner to outer**: index `0` is the innermost cause
@@ -34,7 +37,7 @@ and uses `snake_case` field names.
 | Field | Limit |
 | --- | --- |
 | `event_id` | 32 hex characters or a UUID string |
-| `platform` | 32 characters |
+| `platform` | 32 characters, required, lowercase `[a-z0-9._-]` |
 | `logger` | 128 characters |
 | `message` | 8192 characters |
 | `release` | 200 characters |

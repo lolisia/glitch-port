@@ -120,6 +120,165 @@ public sealed class ManagementIssueQueryTests
             await ManagementApiData.GetIssuesAsync(api, projectId, "?status=resolved&q=payment")));
     }
 
+    [Fact]
+    public async Task Issues_can_be_filtered_by_platform_values()
+    {
+        var projectId = TestData.NextProjectId();
+        using var api = new ManagementApiClient(_fixture);
+
+        await ManagementApiData.IngestEventAsync(
+            api.Raw,
+            projectId,
+            BaseTime,
+            "platform-unity",
+            platform: "unity");
+        await ManagementApiData.IngestEventAsync(
+            api.Raw,
+            projectId,
+            BaseTime.AddMinutes(1),
+            "platform-dotnet",
+            platform: "dotnet");
+        await ManagementApiData.IngestEventAsync(
+            api.Raw,
+            projectId,
+            BaseTime.AddMinutes(2),
+            "platform-godot",
+            platform: "godot");
+
+        Assert.Equal(
+            ["unity"],
+            Platforms(await ManagementApiData.GetIssuesAsync(api, projectId, "?status=all&platform=unity")));
+
+        var multiple = await ManagementApiData.GetIssuesAsync(
+            api,
+            projectId,
+            "?status=all&platform=unity,dotnet");
+        Assert.Equal(["dotnet", "unity"], Platforms(multiple).OrderBy(platform => platform, StringComparer.Ordinal));
+
+        // Values are trimmed, lowercased and blank entries are dropped.
+        var normalized = await ManagementApiData.GetIssuesAsync(
+            api,
+            projectId,
+            $"?status=all&platform={Uri.EscapeDataString(" UNITY , , DotNet ")}");
+        Assert.Equal(["dotnet", "unity"], Platforms(normalized).OrderBy(platform => platform, StringComparer.Ordinal));
+
+        // An unknown platform matches nothing, while an empty filter value is
+        // treated as absent.
+        Assert.Empty(Items(await ManagementApiData.GetIssuesAsync(api, projectId, "?status=all&platform=switch")));
+        Assert.Equal(3, Items(await ManagementApiData.GetIssuesAsync(api, projectId, "?status=all&platform=")).Count());
+    }
+
+    [Fact]
+    public async Task Platform_filter_combines_with_the_other_filters_and_cursor_pagination()
+    {
+        var projectId = TestData.NextProjectId();
+        using var api = new ManagementApiClient(_fixture);
+
+        // Two unity issues and one dotnet issue. The dotnet issue has the most
+        // events and release-a, so the combined filter below returns it before
+        // the unity issue with release-a.
+        await ManagementApiData.IngestEventAsync(
+            api.Raw,
+            projectId,
+            BaseTime.AddHours(-3),
+            "platform-unity-a",
+            environment: "production",
+            release: "release-a");
+        await ManagementApiData.IngestEventAsync(
+            api.Raw,
+            projectId,
+            BaseTime.AddHours(-2),
+            "platform-unity-a",
+            environment: "production",
+            release: "release-a");
+        await ManagementApiData.IngestEventAsync(
+            api.Raw,
+            projectId,
+            BaseTime.AddHours(-3),
+            "platform-unity-b",
+            environment: "production",
+            release: "release-b");
+        await ManagementApiData.IngestEventAsync(
+            api.Raw,
+            projectId,
+            BaseTime.AddMinutes(-30),
+            "platform-dotnet",
+            platform: "dotnet",
+            environment: "production",
+            release: "release-a");
+        await ManagementApiData.IngestEventAsync(
+            api.Raw,
+            projectId,
+            BaseTime.AddMinutes(-20),
+            "platform-dotnet",
+            platform: "dotnet",
+            environment: "production",
+            release: "release-a");
+        await ManagementApiData.IngestEventAsync(
+            api.Raw,
+            projectId,
+            BaseTime.AddMinutes(-10),
+            "platform-dotnet",
+            platform: "dotnet",
+            environment: "production",
+            release: "release-a");
+
+        var unityIssues = Items(await ManagementApiData.GetIssuesAsync(
+                api,
+                projectId,
+                "?status=all&platform=unity&sort=count"))
+            .ToList();
+        Assert.Equal(2, unityIssues.Count);
+        Assert.Equal(["unity", "unity"], unityIssues.Select(item => item.GetProperty("platform").GetString()));
+        Assert.Equal(2, unityIssues[0].GetProperty("event_count").GetInt64());
+
+        var labeledIssueId = unityIssues[0].GetProperty("id").GetInt64();
+        using (var patch = await api.PatchAsync(
+                   $"/api/manage/issues/{labeledIssueId}",
+                   """{"labels":["platform-label"]}"""))
+        {
+            Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+        }
+
+        // platform + level + environment + release + sort + cursor paging.
+        var items = new List<JsonElement>();
+        string? cursor = null;
+        for (var page = 0; page < 10; page++)
+        {
+            var suffix = cursor is null ? string.Empty : $"&cursor={Uri.EscapeDataString(cursor)}";
+            var body = await ReadPageAsync(
+                api,
+                projectId,
+                "?status=all&platform=unity,dotnet&level=error&environment=production&release=release-a"
+                + "&sort=count&limit=1" + suffix);
+
+            items.AddRange(Items(body));
+
+            var next = body.GetProperty("next_cursor");
+            cursor = next.ValueKind == JsonValueKind.Null ? null : next.GetString();
+            if (cursor is null)
+            {
+                break;
+            }
+        }
+
+        Assert.Equal(2, items.Count);
+        Assert.Equal(["dotnet", "unity"], items.Select(item => item.GetProperty("platform").GetString()));
+        Assert.Equal(
+            [3L, 2L],
+            items.Select(item => item.GetProperty("event_count").GetInt64()));
+
+        // platform + label + title search.
+        var labeled = await ManagementApiData.GetIssuesAsync(
+            api,
+            projectId,
+            "?status=all&platform=unity&label=platform-label&q=nullreference&sort=count&limit=1");
+
+        var labeledItem = Assert.Single(Items(labeled).ToList());
+        Assert.Equal(labeledIssueId, labeledItem.GetProperty("id").GetInt64());
+        Assert.Equal("unity", labeledItem.GetProperty("platform").GetString());
+    }
+
     [Theory]
     [InlineData("sort=created")]
     [InlineData("status=done")]
@@ -252,6 +411,9 @@ public sealed class ManagementIssueQueryTests
 
     private static IEnumerable<JsonElement> Items(JsonElement page) =>
         page.GetProperty("items").EnumerateArray().Select(item => item.Clone());
+
+    private static List<string> Platforms(JsonElement page) =>
+        Items(page).Select(item => item.GetProperty("platform").GetString()!).ToList();
 
     private static string Release(JsonElement item) => item.GetProperty("last_release").GetString()!;
 

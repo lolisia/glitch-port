@@ -17,6 +17,7 @@ import type {
   Label,
 } from '../../api/types';
 import { navigate } from '../../router';
+import { useI18n } from '../../i18n';
 import { ErrorState, LoadingState } from '../../ui';
 import { EventList } from './detail/EventList';
 import { EventPanel } from './detail/EventPanel';
@@ -43,7 +44,8 @@ type IssueState =
   | { status: 'ready'; loaded: LoadedIssue };
 
 interface InlineError {
-  prefix: string;
+  /** Dotted message key for the failed action; resolved at render time. */
+  prefixKey: string;
   error: unknown;
 }
 
@@ -95,6 +97,7 @@ export function IssueDetailPage({
   projectId: number | null;
 }) {
   const [state, setState] = useState<IssueState>({ status: 'loading' });
+  const { t } = useI18n();
   const [selected, setSelected] = useState<EventDetail | null>(null);
   const [checkedNames, setCheckedNames] = useState<string[]>([]);
   const [newNames, setNewNames] = useState('');
@@ -210,7 +213,7 @@ export function IssueDetailPage({
   );
 
   const handleDeleteIssue = useCallback(async () => {
-    if (!window.confirm('Delete this issue and all of its events?')) {
+    if (!window.confirm(t('issues.detail.confirmDelete'))) {
       return;
     }
 
@@ -222,7 +225,7 @@ export function IssueDetailPage({
     } catch (error) {
       setActionError(error);
     }
-  }, [issueId]);
+  }, [issueId, t]);
 
   const toggleLabel = useCallback((name: string, checked: boolean) => {
     setCheckedNames((current) => {
@@ -347,7 +350,7 @@ export function IssueDetailPage({
         return;
       }
 
-      setEventError({ prefix: 'Failed to load events', error });
+      setEventError({ prefixKey: 'issues.detail.errors.events', error });
     } finally {
       if (issueToken.current === token) {
         setLoadingMore(false);
@@ -380,7 +383,7 @@ export function IssueDetailPage({
         return;
       }
 
-      setEventError({ prefix: 'Failed to load event', error });
+      setEventError({ prefixKey: 'issues.detail.errors.event', error });
     }
   }, []);
 
@@ -389,7 +392,7 @@ export function IssueDetailPage({
       return;
     }
 
-    if (!window.confirm('Delete this event?')) {
+    if (!window.confirm(t('issues.detail.eventPanel.confirmDelete'))) {
       return;
     }
 
@@ -404,7 +407,7 @@ export function IssueDetailPage({
         return;
       }
 
-      setEventError({ prefix: 'Failed to delete event', error });
+      setEventError({ prefixKey: 'issues.detail.errors.deleteEvent', error });
       setDeletingEvent(false);
       return;
     }
@@ -445,13 +448,13 @@ export function IssueDetailPage({
         return;
       }
 
-      setEventError({ prefix: 'Failed to load event', error });
+      setEventError({ prefixKey: 'issues.detail.errors.event', error });
     } finally {
       if (issueToken.current === token) {
         setDeletingEvent(false);
       }
     }
-  }, [issueId, selected]);
+  }, [issueId, selected, t]);
 
   const loaded = state.status === 'ready' ? state.loaded : null;
   const events = loaded?.events ?? [];
@@ -481,7 +484,7 @@ export function IssueDetailPage({
       {projectId !== null && state.status === 'loading' && <LoadingState />}
 
       {projectId !== null && state.status === 'error' && (
-        <ErrorState error={state.error} prefix="Failed to load issue" />
+        <ErrorState error={state.error} prefix={t('issues.detail.loadError')} />
       )}
 
       {projectId !== null && loaded !== null && (
@@ -489,7 +492,10 @@ export function IssueDetailPage({
           <IssueHeader issue={loaded.issue} />
 
           {actionError !== null && (
-            <ErrorState error={actionError} prefix="Failed to update issue" />
+            <ErrorState
+              error={actionError}
+              prefix={t('issues.detail.updateError')}
+            />
           )}
 
           <IssueActions
@@ -512,7 +518,7 @@ export function IssueDetailPage({
             {eventError !== null && (
               <ErrorState
                 error={eventError.error}
-                prefix={eventError.prefix}
+                prefix={t(eventError.prefixKey)}
               />
             )}
 

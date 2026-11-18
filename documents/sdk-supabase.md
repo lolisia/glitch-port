@@ -14,7 +14,8 @@ JSON response, so the client that triggered the failure can quote the
 `event_id` when reporting the problem.
 
 The SDK reports `sdk.name = "glitchport.supabase"`, `sdk.version = "0.1.0"` and
-`platform = "javascript"` on every event.
+`platform = "javascript"` on every event. Protocol v1 requires a platform, so
+it is always sent and cannot be configured to another value.
 
 ## Requirements
 

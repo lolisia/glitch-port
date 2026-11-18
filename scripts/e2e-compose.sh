@@ -148,6 +148,38 @@ wait_for_http "processor-1" "$processor_1_endpoint/healthz"
 wait_for_http "processor-2" "$processor_2_endpoint/healthz"
 wait_for_http "dashboard" "$dashboard_endpoint/"
 
+# Poll the Relay /healthz until its project configuration was loaded from the
+# Processor. Until that first successful refresh the Relay answers ingest
+# requests with 503, so no event may be sent before config.source is
+# "processor".
+wait_for_relay_config() {
+    local deadline=$((SECONDS + 60))
+    local body=""
+    local source=""
+
+    echo "e2e-compose: waiting for the relay project configuration"
+
+    while :; do
+        body="$(curl -sf "$relay_endpoint/healthz" 2>/dev/null || true)"
+        source="$(sed -n -E 's/.*"source"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' <<<"$body")"
+
+        if [ "$source" = "processor" ]; then
+            echo "e2e-compose: relay loaded the project configuration from the processor"
+            return 0
+        fi
+
+        if [ "$SECONDS" -ge "$deadline" ]; then
+            echo "e2e-compose: relay did not report config.source=processor within 60s" >&2
+            printf '%s\n' "${body:-<no response>}" >&2
+            fail "the relay project configuration was not loaded"
+        fi
+
+        sleep 1
+    done
+}
+
+wait_for_relay_config
+
 # Return a fresh 32-character hexadecimal event id. The sequence number keeps
 # the ids of one run distinct; the random words keep repeated runs from being
 # deduplicated by the Processor. No external tool is needed.

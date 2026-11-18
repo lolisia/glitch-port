@@ -121,9 +121,6 @@ services:
       Relay__ProcessorEndpoints__0: http://processor-1:8080
       Relay__ProcessorEndpoints__1: http://processor-2:8080
       Relay__InternalSharedSecret: dev-internal-secret
-      # Static fallback used until the first Processor project-config refresh
-      # succeeds, so ingest works as soon as the relay is healthy.
-      Relay__Projects__1__0: dev-public-key
       Relay__ConfigRefreshSeconds: 5
     depends_on:
       processor-1:

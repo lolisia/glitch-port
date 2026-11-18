@@ -17,15 +17,13 @@ public sealed class DevelopmentConfigurationTests
 
         var configuration = factory.Services.GetRequiredService<IConfiguration>();
         Assert.Equal("http://localhost:5080", configuration["Urls"]);
-        Assert.Equal("dev-public-key", configuration["Relay:Projects:1:0"]);
+        Assert.False(configuration.GetSection("Relay").GetSection("Projects").Exists());
         Assert.Equal("http://localhost:5090", configuration["Relay:ProcessorEndpoints:0"]);
         Assert.Equal("dev-internal-secret", configuration["Relay:InternalSharedSecret"]);
 
         var options = factory.Services.GetRequiredService<RelayOptions>();
         Assert.Equal("http://localhost:5090", Assert.Single(options.ProcessorEndpoints));
         Assert.Equal("dev-internal-secret", options.InternalSharedSecret);
-        Assert.True(options.Projects.TryGetValue(1, out var projectKeys));
-        Assert.Equal("dev-public-key", Assert.Single(projectKeys));
     }
 
     [Fact]

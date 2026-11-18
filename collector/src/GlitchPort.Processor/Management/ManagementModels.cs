@@ -80,6 +80,18 @@ internal sealed record EventDetailResponse(
 /// <summary>One bucket of the events-over-time statistics.</summary>
 internal sealed record StatsBucketResponse(DateTimeOffset Bucket, long Count);
 
+/// <summary>The issue and event totals of one platform in a project.</summary>
+internal sealed record PlatformStatsResponse(string Platform, long IssueCount, long EventCount);
+
+/// <summary>
+/// Response body of <c>GET /api/manage/projects/{projectId}/stats</c>: the
+/// event buckets of the requested period plus the all-time totals per
+/// platform.
+/// </summary>
+internal sealed record ManagementStatsResponse(
+    IReadOnlyList<StatsBucketResponse> Buckets,
+    IReadOnlyList<PlatformStatsResponse> ByPlatform);
+
 /// <summary>Request body of <c>PATCH /api/manage/issues/{id}</c>.</summary>
 internal sealed record UpdateIssueRequest(string? Status, IReadOnlyList<string>? Labels);
 
@@ -117,7 +129,7 @@ internal sealed record ProjectListItemResponse(
     long Id,
     string Name,
     string Slug,
-    string? Platform,
+    IReadOnlyList<string> Platforms,
     DateTimeOffset CreatedAt,
     long IssueCount,
     long KeyCount);
@@ -127,7 +139,7 @@ internal sealed record ProjectDetailResponse(
     long Id,
     string Name,
     string Slug,
-    string? Platform,
+    IReadOnlyList<string> Platforms,
     DateTimeOffset CreatedAt,
     long IssueCount,
     long KeyCount,
@@ -141,7 +153,7 @@ internal sealed record CreatedProjectResponse(
     long Id,
     string Name,
     string Slug,
-    string? Platform,
+    IReadOnlyList<string> Platforms,
     DateTimeOffset CreatedAt,
     string Dsn);
 
@@ -157,10 +169,20 @@ internal sealed record ProjectKeyResponse(
     string Dsn);
 
 /// <summary>Request body of <c>POST /api/manage/projects</c>.</summary>
-internal sealed record CreateProjectRequest(string? Name, string? Slug, string? Platform);
+/// <remarks>
+/// <c>platform</c> is no longer a project setting, but the request still keeps
+/// the member as a <see cref="JsonElement"/> so that sending it is rejected
+/// instead of silently ignored.
+/// </remarks>
+internal sealed record CreateProjectRequest(string? Name, string? Slug, JsonElement Platform);
 
 /// <summary>Request body of <c>PATCH /api/manage/projects/{id}</c>.</summary>
-internal sealed record UpdateProjectRequest(string? Name, string? Platform);
+/// <remarks>
+/// <c>platform</c> is no longer a project setting, but the request still keeps
+/// the member as a <see cref="JsonElement"/> so that sending it is rejected
+/// instead of silently ignored.
+/// </remarks>
+internal sealed record UpdateProjectRequest(string? Name, JsonElement Platform);
 
 /// <summary>Request body of <c>POST /api/manage/projects/{id}/keys</c>.</summary>
 internal sealed record CreateProjectKeyRequest(string? Label, int? RateLimitPerMinute);
@@ -204,6 +226,7 @@ internal sealed record IssueListQuery(
     string? Release,
     string? Label,
     string? Search,
+    IReadOnlyList<string>? Platforms,
     IssueSort Sort,
     int Limit,
     IssueCursor? Cursor);

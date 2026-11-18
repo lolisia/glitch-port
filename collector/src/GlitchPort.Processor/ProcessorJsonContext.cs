@@ -23,6 +23,8 @@ namespace GlitchPort.Processor;
 [JsonSerializable(typeof(EventDetailResponse))]
 [JsonSerializable(typeof(StatsBucketResponse))]
 [JsonSerializable(typeof(List<StatsBucketResponse>))]
+[JsonSerializable(typeof(PlatformStatsResponse))]
+[JsonSerializable(typeof(ManagementStatsResponse))]
 [JsonSerializable(typeof(UpdateIssueRequest))]
 [JsonSerializable(typeof(BulkIssuesRequest))]
 [JsonSerializable(typeof(BulkIssuesResponse))]

@@ -226,6 +226,38 @@ wait_for_health() {
 wait_for_health "processor" "$processor_endpoint/healthz" "$processor_pid"
 wait_for_health "relay" "$relay_endpoint/healthz" "$relay_pid"
 
+# Poll the Relay /healthz until its project configuration was loaded from the
+# Processor. Until that first successful refresh the Relay answers ingest
+# requests with 503, so no event may be sent before config.source is
+# "processor".
+wait_for_relay_config() {
+    local deadline=$((SECONDS + 60))
+    local body=""
+    local source=""
+
+    echo "e2e-projects: waiting for the relay project configuration"
+
+    while :; do
+        body="$(curl -sf "$relay_endpoint/healthz" 2>/dev/null || true)"
+        source="$(sed -n -E 's/.*"source"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' <<<"$body")"
+
+        if [ "$source" = "processor" ]; then
+            echo "e2e-projects: relay loaded the project configuration from the processor"
+            return 0
+        fi
+
+        if [ "$SECONDS" -ge "$deadline" ]; then
+            echo "e2e-projects: relay did not report config.source=processor within 60s" >&2
+            printf '%s\n' "${body:-<no response>}" >&2
+            return 1
+        fi
+
+        sleep 1
+    done
+}
+
+wait_for_relay_config
+
 # Perform one HTTP request and print its status code. The body is written to
 # <output_file>; the remaining arguments are passed to curl. A failed curl
 # call prints an empty status so the caller can report a clear failure.
@@ -384,7 +416,7 @@ echo "e2e-projects: dsn: $dsn"
 events_url="$relay_endpoint/api/$project_id/events"
 keys_url="$processor_endpoint/api/manage/projects/$project_id/keys"
 
-# A newly created project is not in the Relay's static configuration, so the
+# A newly created project is not part of the bootstrapped project 1, so the
 # first acceptance proves the Relay fetched the key from the Processor.
 wait_for_event_status "$public_key" "202" 10 \
     "relay accepted the new project key after a config refresh"

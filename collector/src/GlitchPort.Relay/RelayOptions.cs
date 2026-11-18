@@ -52,13 +52,6 @@ public sealed class RelayOptions
     /// <summary>Shared secret sent to the Processor in the internal header.</summary>
     public string InternalSharedSecret { get; init; } = string.Empty;
 
-    /// <summary>
-    /// Public ingest keys per project id. A request is authorized when its
-    /// <c>X-GlitchPort-Key</c> header matches one of the project's keys.
-    /// </summary>
-    public IReadOnlyDictionary<long, string[]> Projects { get; init; } =
-        new Dictionary<long, string[]>();
-
     /// <summary>Timeout applied to HTTP calls to the Processor.</summary>
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(DefaultTimeoutSeconds);
 
@@ -96,8 +89,6 @@ public sealed class RelayOptions
         {
             ProcessorEndpoints = section.GetSection("ProcessorEndpoints").Get<string[]>() ?? [],
             InternalSharedSecret = section["InternalSharedSecret"] ?? string.Empty,
-            Projects = section.GetSection("Projects").Get<Dictionary<long, string[]>>()
-                ?? new Dictionary<long, string[]>(),
             Timeout = TimeSpan.FromSeconds(ReadTimeoutSeconds(section)),
             ConfigRefreshSeconds = ReadSeconds(
                 section,

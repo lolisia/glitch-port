@@ -9,6 +9,8 @@ import type {
   ProjectKey,
   ProjectListItem,
 } from './api/types';
+import { I18nProvider, LOCALE_STORAGE_KEY } from './i18n';
+import { ThemeProvider } from './theme/ThemeProvider';
 
 interface MockResponse {
   ok: boolean;
@@ -46,7 +48,7 @@ const projects: ProjectListItem[] = [
     id: 1,
     name: 'Starter',
     slug: 'starter',
-    platform: 'unreal',
+    platforms: ['unreal'],
     created_at: '2026-01-01T00:00:00Z',
     issue_count: 3,
     key_count: 1,
@@ -55,7 +57,7 @@ const projects: ProjectListItem[] = [
     id: 2,
     name: 'Second project',
     slug: 'second-project',
-    platform: 'unity',
+    platforms: ['unity'],
     created_at: '2026-01-02T00:00:00Z',
     issue_count: 0,
     key_count: 2,
@@ -165,7 +167,7 @@ function stubFetch(options: StubOptions = {}) {
             id: 9,
             name: 'Created',
             slug: 'created',
-            platform: null,
+            platforms: [],
             created_at: '2026-01-03T00:00:00Z',
             dsn: 'http://public-key@localhost:5080/9',
           },
@@ -221,7 +223,7 @@ function stubFetch(options: StubOptions = {}) {
         return jsonResponse({ items: [], next_cursor: null });
       }
       if (/^\/api\/manage\/projects\/\d+\/stats$/.test(path)) {
-        return jsonResponse([]);
+        return jsonResponse({ buckets: [], by_platform: [] });
       }
       if (/^\/api\/manage\/projects\/\d+\/labels$/.test(path)) {
         return jsonResponse([]);
@@ -271,16 +273,30 @@ function optionLabels(select: HTMLElement): string[] {
   );
 }
 
+/** Renders the app inside the providers that supply the theme and locale. */
+function renderApp() {
+  return render(
+    <ThemeProvider>
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    </ThemeProvider>,
+  );
+}
+
 beforeEach(() => {
   window.history.replaceState(null, '', '/');
   window.localStorage.clear();
+  document.documentElement.removeAttribute('data-theme');
+  document.documentElement.style.removeProperty('color-scheme');
+  document.documentElement.lang = 'en';
 });
 
 describe('App', () => {
   it('renders the issues page for a blank hash and rewrites it to #/issues', async () => {
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(
       screen.getByRole('heading', { level: 1, name: 'glitch-port' }),
@@ -298,7 +314,7 @@ describe('App', () => {
     window.history.replaceState(null, '', '/#/not-a-route');
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(screen.getByTestId('issues-page')).toBeInTheDocument();
 
@@ -309,7 +325,7 @@ describe('App', () => {
     window.history.replaceState(null, '', '/#/projects');
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByTestId('projects-page')).toBeInTheDocument();
     expect(window.location.hash).toBe('#/projects');
@@ -319,7 +335,7 @@ describe('App', () => {
     window.history.replaceState(null, '', '/#/issues/42');
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(screen.getByTestId('issue-detail-page')).toBeInTheDocument();
     expect(screen.queryByTestId('issues-page')).not.toBeInTheDocument();
@@ -334,7 +350,7 @@ describe('App', () => {
     window.history.replaceState(null, '', '/#/messages');
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(screen.getByTestId('messages-page')).toBeInTheDocument();
     expect(
@@ -348,7 +364,7 @@ describe('App', () => {
     window.history.replaceState(null, '', '/#/issues');
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     const issuesTab = screen.getByRole('link', { name: 'Issues' });
     const messagesTab = screen.getByRole('link', { name: 'Messages' });
@@ -384,7 +400,7 @@ describe('App', () => {
     window.history.replaceState(null, '', '/#/issues');
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(screen.getByTestId('issues-page')).toBeInTheDocument();
 
@@ -403,7 +419,7 @@ describe('App', () => {
     window.history.replaceState(null, '', '/#/issues?status=resolved&q=null');
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(screen.getByTestId('issues-page')).toBeInTheDocument();
     expect(window.location.hash).toBe('#/issues?status=resolved&q=null');
@@ -412,7 +428,7 @@ describe('App', () => {
   it('persists the first project when nothing is stored or configured', async () => {
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByLabelText('Project')).toHaveValue('1');
     expect(window.localStorage.getItem('gp.projectId')).toBe('1');
@@ -422,7 +438,7 @@ describe('App', () => {
     window.localStorage.setItem('gp.projectId', '2');
     const fetchMock = stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByLabelText('Project')).toHaveValue('2');
 
@@ -436,7 +452,7 @@ describe('App', () => {
     vi.stubEnv('VITE_PROJECT_ID', '2');
     const fetchMock = stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByLabelText('Project')).toHaveValue('2');
     expect(window.localStorage.getItem('gp.projectId')).toBe('2');
@@ -449,7 +465,7 @@ describe('App', () => {
     vi.stubEnv('VITE_PROJECT_ID', 'not-a-project');
     const fetchMock = stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByLabelText('Project')).toHaveValue('1');
     expect(window.localStorage.getItem('gp.projectId')).toBe('1');
@@ -462,7 +478,7 @@ describe('App', () => {
     vi.stubEnv('VITE_PROJECT_ID', '99');
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByLabelText('Project')).toHaveValue('1');
     expect(window.localStorage.getItem('gp.projectId')).toBe('1');
@@ -473,7 +489,7 @@ describe('App', () => {
     window.history.replaceState(null, '', '/#/issues/42');
     const fetchMock = stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(
       await screen.findByTestId('issue-detail-header'),
@@ -494,7 +510,7 @@ describe('App', () => {
       window.localStorage.setItem('gp.projectId', stored);
       stubFetch();
 
-      render(<App />);
+      renderApp();
 
       expect(await screen.findByLabelText('Project')).toHaveValue('1');
       expect(window.localStorage.getItem('gp.projectId')).toBe('1');
@@ -505,7 +521,7 @@ describe('App', () => {
     const user = userEvent.setup();
     const fetchMock = stubFetch();
 
-    render(<App />);
+    renderApp();
 
     const picker = await screen.findByLabelText('Project');
     await waitFor(() =>
@@ -526,7 +542,7 @@ describe('App', () => {
     const pending = deferred<MockResponse>();
     const fetchMock = stubFetch({ projects: () => pending.promise });
 
-    render(<App />);
+    renderApp();
 
     expect(screen.getByTestId('project-picker-state')).toHaveTextContent(
       'Loading projects...',
@@ -546,10 +562,13 @@ describe('App', () => {
   it('renders an inline state for an empty project list without project requests', async () => {
     const fetchMock = stubFetch({ projects: jsonResponse([]) });
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByTestId('project-picker-state')).toHaveTextContent(
       'No projects yet',
+    );
+    expect(screen.getByTestId('project-picker-state').textContent).toBe(
+      'No projects yet — create one.',
     );
     expect(screen.queryByLabelText('Project')).not.toBeInTheDocument();
     await waitFor(() =>
@@ -563,7 +582,7 @@ describe('App', () => {
     window.localStorage.setItem('gp.projectId', '9');
     stubFetch({ projects: jsonResponse([]) });
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByTestId('project-picker-state')).toHaveTextContent(
       'No projects yet',
@@ -579,7 +598,7 @@ describe('App', () => {
       id: 9,
       name: 'Created',
       slug: 'created',
-      platform: null,
+      platforms: [],
       created_at: '2026-01-03T00:00:00Z',
       issue_count: 0,
       key_count: 1,
@@ -605,7 +624,7 @@ describe('App', () => {
       },
     });
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByLabelText('Project')).toHaveValue('2');
 
@@ -640,7 +659,7 @@ describe('App', () => {
   it('renders an inline state when the project list fails without project requests', async () => {
     const fetchMock = stubFetch({ projects: errorResponse(500) });
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByTestId('project-picker-state')).toHaveTextContent(
       'Projects unavailable.',
@@ -655,7 +674,7 @@ describe('App', () => {
     window.history.replaceState(null, '', '/#/projects/3');
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(screen.queryByTestId('issues-page')).not.toBeInTheDocument();
     expect(
@@ -692,7 +711,7 @@ describe('App', () => {
       },
     });
 
-    render(<App />);
+    renderApp();
 
     await screen.findByRole('heading', { level: 2, name: 'Starter' });
 
@@ -724,7 +743,7 @@ describe('App', () => {
       },
     });
 
-    render(<App />);
+    renderApp();
 
     expect(
       await screen.findByRole('heading', { level: 2, name: 'Starter' }),
@@ -752,12 +771,231 @@ describe('App', () => {
         errorResponse(404, { error: 'Project 99 was not found.' }),
     });
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByText('Project not found')).toBeInTheDocument();
     expect(
       screen.getByRole('link', { name: 'Back to projects' }),
     ).toHaveAttribute('href', '#/projects');
     expect(window.location.hash).toBe('#/projects/99');
+  });
+
+  it('applies a stored dark theme before the theme control changes', async () => {
+    window.localStorage.setItem('glitchport.theme', 'dark');
+    stubFetch();
+
+    renderApp();
+
+    const themeSelect = await screen.findByLabelText('Theme');
+    expect(themeSelect).toHaveValue('dark');
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(document.documentElement.style.colorScheme).toBe('dark');
+    expect(window.localStorage.getItem('glitchport.theme')).toBe('dark');
+  });
+
+  it('updates the document theme and persists the theme preference', async () => {
+    const user = userEvent.setup();
+    stubFetch();
+
+    renderApp();
+
+    const themeSelect = await screen.findByLabelText('Theme');
+    // jsdom has no matchMedia, so `system` resolves to light.
+    expect(themeSelect).toHaveValue('system');
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(document.documentElement.style.colorScheme).toBe('light');
+    expect(window.localStorage.getItem('glitchport.theme')).toBe('system');
+
+    await user.selectOptions(themeSelect, 'dark');
+
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(document.documentElement.style.colorScheme).toBe('dark');
+    expect(window.localStorage.getItem('glitchport.theme')).toBe('dark');
+
+    await user.selectOptions(themeSelect, 'light');
+
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(document.documentElement.style.colorScheme).toBe('light');
+    expect(window.localStorage.getItem('glitchport.theme')).toBe('light');
+
+    await user.selectOptions(themeSelect, 'system');
+
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(window.localStorage.getItem('glitchport.theme')).toBe('system');
+  });
+
+  it('adds the EN/KO language select and defaults to English for en-US', async () => {
+    stubFetch();
+
+    renderApp();
+
+    expect(navigator.language).toBe('en-US');
+
+    const language = await screen.findByLabelText('Language');
+    expect(language).toHaveValue('en');
+    expect(optionLabels(language)).toEqual(['EN', 'KO']);
+    expect(language.closest('.top-bar-settings')).not.toBeNull();
+
+    expect(screen.getByRole('link', { name: 'Issues' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('navigation', { name: 'Sections' }),
+    ).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe('en');
+    // The English default comes from the browser, not from a stored choice.
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBeNull();
+  });
+
+  it('switches the shell to Korean and back, persisting glitchport.locale', async () => {
+    const user = userEvent.setup();
+    stubFetch();
+
+    const { unmount } = renderApp();
+
+    const language = await screen.findByLabelText('Language');
+
+    await user.selectOptions(language, 'ko');
+
+    expect(screen.getByRole('link', { name: '이슈' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(screen.getByRole('link', { name: '메시지' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '프로젝트' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('navigation', { name: '섹션' }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('테마')).toHaveValue('system');
+    expect(await screen.findByLabelText('프로젝트')).toHaveValue('1');
+    expect(language).toHaveValue('ko');
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe('ko');
+    expect(document.documentElement.lang).toBe('ko');
+
+    // A reload (remount) resolves the stored choice again.
+    unmount();
+    renderApp();
+
+    expect(screen.getByRole('link', { name: '이슈' })).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe('ko');
+
+    await user.selectOptions(screen.getByLabelText('Language'), 'en');
+
+    expect(screen.getByRole('link', { name: 'Issues' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(screen.getByRole('link', { name: 'Messages' })).toBeInTheDocument();
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe('en');
+    expect(document.documentElement.lang).toBe('en');
+  });
+
+  it('translates the project picker empty state and link', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
+    stubFetch({ projects: jsonResponse([]) });
+
+    renderApp();
+
+    const state = await screen.findByTestId('project-picker-state');
+    expect(state).toHaveTextContent('아직 프로젝트가 없습니다');
+    expect(state).toHaveTextContent('하나 만들기');
+    expect(state.querySelector('a')).toHaveAttribute('href', '#/projects');
+  });
+
+  it('translates the project picker loading and error states', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
+
+    const pending = deferred<MockResponse>();
+    stubFetch({ projects: () => pending.promise });
+
+    const { unmount } = renderApp();
+
+    expect(screen.getByTestId('project-picker-state')).toHaveTextContent(
+      '프로젝트를 불러오는 중...',
+    );
+
+    pending.resolve(errorResponse(500));
+    expect(await screen.findByTestId('project-picker-state')).toHaveTextContent(
+      '프로젝트를 사용할 수 없습니다.',
+    );
+
+    unmount();
+    stubFetch({ projects: errorResponse(500) });
+    renderApp();
+
+    expect(await screen.findByTestId('project-picker-state')).toHaveTextContent(
+      '프로젝트를 사용할 수 없습니다.',
+    );
+  });
+
+  it('translates the issues, issue detail and projects screens after switching to Korean', async () => {
+    const user = userEvent.setup();
+    stubFetch();
+
+    renderApp();
+
+    const language = await screen.findByLabelText('Language');
+    await user.selectOptions(language, 'ko');
+
+    // Issue list
+    expect(
+      await screen.findByRole('heading', { level: 2, name: '이슈' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '미해결' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(await screen.findByText('이슈가 없습니다.')).toBeInTheDocument();
+    expect(screen.getByLabelText('레벨')).toBeInTheDocument();
+    expect(screen.getByLabelText('정렬')).toHaveValue('last_seen');
+
+    // Issue detail
+    act(() => {
+      window.history.replaceState(null, '', '/#/issues/42');
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+
+    const header = await screen.findByTestId('issue-detail-header');
+    expect(
+      within(header).getByRole('link', { name: '이슈 목록으로' }),
+    ).toHaveAttribute('href', '#/issues');
+    expect(within(header).getByText('레벨')).toBeInTheDocument();
+    expect(within(header).getByText('플랫폼')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '이슈 삭제' })).toBeInTheDocument();
+
+    // Projects
+    act(() => {
+      window.history.replaceState(null, '', '/#/projects');
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+
+    const page = await screen.findByTestId('projects-page');
+    expect(
+      within(page).getByRole('heading', { level: 2, name: '프로젝트' }),
+    ).toBeInTheDocument();
+    const table = await within(page).findByRole('table');
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((cell) => cell.textContent),
+    ).toEqual(['이름', '슬러그', '플랫폼', '미해결 이슈', '활성 키']);
+    expect(
+      within(page).getByRole('heading', { level: 2, name: '프로젝트 만들기' }),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps API error bodies untranslated in Korean', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
+    window.history.replaceState(null, '', '/#/projects/3');
+    stubFetch({
+      projectDetail: () => errorResponse(500, { error: 'boom' }),
+      projectKeys: () => errorResponse(500, { error: 'boom' }),
+    });
+
+    renderApp();
+
+    expect(
+      await screen.findByText(
+        '프로젝트를 불러오지 못했습니다: HTTP 500: boom',
+      ),
+    ).toBeInTheDocument();
   });
 });

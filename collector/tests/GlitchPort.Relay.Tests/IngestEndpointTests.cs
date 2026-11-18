@@ -17,7 +17,7 @@ public sealed class IngestEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var request = CreatePostRequest(ValidJson, key: null);
         using var response = await client.SendAsync(request);
@@ -31,7 +31,7 @@ public sealed class IngestEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var request = CreatePostRequest(ValidJson, key: "wrong-key");
         using var response = await client.SendAsync(request);
@@ -45,7 +45,7 @@ public sealed class IngestEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var request = CreatePostRequest(ValidJson, projectId: 2);
         using var response = await client.SendAsync(request);
@@ -63,7 +63,7 @@ public sealed class IngestEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var request = CreatePostRequest(json);
         using var response = await client.SendAsync(request);
@@ -77,7 +77,7 @@ public sealed class IngestEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         var json = JsonSerializer.Serialize(new { message = new string('a', 8193) });
         using var request = CreatePostRequest(json);
@@ -92,7 +92,7 @@ public sealed class IngestEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         var message = new string('a', 8192);
         var json = JsonSerializer.Serialize(new { message });
@@ -111,7 +111,7 @@ public sealed class IngestEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var request = CreatePostRequest(json);
         using var response = await client.SendAsync(request);
@@ -125,7 +125,7 @@ public sealed class IngestEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var request = CreatePostRequest("{not-json");
         using var response = await client.SendAsync(request);
@@ -140,7 +140,7 @@ public sealed class IngestEndpointTests
         var eventId = Guid.NewGuid();
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         var json = JsonSerializer.Serialize(new { event_id = eventId, message = "boom" });
         using var request = CreatePostRequest(json);
@@ -159,7 +159,7 @@ public sealed class IngestEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var request = CreatePostRequest(ValidJson);
         using var response = await client.SendAsync(request);
@@ -180,7 +180,7 @@ public sealed class IngestEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         const string Json = """
             {
@@ -223,7 +223,7 @@ public sealed class IngestEndpointTests
         var eventId = Guid.NewGuid();
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         var json = JsonSerializer.Serialize(new
         {
@@ -253,7 +253,7 @@ public sealed class IngestEndpointTests
         var publisher = new ThrowingEnvelopePublisher(
             new EnvelopePublishException("processor unavailable", ["http://localhost:5090"]));
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var request = CreatePostRequest(ValidJson);
         using var response = await client.SendAsync(request);
@@ -269,7 +269,7 @@ public sealed class IngestEndpointTests
     {
         var publisher = new ThrowingEnvelopePublisher(new InvalidOperationException("boom"));
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var request = CreatePostRequest(ValidJson);
         using var response = await client.SendAsync(request);
@@ -282,7 +282,7 @@ public sealed class IngestEndpointTests
     {
         var publisher = new ThrowingEnvelopePublisher(new InvalidOperationException("must not publish"));
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var response = await client.GetAsync("/healthz");
 

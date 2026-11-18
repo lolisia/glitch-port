@@ -69,6 +69,20 @@ internal static class RelayIngestEndpoints
         ArgumentNullException.ThrowIfNull(publisher);
         ArgumentNullException.ThrowIfNull(logger);
 
+        // Without a loaded Processor project configuration there is no key to
+        // authorize against. Answer before touching the body or the rate
+        // limiter so the client retries instead of losing the event, and do not
+        // remember the presented key: the configuration may simply not be
+        // loaded yet.
+        if (!projectConfigs.IsConfigurationLoaded)
+        {
+            logger.LogDebug(
+                "Rejecting ingest request for project {ProjectId}: the project configuration is not loaded.",
+                projectId);
+
+            return RelayResults.ConfigurationNotLoaded(httpContext.Response);
+        }
+
         var authorization = Authorize(httpContext.Request, projectId, projectConfigs);
         if (authorization is null)
         {

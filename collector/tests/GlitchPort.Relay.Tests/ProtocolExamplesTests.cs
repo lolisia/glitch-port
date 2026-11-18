@@ -52,13 +52,36 @@ public sealed class ProtocolExamplesTests
             + Describe(payloadEvaluation));
     }
 
-    private static JsonSchema LoadSchema() =>
-        JsonSchema.FromFile(
-            Path.Combine(
-                RelayTestClient.RepositoryRoot,
-                "sdk",
-                "protocol",
-                "event.v1.schema.json"));
+    [Fact]
+    public async Task Schema_RequiresPlatformAndForbidsBlankValues()
+    {
+        var json = await File.ReadAllTextAsync(SchemaPath());
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+
+        var required = root.GetProperty("required")
+            .EnumerateArray()
+            .Select(item => item.GetString() ?? string.Empty)
+            .ToArray();
+        Assert.Contains("platform", required);
+
+        var platform = root.GetProperty("properties").GetProperty("platform");
+        Assert.Equal(1, platform.GetProperty("minLength").GetInt32());
+        Assert.Equal(32, platform.GetProperty("maxLength").GetInt32());
+        Assert.DoesNotContain(
+            "defaults to other",
+            platform.GetProperty("description").GetString(),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static JsonSchema LoadSchema() => JsonSchema.FromFile(SchemaPath());
+
+    private static string SchemaPath() =>
+        Path.Combine(
+            RelayTestClient.RepositoryRoot,
+            "sdk",
+            "protocol",
+            "event.v1.schema.json");
 
     private static string ExamplePath(string fileName) =>
         Path.Combine(

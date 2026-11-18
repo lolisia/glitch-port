@@ -5,6 +5,7 @@
   "description": "A single error or message event accepted by POST /api/{projectId}/events. Field names are snake_case. The Relay supplies omitted defaults, truncates strings longer than the limits below, drops entries beyond the count limits, and ignores unknown top-level properties. The whole request body is limited to 1 MB; contexts and extra are limited to 65536 bytes (64 KB) serialized each and are omitted when larger, while the event is still accepted.",
   "type": "object",
   "additionalProperties": true,
+  "required": ["platform"],
   "properties": {
     "event_id": {
       "type": "string",
@@ -23,8 +24,9 @@
     },
     "platform": {
       "type": "string",
+      "minLength": 1,
       "maxLength": 32,
-      "description": "Platform or SDK family, for example unity, dotnet or javascript. The Relay defaults to other."
+      "description": "Platform or runtime that sent the event (unity, unreal, godot, dotnet, javascript). Required."
     },
     "logger": {
       "type": "string",

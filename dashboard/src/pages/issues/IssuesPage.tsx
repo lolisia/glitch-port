@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   bulkUpdateIssues,
+  getProject,
   getStats,
   listIssues,
   listLabels,
 } from '../../api/client';
-import type { BulkAction, Issue, StatsBucket } from '../../api/types';
+import type {
+  BulkAction,
+  Issue,
+  StatsResponse,
+} from '../../api/types';
 import { navigate, useHashRoute } from '../../router';
+import { useI18n } from '../../i18n';
 import { EmptyState, ErrorState, LoadingState } from '../../ui';
 import { BulkActionBar } from './components/BulkActionBar';
 import { IssueFilterBar } from './components/IssueFilterBar';
@@ -37,8 +43,11 @@ import './issues.css';
  */
 export function IssuesPage({ projectId }: { projectId: number | null }) {
   const route = useHashRoute();
-  const filters = readIssueFilters(route.query);
-  const { status, level, environment, release, label, q, sort } = filters;
+  const { t } = useI18n();
+  // Memoized so array filters keep a stable identity between renders.
+  const filters = useMemo(() => readIssueFilters(route.query), [route.query]);
+  const { status, level, environment, release, label, platform, q, sort } =
+    filters;
 
   const [items, setItems] = useState<Issue[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -50,11 +59,12 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
     () => new Set<number>(),
   );
   const [labelNames, setLabelNames] = useState<string[]>([]);
+  const [platformOptions, setPlatformOptions] = useState<string[]>([]);
   const [search, setSearch] = useState(q);
   const [labelName, setLabelName] = useState('');
   const [bulkError, setBulkError] = useState<unknown>(null);
   const [bulkPending, setBulkPending] = useState(false);
-  const [stats, setStats] = useState<StatsBucket[] | null>(null);
+  const [stats, setStats] = useState<StatsResponse | null>(null);
 
   // The counter discards responses that belong to a superseded filter set.
   const requestIdRef = useRef(0);
@@ -74,14 +84,52 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
 
     let cancelled = false;
 
+    setStats(null);
+
     getStats(projectId, '24h')
-      .then((buckets) => {
+      .then((response) => {
         if (!cancelled) {
-          setStats(Array.isArray(buckets) ? buckets : []);
+          setStats({
+            buckets: Array.isArray(response.buckets) ? response.buckets : [],
+            by_platform: Array.isArray(response.by_platform)
+              ? response.by_platform
+              : [],
+          });
         }
       })
       .catch(() => {
         // The 24h summary is decorative; a failure must not block the list.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+    if (projectId === null) {
+      setPlatformOptions([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    setPlatformOptions([]);
+
+    // The platform filter only offers platforms the project has actually seen.
+    getProject(projectId)
+      .then((project) => {
+        if (!cancelled) {
+          setPlatformOptions(
+            Array.isArray(project.platforms) ? project.platforms : [],
+          );
+        }
+      })
+      .catch(() => {
+        // Without the platform list the filter stays hidden; the list works.
+        if (!cancelled) {
+          setPlatformOptions([]);
+        }
       });
 
     return () => {
@@ -163,7 +211,16 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
       return;
     }
 
-    void loadFirstPage({ status, level, environment, release, label, q, sort });
+    void loadFirstPage({
+      status,
+      level,
+      environment,
+      release,
+      label,
+      platform,
+      q,
+      sort,
+    });
   }, [
     loadFirstPage,
     projectId,
@@ -172,6 +229,7 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
     environment,
     release,
     label,
+    platform,
     q,
     sort,
   ]);
@@ -252,7 +310,7 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
   const handleBulkAction = (action: BulkAction) => {
     if (action === 'delete') {
       const confirmed = window.confirm(
-        `Delete ${selection.size} selected issues?`,
+        t('issues.bulk.confirmDelete', { count: selection.size }),
       );
 
       if (!confirmed) {
@@ -341,7 +399,7 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
     return (
       <section className="issues-page" data-testid="issues-page">
         <header className="page-header">
-          <h2>Issues</h2>
+          <h2>{t('issues.title')}</h2>
         </header>
 
         <NoProjectState />
@@ -352,10 +410,10 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
   return (
     <section className="issues-page" data-testid="issues-page">
       <header className="page-header">
-        <h2>Issues</h2>
+        <h2>{t('issues.title')}</h2>
       </header>
 
-      {stats !== null && <StatsSummary buckets={stats} />}
+      {stats !== null && <StatsSummary stats={stats} />}
 
       <IssueFilterBar
         filters={filters}
@@ -363,6 +421,7 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
         labelNames={labelNames}
         environmentOptions={environmentOptions}
         releaseOptions={releaseOptions}
+        platformOptions={platformOptions}
         onFilterChange={applyFilterPatch}
         onSearchChange={setSearch}
       />
@@ -382,11 +441,11 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
       {loading && <LoadingState />}
 
       {!loading && listError !== null && (
-        <ErrorState error={listError} prefix="Failed to load issues" />
+        <ErrorState error={listError} prefix={t('issues.loadError')} />
       )}
 
       {!loading && listError === null && items.length === 0 && (
-        <EmptyState>No issues found.</EmptyState>
+        <EmptyState>{t('issues.empty')}</EmptyState>
       )}
 
       {!loading && listError === null && items.length > 0 && (
@@ -399,7 +458,7 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
           />
 
           {moreError !== null && (
-            <ErrorState error={moreError} prefix="Failed to load issues" />
+            <ErrorState error={moreError} prefix={t('issues.loadError')} />
           )}
 
           {nextCursor !== null && (
@@ -409,7 +468,7 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
               onClick={() => void loadMore(filters, nextCursor)}
               disabled={loading || loadingMore}
             >
-              Load more
+              {t('issues.loadMore')}
             </button>
           )}
         </>

@@ -1,7 +1,6 @@
 import type { EventSummary } from '../../../api/types';
+import { useI18n } from '../../../i18n';
 import { LevelBadge, RelativeTime } from '../../../ui';
-
-const NO_MESSAGE = '<no message>';
 
 interface EventListProps {
   /** Newest first, matching the Management API ordering. */
@@ -17,9 +16,12 @@ interface EventListProps {
   onLoadMore: () => void;
 }
 
-function messageText(message: string | null | undefined): string {
+function messageText(
+  message: string | null | undefined,
+  fallback: string,
+): string {
   return message === null || message === undefined || message.trim() === ''
-    ? NO_MESSAGE
+    ? fallback
     : message;
 }
 
@@ -39,6 +41,8 @@ export function EventList({
   onOlder,
   onLoadMore,
 }: EventListProps) {
+  const { t } = useI18n();
+
   return (
     <section
       className="issue-event-list"
@@ -46,13 +50,15 @@ export function EventList({
       aria-labelledby="issue-events-heading"
     >
       <div className="event-list-header">
-        <h3 id="issue-events-heading">Event list</h3>
+        <h3 id="issue-events-heading">
+          {t('issues.detail.eventList.heading')}
+        </h3>
         <div className="event-nav">
           <button type="button" onClick={onNewer} disabled={newerDisabled}>
-            Newer
+            {t('issues.detail.eventList.newer')}
           </button>
           <button type="button" onClick={onOlder} disabled={olderDisabled}>
-            Older
+            {t('issues.detail.eventList.older')}
           </button>
         </div>
       </div>
@@ -68,7 +74,10 @@ export function EventList({
                 onClick={() => onSelect(event)}
               >
                 <span className="event-item-message">
-                  {messageText(event.message)}
+                  {messageText(
+                    event.message,
+                    t('issues.detail.eventList.noMessage'),
+                  )}
                 </span>
                 <span className="event-item-meta">
                   <RelativeTime value={displayedTime(event)} />
@@ -95,7 +104,7 @@ export function EventList({
           onClick={onLoadMore}
           disabled={loadingMore}
         >
-          More events
+          {t('issues.detail.eventList.more')}
         </button>
       )}
     </section>

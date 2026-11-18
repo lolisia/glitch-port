@@ -12,7 +12,7 @@ public sealed class MessagesEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         var eventId = Guid.NewGuid();
         var timestamp = DateTimeOffset.Parse(
@@ -63,7 +63,7 @@ public sealed class MessagesEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         var json = JsonSerializer.Serialize(new { level, message = "boom" });
         using var response = await RelayTestClient.PostMessageAsync(client, json);
@@ -89,7 +89,7 @@ public sealed class MessagesEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var response = await RelayTestClient.PostMessageAsync(client, json);
 
@@ -104,7 +104,7 @@ public sealed class MessagesEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var response = await RelayTestClient.PostMessageAsync(
             client,
@@ -121,7 +121,7 @@ public sealed class MessagesEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         var json = JsonSerializer.Serialize(new { message = new string('a', 1_100_000) });
         using var response = await RelayTestClient.PostMessageAsync(client, json);
@@ -135,7 +135,7 @@ public sealed class MessagesEndpointTests
     {
         var publisher = new ThrowingEnvelopePublisher(new InvalidOperationException("processor down"));
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var response = await RelayTestClient.PostMessageAsync(
             client,

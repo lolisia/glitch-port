@@ -26,6 +26,10 @@ internal static partial class EventNormalizer
     private const string TimestampError =
         "must be an ISO 8601 date-time with a timezone";
 
+    private const string PlatformRequiredError = "platform is required";
+
+    private const string PlatformFormatError = "platform must match [a-z0-9._-]";
+
     private const string AutoIpAddress = "{{auto}}";
 
     private const string TimestampFormat = "yyyy-MM-dd'T'HH:mm:ss.fff'Z'";
@@ -138,8 +142,7 @@ internal static partial class EventNormalizer
                 "at least one of 'message' or 'exception' is required");
         }
 
-        var platform = EmptyToNull(
-            OptionalString(root, "platform", "platform", RelayConstants.MaxPlatformLength));
+        var platform = RequiredPlatform(root);
 
         var sdk = NormalizeSdk(root);
 
@@ -148,7 +151,7 @@ internal static partial class EventNormalizer
             EventId = eventId.ToString("D"),
             Timestamp = FormatTimestamp(clientTimestamp ?? receivedAt),
             Level = level,
-            Platform = platform ?? RelayConstants.DefaultPlatform,
+            Platform = platform,
             Logger = EmptyToNull(
                 OptionalString(root, "logger", "logger", RelayConstants.MaxLoggerLength)),
             Message = message,
@@ -661,6 +664,32 @@ internal static partial class EventNormalizer
     private static string FormatTimestamp(DateTimeOffset value) =>
         value.ToUniversalTime().ToString(TimestampFormat, CultureInfo.InvariantCulture);
 
+    /// <summary>
+    /// Reads the mandatory protocol v1 platform. The value is trimmed and
+    /// truncated to <see cref="RelayConstants.MaxPlatformLength"/> before it is
+    /// lowercased and validated, so an over-long but otherwise valid platform
+    /// is accepted.
+    /// </summary>
+    private static string RequiredPlatform(JsonElement root)
+    {
+        var platform = EmptyToNull(
+            OptionalString(root, "platform", "platform", RelayConstants.MaxPlatformLength));
+
+        if (platform is null)
+        {
+            throw new EventFormatException(PlatformRequiredError);
+        }
+
+        platform = platform.ToLowerInvariant();
+
+        if (!PlatformPattern().IsMatch(platform))
+        {
+            throw new EventFormatException(PlatformFormatError);
+        }
+
+        return platform;
+    }
+
     private static void ValidateLevel(string level, string path)
     {
         if (level is not "debug" and not "info" and not "warning" and not "error" and not "fatal")
@@ -781,11 +810,21 @@ internal static partial class EventNormalizer
         RegexOptions.CultureInvariant)]
     private static partial Regex TimestampPattern();
 
+    // Anchored with \A and \z so a trailing newline cannot sneak through after
+    // truncation ('$' would also match immediately before a trailing '\n').
+    [GeneratedRegex(@"\A[a-z0-9._-]+\z", RegexOptions.CultureInvariant)]
+    private static partial Regex PlatformPattern();
+
     /// <summary>Raised internally when a field has an invalid format.</summary>
     private sealed class EventFormatException : Exception
     {
         public EventFormatException(string path, string reason)
             : base($"{path}: {reason}")
+        {
+        }
+
+        public EventFormatException(string message)
+            : base(message)
         {
         }
     }

@@ -90,6 +90,83 @@ deployed behind an authenticating gateway, set both `VITE_API_BASE` and
 `/api/manage/...` on the dashboard's own origin without an `Authorization`
 header.
 
+## Theme
+
+The **Theme** select in the top bar chooses how the dashboard is coloured:
+
+| Preference        | Meaning                                                                 |
+| ----------------- | ----------------------------------------------------------------------- |
+| System (default)  | Follow the operating system/browser `prefers-color-scheme` setting.      |
+| Light             | Always use the light palette.                                            |
+| Dark              | Always use the dark palette.                                             |
+
+The preference is a per-browser setting stored in `localStorage` under
+`glitchport.theme`. Only `system`, `light` and `dark` are accepted; a missing
+or invalid value falls back to `system`. `src/theme/ThemeProvider.tsx` applies
+the resolved theme by setting `data-theme="light"` or `data-theme="dark"` and
+`color-scheme` on the `<html>` element. While the preference is `system` it
+subscribes to `matchMedia('(prefers-color-scheme: dark)')` change events and
+removes the listener when an explicit preference is selected. When
+`matchMedia` is unavailable the dashboard resolves to light.
+
+A small inline script in `dashboard/index.html` reads the same key and applies
+the theme before the bundle loads, so reloading in dark mode does not flash the
+light theme.
+
+All colours are defined as CSS custom properties in `src/index.css`: `:root`
+holds the light tokens (`--color-bg`, `--color-bg-subtle`, `--color-surface`,
+`--color-fg`, `--color-fg-muted`, `--color-border`, `--color-accent`,
+`--color-danger`, `--color-warning`, `--color-success`, `--color-code-bg`,
+`--color-stack-bg` and supporting tokens) and `:root[data-theme='dark']`
+overrides them for dark mode. The screen styles only reference the variables,
+so a new colour must be added as a token instead of being hard-coded. Label
+chips compute black or white text from the label colour's relative luminance,
+which keeps them readable against any label colour in either theme.
+
+## Language
+
+The **Language** select in the top bar switches the dashboard between English
+and Korean:
+
+| Language | Code | Notes                                                          |
+| -------- | ---- | -------------------------------------------------------------- |
+| English  | `en` | Default and source language. Timestamps read `YYYY-MM-DD HH:mm:ss`. |
+| Korean   | `ko` | Translated shell, labels and screens; Korean date layout.      |
+
+The choice is a per-browser setting stored in `localStorage` under
+`glitchport.locale`. Only `en` and `ko` are accepted. On startup the dashboard
+resolves the active locale in this order:
+
+1. a valid `glitchport.locale` value,
+2. `navigator.language` starting with `ko` (for example `ko` or `ko-KR`), which
+   selects Korean,
+3. English otherwise.
+
+Choosing a language persists it, re-renders the shell and the visible screen
+without a reload, and sets `document.documentElement.lang` to the active locale.
+A missing or invalid stored value falls back to the browser language, so a
+Korean browser starts in Korean until the user explicitly picks a language from
+the selector.
+
+All dashboard-owned text comes from the message dictionaries in
+`src/i18n/messages/`: `en.ts` is the English source object and `ko.ts` must
+define the same keys, which the `Messages` type and a key-parity test enforce.
+The dictionaries are split into per-screen modules (`messages/en/issues.ts`,
+`messages/en/event.ts` and `messages/en/projects.ts` with their `ko`
+counterparts) and merged into `en.ts`/`ko.ts`, so a screen only owns the keys
+it renders. The navigation tabs, project picker states, loading/empty/error
+states, level and status badges and the 401 token guidance follow the active
+locale, and so do the issues list and detail screens, the event body and the
+project screens: their headings, filter labels and options, table headers,
+buttons, confirmations, count summaries and aria-labels/titles are translated.
+Counter messages use `_one`/`_other` plural keys with a `{count}` placeholder.
+Dates, relative times, clock values and formatted numbers go through
+`Intl.DateTimeFormat`, `Intl.RelativeTimeFormat` and `Intl.NumberFormat`, so an
+English timestamp stays `2026-01-02 03:04:05` and a Korean one reads
+`2026. 01. 02. 03:04:05`. Raw data values (issue ids, project slugs, platform
+names, label names, release and environment names) and server-provided API
+error text are displayed verbatim and are never translated.
+
 ## Routes
 
 The dashboard uses `location.hash`, so every screen has a bookmarkable URL and
@@ -118,17 +195,25 @@ bookmark or a shared link therefore restores the same view. For example:
 ```
 
 The recognised keys are `status`, `q`, `level`, `environment`, `release`,
-`label` and `sort`. Empty values and the defaults (`status=unresolved` and
-`sort=last_seen`) are omitted to keep URLs short, so a clean list is simply
-`#/issues`. Changing a filter replaces the current history entry instead of
-pushing a new one; the pagination cursor is never stored in the URL, so a
-refresh restarts at the first page while keeping the filters.
+`label`, `platform` and `sort`. Empty values and the defaults
+(`status=unresolved` and `sort=last_seen`) are omitted to keep URLs short, so a
+clean list is simply `#/issues`. An empty platform selection is omitted too; a
+non-empty one is stored as a single comma-separated value, for example
+`#/issues?platform=unity%2Cdotnet` (the comma is percent-encoded in the raw
+hash and read back as `unity,dotnet`). Changing a filter replaces the current
+history entry instead of pushing a new one; the pagination cursor is never
+stored in the URL, so a refresh restarts at the first page while keeping the
+filters.
 
 ## Screens
 
 ### Issues list (`#/issues`)
 
-The main screen lists issue groups matching the current filters.
+The main screen lists issue groups matching the current filters. Every label on
+this screen follows the selected language: the status tabs, filter names and
+options, table headers, the 24-hour summary, the bulk bar and its confirmation,
+and the empty/error prefixes. Issue titles, culprits, labels, platform names and
+the counts themselves stay as returned by the API.
 
 - **Status tabs** — Unresolved (default), Resolved, Ignored and All map to the
   `status` query parameter.
@@ -139,17 +224,24 @@ The main screen lists issue groups matching the current filters.
   collected from the currently loaded rows (the active value is always kept);
   the label options come from `GET /api/manage/projects/{projectId}/labels`.
   If that request fails, the list still works with an "All labels" option.
+- **Platform filter** — a multi-select whose options are the active project's
+  observed `platforms`, loaded with `GET /api/manage/projects/{projectId}`.
+  Selecting one or more platforms writes a single comma-separated `platform`
+  hash value and sends `platform=<names>` to the API. The control is hidden
+  when the project has not observed any platform yet or when that request
+  fails.
 - **Sorting** — Last seen (default), First seen or Event count, sent as
   `last_seen`, `first_seen` or `count`.
-- **24-hour summary** — a bar chart of `GET
+- **24-hour summary** — a bar chart of the `buckets` returned by `GET
   /api/manage/projects/{projectId}/stats?period=24h` plus the total event count
-  for the window. Bars are scaled relative to the busiest bucket. The summary
-  is decorative: when it fails to load it is simply not rendered and the list
-  continues to work.
+  for the window. Bars are scaled relative to the busiest bucket, and a
+  breakdown lists the all-time issue count of every platform in `by_platform`
+  (hidden when the array is empty). The summary is decorative: when it fails
+  to load it is simply not rendered and the list continues to work.
 - **Issue table** — one row per issue with a selection checkbox, a title link
-  to `#/issues/<id>`, culprit, level badge, label chips, event count, last-seen
-  and first-seen relative times (the absolute local time is in the tooltip) and
-  the status badge. The page size is 25.
+  to `#/issues/<id>`, culprit, level badge, platform chip, label chips, event
+  count, last-seen and first-seen relative times (the absolute local time is in
+  the tooltip) and the status badge. The page size is 25.
 - **Load more** — a cursor-based button that appends the next page using the
   `next_cursor` value returned by the API. It is hidden when there is no next
   page. A failed subsequent page shows an error without discarding the rows
@@ -158,17 +250,21 @@ The main screen lists issue groups matching the current filters.
   **Resolve**, **Unresolve**, **Ignore**, **Add label**, **Remove label** and
   **Delete**. Add and Remove label use the entered label name and are disabled
   while it is empty. Delete asks for confirmation first
-  (`Delete N selected issues?`). Actions call
+  (`Delete N selected issues?`, localized in Korean). Actions call
   `POST /api/manage/issues/bulk`, clear the selection and refetch the first
   page. Select all applies to the rows currently loaded.
 
 ### Issue detail (`#/issues/<id>`)
 
 The detail screen loads the issue, its first page of events and the project
-label list in parallel.
+label list in parallel. Headings, metadata labels, action buttons,
+confirmation prompts, label controls and the event list/panel headings follow
+the selected language; raw issue fields and event payload values are shown
+unchanged.
 
-- **Header** — title and a "Back to issues" link, culprit, level, status, first
-  and last seen times, event count, last release and last environment.
+- **Header** — title and a "Back to issues" link, culprit, level, platform,
+  status, first and last seen times, event count, last release and last
+  environment.
 - **Status actions** — **Resolve**, **Unresolve** and **Ignore** call
   `PATCH /api/manage/issues/{id}` with the new `status`. The buttons stay
   available regardless of the current status so a stale header can never trap
@@ -196,7 +292,10 @@ label list in parallel.
   `DELETE /api/manage/events/{eventId}`, then reloads the issue and the first
   event page and selects the new `latest_event`.
 
-The selected event body is rendered in this order:
+The selected event body starts with a small facts row showing the event's
+platform, followed by these sections (their headings, the key/value table
+headers, the system-frame toggle, the `data` summary and the raw JSON summary
+are translated; payload values are not):
 
 1. **Exceptions** — one block per exception, displayed **outermost first**:
    the API returns the `exception` array from the innermost cause to the
@@ -227,29 +326,36 @@ Sections with no data are omitted.
 
 ### Projects (`#/projects`)
 
-The project list is the entry point for project and key management.
+The project list is the entry point for project and key management. Screen
+headings, table headers, buttons, copy feedback and the create form follow the
+selected language; project names, slugs and platform names stay as stored.
 
 - **Project table** — one row per project with a link to `#/projects/<id>`, the
-  slug, the unresolved issue count and the active key count. **Refresh**
-  reloads the list; an empty installation shows "No projects yet."
-- **Create project** — Name is required; Platform is optional and suggests
-  `unity`, `unreal` and `godot` through a datalist. `POST
-  /api/manage/projects` creates the project together with its first active key.
-  The page then shows the generated DSN in a read-only field with **Copy DSN**
-  and an **Open project** link, and reloads the table.
+  slug, chips for the platforms observed in its issues (an em dash when none
+  has been seen yet), the unresolved issue count and the active key count.
+  **Refresh** reloads the list; an empty installation shows "No projects yet."
+- **Create project** — Name is required. Projects no longer have a platform
+  setting, so there is no platform input: platforms are recorded by the events
+  themselves. `POST /api/manage/projects` creates the project together with its
+  first active key. The page then shows the generated DSN in a read-only field
+  with **Copy DSN** and an **Open project** link, and reloads the table.
 
 ### Project detail (`#/projects/<id>`)
 
 The detail screen loads `GET /api/manage/projects/{id}` and
-`GET /api/manage/projects/{id}/keys` in parallel.
+`GET /api/manage/projects/{id}/keys` in parallel. Its facts labels, key table
+headers, form labels and hints, status labels, buttons, copy feedback and the
+danger-zone confirmation follow the selected language; the project name, slug,
+key values, DSNs and the created/revoked times are shown as stored/returned.
 
 - **Header and facts** — the project name, a "Back to projects" link, the slug,
-  platform, created time, unresolved issue count and active key count. When the
-  project does not exist the screen shows "Project not found" with a link back
-  to `#/projects`.
-- **Edit project** — Name (required) and Platform. **Save changes** trims both
-  values and sends `PATCH /api/manage/projects/{id}` with only the fields that
-  changed. The API error text (for example a `400` for a blank platform) is
+  a **Platforms seen** chip list built from the project's `platforms` (an em
+  dash when empty), created time, unresolved issue count and active key count.
+  When the project does not exist the screen shows "Project not found" with a
+  link back to `#/projects`.
+- **Edit project** — Name (required). **Save changes** trims the value and
+  sends `PATCH /api/manage/projects/{id}` with `name` only when it changed;
+  `platform` is not a project setting and is never sent. The API error text is
   shown with the form; a successful save updates the screen and reloads the
   top-bar project list.
 - **Keys table** — one row per key, including revoked keys: the public key and
@@ -276,7 +382,8 @@ The detail screen loads `GET /api/manage/projects/{id}` and
 
 The messages screen is the original queue view. It loads
 `GET /api/manage/messages?limit=100` and renders a table with **Received at**
-(absolute local time, `YYYY-MM-DD HH:mm:ss`), **Endpoint** and **Message**. A
+(absolute local time in the active locale: `YYYY-MM-DD HH:mm:ss` in English,
+`YYYY. MM. DD. HH:mm:ss` in Korean), **Endpoint** and **Message**. A
 **Refresh** button reloads the list; an empty response shows "No messages yet."
 
 ## Error handling
@@ -343,9 +450,9 @@ the public keys listed here.
 | Method   | Path                                | Request                                      | Response                                      |
 | -------- | ----------------------------------- | -------------------------------------------- | --------------------------------------------- |
 | `GET`    | `/projects`                         | –                                            | `ProjectListItem[]`                           |
-| `POST`   | `/projects`                         | `{ name, slug?, platform? }`                 | `CreatedProject` (`201`)                      |
+| `POST`   | `/projects`                         | `{ name, slug? }`                            | `CreatedProject` (`201`)                      |
 | `GET`    | `/projects/{projectId}`             | –                                            | `ProjectDetail`                               |
-| `PATCH`  | `/projects/{projectId}`             | `{ name?, platform? }`                       | `ProjectDetail`                               |
+| `PATCH`  | `/projects/{projectId}`             | `{ name? }`                                  | `ProjectDetail`                               |
 | `DELETE` | `/projects/{projectId}`             | –                                            | `204 No Content`                              |
 | `GET`    | `/projects/{projectId}/keys`        | –                                            | `ProjectKey[]` (includes revoked keys)        |
 | `POST`   | `/projects/{projectId}/keys`        | `{ label?, rate_limit_per_minute? }`         | `ProjectKey` (`201`)                          |
@@ -363,13 +470,15 @@ the public keys listed here.
 | `POST`   | `/projects/{projectId}/labels`      | `{ name, color? }`                           | `Label` (`409` when the name already exists)  |
 | `PATCH`  | `/labels/{id}`                      | `{ name?, color? }`                          | `Label`                                       |
 | `DELETE` | `/labels/{id}`                      | –                                            | `204 No Content`                              |
-| `GET`    | `/projects/{projectId}/stats`       | `period=24h` (dashboard) or `14d`            | `StatsBucket[]`                               |
+| `GET`    | `/projects/{projectId}/stats`       | `period=24h` (dashboard) or `14d`            | `{ buckets: StatsBucket[], by_platform: PlatformStats[] }` |
 | `GET`    | `/messages`                         | `limit` (dashboard sends `100`)              | `Message[]`                                   |
 
-`PATCH /projects/{projectId}` accepts `name` and/or `platform` and leaves
-omitted fields unchanged; a blank value returns `400`. The slug cannot be
-changed. `DELETE /projects/{projectId}` cascades to issues, events, labels,
-label assignments and keys.
+`PATCH /projects/{projectId}` accepts `name` and leaves omitted fields
+unchanged; a blank value returns `400`. Projects have no platform setting:
+`platforms` is derived from the project's issues, and sending a `platform`
+member in `POST` or `PATCH` returns `400`. The slug cannot be changed. `DELETE
+/projects/{projectId}` cascades to issues, events, labels, label assignments
+and keys.
 
 `POST /projects/{projectId}/keys` creates an active key with an optional
 `label` and `rate_limit_per_minute` (`null`, the default, means no per-key
@@ -380,7 +489,13 @@ send an explicit `rate_limit_per_minute: null` to clear a limit and
 deleting the row, so the key stays in the key list with `revoked_at` set.
 
 Statistics use `GET /projects/{projectId}/stats?period=24h|14d`. The dashboard
-only requests the 24-hour period; `14d` is available to other clients.
+only requests the 24-hour period; `14d` is available to other clients. The
+response has two parts: `buckets` is the period's array of `{ "bucket": "<ISO
+8601 timestamp>", "count": <number> }` objects (including empty buckets), and
+`by_platform` is an all-time array of `{ "platform": string, "issue_count":
+number, "event_count": number }` ordered by event count descending, then
+platform name ascending. `by_platform` is empty when the project has no
+issues.
 
 The `PATCH /issues/{id}` body accepts `status` (one of `unresolved`, `resolved`
 or `ignored`) and `labels` (the complete list of label **names** to attach).
@@ -397,6 +512,7 @@ array is required for the two label actions.
 | `environment` | –            | Environment name.                                                        |
 | `release`     | –            | Release name.                                                            |
 | `label`       | –            | Label name.                                                              |
+| `platform`    | –            | One or more comma-separated platform names, for example `unity,dotnet`.  |
 | `q`           | –            | Title search text.                                                       |
 | `sort`        | `last_seen`  | `last_seen`, `first_seen` or `count`.                                    |
 | `limit`       | `25`         | Page size from 1 to 100; the dashboard sends 25.                         |
@@ -407,8 +523,8 @@ array is required for the two label actions.
 Issue list responses wrap their rows as `{ "items": [...], "next_cursor":
 ... }`. `next_cursor` is `null` on the last page; pass it back unchanged as
 `cursor` to fetch the next one. Event lists use the same wrapper. Statistics
-are an array of `{ "bucket": "<ISO 8601 timestamp>", "count": <number> }`
-objects. A message row from `/messages` is
+are `{ "buckets": [...], "by_platform": [...] }` as described under
+[Endpoints](#endpoints). A message row from `/messages` is
 `{ "id": string, "received_at": string, "endpoint": string, "message": string }`.
 
 #### Project
@@ -423,7 +539,7 @@ fields and `dsn`, without the counts.
 | `id`          | number           | Numeric project id.                                                      |
 | `name`        | string           | Display name.                                                            |
 | `slug`        | string           | Unique URL-friendly identifier; cannot be changed after creation.        |
-| `platform`    | string \| null   | Optional platform hint, for example `unity`.                             |
+| `platforms`   | string[]         | Platforms observed in the project's issues, ordered by event count. Empty when the project has no issues. |
 | `created_at`  | string           | UTC ISO 8601 creation timestamp.                                         |
 | `issue_count` | number           | Unresolved issues (list and detail responses).                           |
 | `key_count`   | number           | Active keys; revoked keys are not counted (list and detail responses).   |

@@ -80,7 +80,7 @@ Any cursor that cannot be decoded returns `400 Bad Request`.
 | `GET` | `/projects` | List projects with issue and key counts. |
 | `POST` | `/projects` | Create a project with its first public key. |
 | `GET` | `/projects/{projectId}` | Read one project with counts and DSN. |
-| `PATCH` | `/projects/{projectId}` | Change a project name and/or platform. |
+| `PATCH` | `/projects/{projectId}` | Change a project name. |
 | `DELETE` | `/projects/{projectId}` | Delete a project and all of its data. |
 | `GET` | `/projects/{projectId}/keys` | List the public keys of a project. |
 | `POST` | `/projects/{projectId}/keys` | Create a public ingest key. |
@@ -98,7 +98,7 @@ Any cursor that cannot be decoded returns `400 Bad Request`.
 | `POST` | `/projects/{projectId}/labels` | Create a label. |
 | `PATCH` | `/labels/{labelId}` | Change a label name and/or color. |
 | `DELETE` | `/labels/{labelId}` | Delete a label and its assignments. |
-| `GET` | `/projects/{projectId}/stats` | Count events per UTC time bucket. |
+| `GET` | `/projects/{projectId}/stats` | Count events per UTC time bucket and issues and events per platform. |
 | `GET` | `/maintenance/retention` | Report the retention window and the counters of the newest retention run. |
 
 The legacy `GET /api/manage/messages` endpoint (limit 1–500) remains available
@@ -118,11 +118,17 @@ more keys; each key is identified by a 32-character lowercase hexadecimal
 | `id` | integer | Project id. |
 | `name` | string | Display name. |
 | `slug` | string | Unique URL-friendly identifier. |
-| `platform` | string or null | Optional platform hint, for example `unity`. |
+| `platforms` | array of strings | Platforms of the project's issues. Distinct `issue.platform` values ordered by the total `event_count` of that platform descending, then platform name ascending. Empty when the project has no issues. |
 | `created_at` | timestamp | Creation time. |
 | `issue_count` | integer | Unresolved issues. Returned by the list and detail endpoints, not by create. |
 | `key_count` | integer | Active keys. Revoked keys are not counted. Returned by the list and detail endpoints, not by create. |
 | `dsn` | string or null | Ingest DSN of the first active key, or `null` when every key is revoked. Returned by the detail endpoint and by create responses. |
+
+Platforms belong to events, not projects: the SDK reports the platform with
+each event and the project's `platforms` are derived from the issues it
+contains. `POST` and `PATCH` therefore reject a `platform` member with
+`400 Bad Request` and the error
+`platform is no longer a project setting; events carry their own platform`.
 
 The DSN has the form:
 
@@ -158,8 +164,9 @@ Public keys grant write access only and are safe to embed in game clients.
 GET /api/manage/projects
 ```
 
-Returns all projects ordered by id. `issue_count` counts unresolved issues and
-`key_count` counts active keys:
+Returns all projects ordered by id. `issue_count` counts unresolved issues,
+`key_count` counts active keys, and `platforms` lists the platforms observed in
+the project's issues (ordered by total event count descending, then name):
 
 ```json
 [
@@ -167,7 +174,7 @@ Returns all projects ordered by id. `issue_count` counts unresolved issues and
     "id": 1,
     "name": "Default",
     "slug": "default",
-    "platform": "unity",
+    "platforms": ["unity", "dotnet"],
     "created_at": "2026-11-15T10:00:00+00:00",
     "issue_count": 3,
     "key_count": 2
@@ -189,37 +196,41 @@ Content-Type: application/json
 | --- | --- | --- |
 | `name` | string | Required. Display name. Must not be blank; whitespace is trimmed. |
 | `slug` | string, optional | Unique identifier. When omitted it is derived from `name`: lowercase, every run of non-alphanumeric characters becomes a single `-`, leading and trailing `-` are removed, and an empty result becomes `project`. An explicit slug is used as provided and must not be blank. |
-| `platform` | string, optional | Platform hint, for example `unity`. Must not be blank when present. |
+
+A `platform` member is not accepted. Sending one, whatever its value
+(including `null`), returns `400 Bad Request` with the error
+`platform is no longer a project setting; events carry their own platform`.
 
 ```json
-{ "name": "Star Raiders", "slug": "star-raiders", "platform": "unity" }
+{ "name": "Star Raiders", "slug": "star-raiders" }
 ```
 
 Creating a project also creates one active public key atomically, so the
-response already contains a usable DSN:
+response already contains a usable DSN. `platforms` is empty because the new
+project has no issues yet:
 
 ```json
 {
   "id": 2,
   "name": "Star Raiders",
   "slug": "star-raiders",
-  "platform": "unity",
+  "platforms": [],
   "created_at": "2026-11-15T10:00:00+00:00",
   "dsn": "http://a1b2c3d4e5f60718293a4b5c6d7e8f90@localhost:5080/2"
 }
 ```
 
 Returns `201 Created`. The create response omits `issue_count` and `key_count`;
-read the project detail for the full object. `400` for a blank name, slug or
-platform or a malformed body. `409 Conflict` when another project already uses
-the slug. Use `GET /api/manage/projects/{projectId}/keys` to read the generated
-key's `public_key` and `label`.
+read the project detail for the full object. `400` for a blank name, a
+`platform` member or a malformed body. `409 Conflict` when another project
+already uses the slug. Use `GET /api/manage/projects/{projectId}/keys` to read
+the generated key's `public_key` and `label`.
 
 ```bash
 curl -s -X POST "http://localhost:5090/api/manage/projects" \
   -H "Authorization: Bearer dev-admin-token" \
   -H "Content-Type: application/json" \
-  --data-binary '{"name":"Star Raiders","platform":"unity"}'
+  --data-binary '{"name":"Star Raiders"}'
 ```
 
 ## Get a project
@@ -236,7 +247,7 @@ Returns the project detail with its counts and the DSN of the first active key
   "id": 2,
   "name": "Star Raiders",
   "slug": "star-raiders",
-  "platform": "unity",
+  "platforms": ["unity"],
   "created_at": "2026-11-15T10:00:00+00:00",
   "issue_count": 0,
   "key_count": 1,
@@ -256,12 +267,13 @@ Content-Type: application/json
 | Field | Type | Description |
 | --- | --- | --- |
 | `name` | string, optional | New display name. Must not be blank. |
-| `platform` | string, optional | New platform hint. Must not be blank when present. |
 
-Omitted fields are left unchanged. The slug cannot be changed. The response is
-the updated project detail, in the same shape as
-[Get a project](#get-a-project). `400` for a blank name or platform or a
-malformed body; `404` when the project does not exist.
+Omitted fields are left unchanged. The slug cannot be changed. A `platform`
+member is rejected with `400 Bad Request` and the error
+`platform is no longer a project setting; events carry their own platform`.
+The response is the updated project detail, in the same shape as
+[Get a project](#get-a-project). `400` for a blank name, a `platform` member or
+a malformed body; `404` when the project does not exist.
 
 ```bash
 curl -s -X PATCH "http://localhost:5090/api/manage/projects/2" \
@@ -372,8 +384,7 @@ Revokes the key without deleting its row: `is_active` becomes `false` and
 `revoked_at` is set to the current time. The key stays visible in
 [List keys](#list-keys) and its DSN remains readable, but the Relay rejects it
 with `401 Unauthorized` after its next configuration refresh (every 60 seconds
-by default, `Relay:ConfigRefreshSeconds`), unless the same key is also listed
-in the Relay's static `Relay:Projects` configuration. Returns `204 No Content`,
+by default, `Relay:ConfigRefreshSeconds`). Returns `204 No Content`,
 or `404` when the key does not exist.
 
 To re-enable a revoked key, send `PATCH /api/manage/keys/{keyId}` with
@@ -437,6 +448,7 @@ GET /api/manage/projects/{projectId}/issues
 | `environment` | none | Only issues with at least one event in this environment. |
 | `release` | none | Only issues with at least one event in this release. |
 | `label` | none | Only issues carrying the label with this exact name. |
+| `platform` | none | One or more comma-separated platform names, for example `unity,dotnet`. Each value is trimmed and lowercased, blank entries are ignored, and an issue matches when its `platform` equals one of the values exactly. |
 | `q` | none | Case-insensitive substring match on the issue title. `%`, `_` and `\` are matched literally. |
 | `sort` | `last_seen` | `last_seen`, `first_seen` or `count`, all descending with `id` as the tie-breaker. |
 | `limit` | `25` | Page size from 1 to 100. |
@@ -857,14 +869,25 @@ returned, including buckets with no events, in ascending order:
 - `14d` returns 14 daily buckets; the last bucket is the current UTC day
   (00:00 UTC).
 
-Each bucket is `{ "bucket": <start of the bucket in UTC>, "count": <events> }`:
+The response has two parts. `buckets` contains the period's buckets, each
+`{ "bucket": <start of the bucket in UTC>, "count": <events> }`. `by_platform`
+aggregates all issues of the project regardless of the period: `issue_count`
+is the number of issues whose platform is that value, `event_count` is the sum
+of their `event_count`. Entries are ordered by `event_count` descending, then
+platform name ascending, and the array is empty when the project has no issues.
 
 ```json
-[
-  { "bucket": "2026-11-14T10:00:00+00:00", "count": 0 },
-  { "bucket": "2026-11-14T11:00:00+00:00", "count": 3 },
-  { "bucket": "2026-11-14T12:00:00+00:00", "count": 1 }
-]
+{
+  "buckets": [
+    { "bucket": "2026-11-14T10:00:00+00:00", "count": 0 },
+    { "bucket": "2026-11-14T11:00:00+00:00", "count": 3 },
+    { "bucket": "2026-11-14T12:00:00+00:00", "count": 1 }
+  ],
+  "by_platform": [
+    { "platform": "unity", "issue_count": 4, "event_count": 128 },
+    { "platform": "dotnet", "issue_count": 2, "event_count": 31 }
+  ]
+}
 ```
 
 Any other `period` value returns `400`.
@@ -920,7 +943,7 @@ curl -s "http://localhost:5090/api/manage/maintenance/retention" \
 
 | Status | When |
 | --- | --- |
-| `400 Bad Request` | Unknown `status`, `level` or `sort`; `limit` outside 1–100; malformed `cursor`; `period` other than `24h` or `14d`; empty or oversized bulk `ids`; unknown bulk `action`; missing or blank label names; blank label `name`/`color`; blank project `name`, `slug` or `platform`; negative `rate_limit_per_minute`; invalid `is_active`; malformed JSON. |
+| `400 Bad Request` | Unknown `status`, `level` or `sort`; `limit` outside 1–100; malformed `cursor`; `period` other than `24h` or `14d`; empty or oversized bulk `ids`; unknown bulk `action`; missing or blank label names; blank label `name`/`color`; blank project `name` or `slug`; a `platform` member in a project create or update; negative `rate_limit_per_minute`; invalid `is_active`; malformed JSON. |
 | `401 Unauthorized` | Missing, malformed or wrong `Authorization: Bearer` token. |
 | `404 Not Found` | Unknown project, issue, event, key or label id, including a non-numeric project, issue, key or label id path and a non-UUID event id path. |
 | `409 Conflict` | A project `slug` that is already in use, creating a label whose name already exists in the project, or renaming a label to an existing name. |

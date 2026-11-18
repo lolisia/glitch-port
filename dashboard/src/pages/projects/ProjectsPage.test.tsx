@@ -1,7 +1,9 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ReactElement } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CreatedProject, ProjectListItem } from '../../api/types';
+import { I18nProvider, LOCALE_STORAGE_KEY } from '../../i18n';
 import { ProjectsPage } from './ProjectsPage';
 import { copyToClipboard } from './copy';
 
@@ -35,7 +37,7 @@ const projects: ProjectListItem[] = [
     id: 1,
     name: 'Starter',
     slug: 'starter-project',
-    platform: 'unreal',
+    platforms: ['unreal'],
     created_at: '2026-01-01T00:00:00Z',
     issue_count: 4,
     key_count: 2,
@@ -44,7 +46,7 @@ const projects: ProjectListItem[] = [
     id: 2,
     name: 'Space game',
     slug: 'space-game',
-    platform: 'unity',
+    platforms: ['unity', 'dotnet'],
     created_at: '2026-01-02T00:00:00Z',
     issue_count: 0,
     key_count: 1,
@@ -55,7 +57,7 @@ const created: CreatedProject = {
   id: 7,
   name: 'New game',
   slug: 'new-game',
-  platform: 'godot',
+  platforms: [],
   created_at: '2026-01-03T00:00:00Z',
   dsn: 'http://public-key@localhost:5080/7',
 };
@@ -64,7 +66,7 @@ const createdListItem: ProjectListItem = {
   id: 7,
   name: 'New game',
   slug: 'new-game',
-  platform: 'godot',
+  platforms: [],
   created_at: '2026-01-03T00:00:00Z',
   issue_count: 0,
   key_count: 1,
@@ -121,6 +123,15 @@ function createBody(call: unknown): unknown {
   return JSON.parse(String(init?.body));
 }
 
+/** Renders the screen the way the app does, inside the locale provider. */
+function renderPage(ui: ReactElement) {
+  return render(<I18nProvider>{ui}</I18nProvider>);
+}
+
+beforeEach(() => {
+  window.localStorage.clear();
+});
+
 afterEach(() => {
   Reflect.deleteProperty(navigator, 'clipboard');
   Reflect.deleteProperty(document, 'execCommand');
@@ -130,7 +141,7 @@ describe('ProjectsPage', () => {
   it('renders the project table with links, slugs and counters', async () => {
     const fetchMock = stubApi();
 
-    render(<ProjectsPage onProjectsChanged={vi.fn()} />);
+    renderPage(<ProjectsPage onProjectsChanged={vi.fn()} />);
 
     expect(screen.getByText('Loading...')).toBeInTheDocument();
 
@@ -139,7 +150,7 @@ describe('ProjectsPage', () => {
       within(table)
         .getAllByRole('columnheader')
         .map((header) => header.textContent),
-    ).toEqual(['Name', 'Slug', 'Unresolved issues', 'Active keys']);
+    ).toEqual(['Name', 'Slug', 'Platforms', 'Unresolved issues', 'Active keys']);
 
     const rows = within(table).getAllByRole('row');
     expect(rows).toHaveLength(3);
@@ -150,6 +161,7 @@ describe('ProjectsPage', () => {
       '#/projects/1',
     );
     expect(first.getByText('starter-project')).toBeInTheDocument();
+    expect(first.getByText('unreal')).toHaveClass('platform-chip');
     expect(first.getByText('4')).toBeInTheDocument();
     expect(first.getByText('2')).toBeInTheDocument();
 
@@ -159,6 +171,8 @@ describe('ProjectsPage', () => {
       '#/projects/2',
     );
     expect(second.getByText('space-game')).toBeInTheDocument();
+    expect(second.getByText('unity')).toHaveClass('platform-chip');
+    expect(second.getByText('dotnet')).toHaveClass('platform-chip');
     expect(second.getByText('0')).toBeInTheDocument();
     expect(second.getByText('1')).toBeInTheDocument();
 
@@ -170,7 +184,7 @@ describe('ProjectsPage', () => {
   it('renders the empty state when there are no projects', async () => {
     stubApi({ lists: [jsonResponse([])] });
 
-    render(<ProjectsPage onProjectsChanged={vi.fn()} />);
+    renderPage(<ProjectsPage onProjectsChanged={vi.fn()} />);
 
     expect(await screen.findByText('No projects yet.')).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
@@ -179,7 +193,7 @@ describe('ProjectsPage', () => {
   it('renders the load error', async () => {
     stubApi({ lists: [errorResponse(500, { error: 'boom' })] });
 
-    render(<ProjectsPage onProjectsChanged={vi.fn()} />);
+    renderPage(<ProjectsPage onProjectsChanged={vi.fn()} />);
 
     expect(
       await screen.findByText('Failed to load projects: HTTP 500: boom'),
@@ -193,7 +207,7 @@ describe('ProjectsPage', () => {
       lists: [jsonResponse(projects), jsonResponse([])],
     });
 
-    render(<ProjectsPage onProjectsChanged={vi.fn()} />);
+    renderPage(<ProjectsPage onProjectsChanged={vi.fn()} />);
     await screen.findByRole('table');
 
     await user.click(screen.getByRole('button', { name: 'Refresh' }));
@@ -202,22 +216,28 @@ describe('ProjectsPage', () => {
     expect(listCalls(fetchMock)).toHaveLength(2);
   });
 
-  it('offers unity, unreal and godot through the platform datalist', async () => {
-    stubApi();
-    render(<ProjectsPage onProjectsChanged={vi.fn()} />);
+  it('has no platform input and shows an em dash for a project without platforms', async () => {
+    stubApi({
+      lists: [
+        jsonResponse([
+          {
+            ...projects[0],
+            id: 3,
+            name: 'Fresh project',
+            slug: 'fresh-project',
+            platforms: [],
+          },
+        ]),
+      ],
+    });
+    renderPage(<ProjectsPage onProjectsChanged={vi.fn()} />);
 
-    await screen.findByRole('table');
+    const table = await screen.findByRole('table');
+    expect(screen.queryByLabelText('Platform')).not.toBeInTheDocument();
+    expect(document.getElementById('project-platform-options')).toBeNull();
 
-    const platform = screen.getByLabelText('Platform');
-    expect(platform).toHaveAttribute('list', 'project-platform-options');
-
-    const datalist = document.getElementById('project-platform-options');
-    expect(datalist).not.toBeNull();
-    expect(
-      Array.from(datalist?.querySelectorAll('option') ?? []).map(
-        (option) => option.value,
-      ),
-    ).toEqual(['unity', 'unreal', 'godot']);
+    const row = within(table).getAllByRole('row')[1];
+    expect(within(row).getByText('—')).toBeInTheDocument();
   });
 
   it('creates a project and shows the returned DSN in a read-only copyable field', async () => {
@@ -227,7 +247,7 @@ describe('ProjectsPage', () => {
       lists: [jsonResponse([]), jsonResponse([...projects, createdListItem])],
     });
 
-    render(<ProjectsPage onProjectsChanged={onProjectsChanged} />);
+    renderPage(<ProjectsPage onProjectsChanged={onProjectsChanged} />);
 
     expect(await screen.findByText('No projects yet.')).toBeInTheDocument();
     expect(screen.getByLabelText('Name')).toBeRequired();
@@ -236,7 +256,6 @@ describe('ProjectsPage', () => {
     ).toBeDisabled();
 
     await user.type(screen.getByLabelText('Name'), '  New game  ');
-    await user.type(screen.getByLabelText('Platform'), 'godot');
     await user.click(screen.getByRole('button', { name: 'Create project' }));
 
     const dsn = await screen.findByLabelText('DSN');
@@ -254,7 +273,7 @@ describe('ProjectsPage', () => {
     expect(posts[0][1]).toEqual({
       method: 'POST',
       headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'New game', platform: 'godot' }),
+      body: JSON.stringify({ name: 'New game' }),
     });
 
     // The page reloads its own list so the created project is selectable.
@@ -264,11 +283,11 @@ describe('ProjectsPage', () => {
     expect(listCalls(fetchMock)).toHaveLength(2);
   });
 
-  it('omits the platform when the field is left blank', async () => {
+  it('creates a project with only the name', async () => {
     const user = userEvent.setup();
     const fetchMock = stubApi({ lists: [jsonResponse([])] });
 
-    render(<ProjectsPage onProjectsChanged={vi.fn()} />);
+    renderPage(<ProjectsPage onProjectsChanged={vi.fn()} />);
     await screen.findByText('No projects yet.');
 
     await user.type(screen.getByLabelText('Name'), 'Only name');
@@ -290,7 +309,7 @@ describe('ProjectsPage', () => {
         }),
     });
 
-    render(<ProjectsPage onProjectsChanged={onProjectsChanged} />);
+    renderPage(<ProjectsPage onProjectsChanged={onProjectsChanged} />);
     await screen.findByText('No projects yet.');
 
     await user.type(screen.getByLabelText('Name'), 'Dup');
@@ -316,7 +335,7 @@ describe('ProjectsPage', () => {
         }),
     });
 
-    render(<ProjectsPage onProjectsChanged={vi.fn()} />);
+    renderPage(<ProjectsPage onProjectsChanged={vi.fn()} />);
     await screen.findByText('No projects yet.');
 
     await user.type(screen.getByLabelText('Name'), 'Bad slug');
@@ -339,7 +358,7 @@ describe('ProjectsPage', () => {
     });
     stubApi({ lists: [jsonResponse([]), jsonResponse([])] });
 
-    render(<ProjectsPage onProjectsChanged={vi.fn()} />);
+    renderPage(<ProjectsPage onProjectsChanged={vi.fn()} />);
     await screen.findByText('No projects yet.');
 
     await user.type(screen.getByLabelText('Name'), 'New game');
@@ -367,5 +386,46 @@ describe('ProjectsPage', () => {
 
   it('reports a failed copy without throwing when no mechanism exists', async () => {
     await expect(copyToClipboard('dsn-value')).resolves.toBe(false);
+  });
+
+  it('renders the table, create form and counters in Korean', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
+    stubApi();
+
+    renderPage(<ProjectsPage onProjectsChanged={vi.fn()} />);
+
+    expect(
+      screen.getByRole('heading', { level: 2, name: '프로젝트' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '새로고침' })).toBeInTheDocument();
+
+    const table = await screen.findByRole('table');
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((header) => header.textContent),
+    ).toEqual(['이름', '슬러그', '플랫폼', '미해결 이슈', '활성 키']);
+    expect(within(table).getByText('unreal')).toHaveClass('platform-chip');
+
+    expect(
+      screen.getByRole('heading', { level: 2, name: '프로젝트 만들기' }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('이름')).toBeRequired();
+    expect(
+      screen.getByRole('button', { name: '프로젝트 만들기' }),
+    ).toBeDisabled();
+  });
+
+  it('translates the load prefix but not the server error body', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
+    stubApi({ lists: [errorResponse(500, { error: 'boom' })] });
+
+    renderPage(<ProjectsPage onProjectsChanged={vi.fn()} />);
+
+    expect(
+      await screen.findByText(
+        '프로젝트를 불러오지 못했습니다: HTTP 500: boom',
+      ),
+    ).toBeInTheDocument();
   });
 });

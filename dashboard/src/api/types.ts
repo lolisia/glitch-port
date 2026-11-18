@@ -17,7 +17,11 @@ export interface ProjectListItem {
   id: number;
   name: string;
   slug: string;
-  platform: string | null;
+  /**
+   * Platforms observed in the project's issues, ordered by event count. A
+   * project has no platform setting of its own.
+   */
+  platforms: string[];
   created_at: string;
   /** Unresolved issues, used by the project list. */
   issue_count: number;
@@ -35,7 +39,7 @@ export interface CreatedProject {
   id: number;
   name: string;
   slug: string;
-  platform: string | null;
+  platforms: string[];
   created_at: string;
   dsn: string;
 }
@@ -44,13 +48,11 @@ export interface CreatedProject {
 export interface CreateProjectRequest {
   name: string;
   slug?: string;
-  platform?: string;
 }
 
 /** Request body of `PATCH /api/manage/projects/{id}`; omitted fields stay unchanged. */
 export interface UpdateProjectRequest {
   name?: string;
-  platform?: string;
 }
 
 /**
@@ -208,12 +210,27 @@ export interface StatsBucket {
   count: number;
 }
 
+/** Issue and event totals of one platform in a project. */
+export interface PlatformStats {
+  platform: string;
+  issue_count: number;
+  event_count: number;
+}
+
+/** `GET /api/manage/projects/{projectId}/stats` response. */
+export interface StatsResponse {
+  buckets: StatsBucket[];
+  by_platform: PlatformStats[];
+}
+
 export interface IssueListQuery {
   status?: 'unresolved' | 'resolved' | 'ignored' | 'all';
   level?: string;
   environment?: string;
   release?: string;
   label?: string;
+  /** One or more platform names; serialized as a comma-separated value. */
+  platform?: string[];
   q?: string;
   sort?: 'last_seen' | 'first_seen' | 'count';
   limit?: number;

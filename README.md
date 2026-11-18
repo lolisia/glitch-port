@@ -160,7 +160,7 @@ Create another project and read its DSN from the response:
 curl -s -X POST "http://localhost:5091/api/manage/projects" \
   -H "Authorization: Bearer dev-admin-token" \
   -H "Content-Type: application/json" \
-  --data-binary '{"name":"Star Raiders","platform":"unity"}'
+  --data-binary '{"name":"Star Raiders"}'
 ```
 
 PowerShell:
@@ -169,8 +169,11 @@ PowerShell:
 Invoke-RestMethod -Method Post -Uri "http://localhost:5091/api/manage/projects" `
   -Headers @{ Authorization = "Bearer dev-admin-token" } `
   -ContentType "application/json" `
-  -Body '{"name":"Star Raiders","platform":"unity"}'
+  -Body '{"name":"Star Raiders"}'
 ```
+
+Platforms are not a project setting: each event reports its own platform, and a
+project's `platforms` are derived from the platform of its issues.
 
 The `201` response contains the new project's `dsn`, for example
 `http://<public-key>@localhost:5080/<project-id>`. The seeded project `1`
@@ -566,7 +569,6 @@ Development values live in the environment-specific app settings:
 | Key                                      | Read by   | Development value / default                                                          | Purpose                                                                 |
 | ---------------------------------------- | --------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
 | `ConnectionStrings:Postgres`              | Processor | `Host=localhost;Port=55432;Database=glitchport;Username=glitchport;Password=glitchport` | PostgreSQL connection used for storage, migrations and retention. Required. |
-| `Relay:Projects`                          | Relay     | `{ "1": [ "dev-public-key" ] }`                                                      | Static public ingest keys per project id. Used before the first project-config refresh and for keys that are not in PostgreSQL; a key listed here stays valid even after revocation in the database. |
 | `Relay:ProcessorEndpoints`                | Relay     | `[ "http://localhost:5090" ]`                                                        | Processor base URLs. Publishing rotates through them and fails over on retryable errors. |
 | `Relay:InternalSharedSecret`              | Relay     | `dev-internal-secret`                                                                | Sent to the Processor as `X-GlitchPort-Internal`; must match the Processor. |
 | `Relay:Timeout`                           | Relay     | `10` seconds                                                                         | Per-attempt HTTP timeout to the Processor.                              |

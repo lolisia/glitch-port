@@ -1,7 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Issue, Label, StatsBucket } from '../../api/types';
+import type { Issue, Label, StatsResponse } from '../../api/types';
+import { I18nProvider, LOCALE_STORAGE_KEY } from '../../i18n';
 import { formatAbsoluteTime } from '../../ui';
 import { IssuesPage } from './IssuesPage';
 
@@ -50,10 +52,16 @@ const AUTH_HEADERS = { Authorization: 'Bearer dev-admin-token' };
 const crashLabel: Label = { id: 11, name: 'crash', color: '#ff0000' };
 const uiLabel: Label = { id: 12, name: 'ui', color: '#00ff00' };
 const projectLabels: Label[] = [crashLabel, uiLabel];
-const defaultStats: StatsBucket[] = [
-  { bucket: '2026-01-01T00:00:00Z', count: 3 },
-  { bucket: '2026-01-01T01:00:00Z', count: 6 },
-];
+const defaultStats: StatsResponse = {
+  buckets: [
+    { bucket: '2026-01-01T00:00:00Z', count: 3 },
+    { bucket: '2026-01-01T01:00:00Z', count: 6 },
+  ],
+  by_platform: [
+    { platform: 'unreal', issue_count: 4, event_count: 128 },
+    { platform: 'unity', issue_count: 1, event_count: 9 },
+  ],
+};
 
 function makeIssue(overrides: Partial<Issue> = {}): Issue {
   const now = Date.now();
@@ -80,12 +88,28 @@ type IssueResponder =
   | MockResponse
   | ((search: URLSearchParams) => MockResponse | Promise<MockResponse>);
 
+type ProjectResponder =
+  | MockResponse
+  | ((projectId: number) => MockResponse | Promise<MockResponse>);
+
 interface ApiStubOptions {
   issues?: IssueResponder | IssueResponder[];
   labels?: MockResponse;
   stats?: MockResponse;
+  project?: ProjectResponder;
   bulk?: MockResponse;
 }
+
+const projectDetail = {
+  id: 1,
+  name: 'Starter',
+  slug: 'starter',
+  platforms: ['unreal', 'unity'],
+  created_at: '2026-01-01T00:00:00Z',
+  issue_count: 1,
+  key_count: 1,
+  dsn: null,
+};
 
 /**
  * Routes the mocked fetch by URL. Issue pages are served from a queue so a
@@ -117,6 +141,18 @@ function stubApi(options: ApiStubOptions = {}) {
         return typeof next === 'function'
           ? next(url.searchParams)
           : next;
+      }
+      const projectMatch = /^\/api\/manage\/projects\/(\d+)$/.exec(pathname);
+      if (projectMatch !== null) {
+        const projectId = Number(projectMatch[1]);
+        const responder = options.project;
+
+        if (responder === undefined) {
+          return jsonResponse({ ...projectDetail, id: projectId });
+        }
+        return typeof responder === 'function'
+          ? responder(projectId)
+          : responder;
       }
 
       throw new Error(`Unexpected fetch: ${input}`);
@@ -160,9 +196,15 @@ function optionValues(select: HTMLElement): string[] {
     .map((option) => (option as HTMLOptionElement).value);
 }
 
+/** Renders the screen the way the app does, inside the locale provider. */
+function renderPage(ui: ReactElement) {
+  return render(<I18nProvider>{ui}</I18nProvider>);
+}
+
 describe('IssuesPage', () => {
   beforeEach(() => {
     window.history.replaceState(null, '', '/');
+    window.localStorage.clear();
   });
 
   it('renders selectable rows with links, badges, chips, counts and relative times', async () => {
@@ -186,7 +228,7 @@ describe('IssuesPage', () => {
       issues: issuePage([first, second]),
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
 
     expect(screen.getByTestId('issues-page')).toBeInTheDocument();
     expect(screen.getByText('Loading...')).toBeInTheDocument();
@@ -198,6 +240,7 @@ describe('IssuesPage', () => {
       'Title',
       'Culprit',
       'Level',
+      'Platform',
       'Labels',
       'Events',
       'Last seen',
@@ -220,6 +263,7 @@ describe('IssuesPage', () => {
     ).not.toBeChecked();
     expect(firstRow.getByText('Game::Tick')).toBeInTheDocument();
     expect(firstRow.getByText('error')).toBeInTheDocument();
+    expect(firstRow.getByText('unreal')).toHaveClass('platform-chip');
     expect(firstRow.getByText('Unresolved')).toBeInTheDocument();
     expect(firstRow.getByText('crash')).toBeInTheDocument();
     expect(firstRow.getByText('12')).toBeInTheDocument();
@@ -258,14 +302,20 @@ describe('IssuesPage', () => {
     );
   });
 
-  it('renders the 24h stats chart and total from getStats', async () => {
-    const buckets: StatsBucket[] = [
-      { bucket: '2026-02-01T00:00:00Z', count: 2 },
-      { bucket: '2026-02-01T01:00:00Z', count: 5 },
-    ];
-    const fetchMock = stubApi({ stats: jsonResponse(buckets) });
+  it('renders the 24h stats chart, total and platform breakdown from getStats', async () => {
+    const stats: StatsResponse = {
+      buckets: [
+        { bucket: '2026-02-01T00:00:00Z', count: 2 },
+        { bucket: '2026-02-01T01:00:00Z', count: 5 },
+      ],
+      by_platform: [
+        { platform: 'unity', issue_count: 4, event_count: 128 },
+        { platform: 'dotnet', issue_count: 1, event_count: 9 },
+      ],
+    };
+    const fetchMock = stubApi({ stats: jsonResponse(stats) });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
 
     expect(
       await screen.findByRole('heading', {
@@ -282,10 +332,27 @@ describe('IssuesPage', () => {
     expect(bars[1].style.height).toBe('100%');
     expect(screen.getByText('7 events')).toBeInTheDocument();
 
+    const platforms = screen.getByTestId('stats-platforms');
+    expect(within(platforms).getByText('unity')).toHaveClass('platform-chip');
+    expect(within(platforms).getByText('4 issues')).toBeInTheDocument();
+    expect(within(platforms).getByText('dotnet')).toHaveClass('platform-chip');
+    expect(within(platforms).getByText('1 issue')).toBeInTheDocument();
+
     const statsCalls = fetchMock.mock.calls.filter(([input]) =>
       String(input).endsWith('/stats?period=24h'),
     );
     expect(statsCalls).toHaveLength(1);
+  });
+
+  it('hides the platform breakdown when no platform has issues', async () => {
+    stubApi({
+      stats: jsonResponse({ buckets: [], by_platform: [] }),
+    });
+
+    renderPage(<IssuesPage projectId={1} />);
+
+    await screen.findByRole('heading', { name: 'Events (last 24 hours)' });
+    expect(screen.queryByTestId('stats-platforms')).not.toBeInTheDocument();
   });
 
   it('ignores a failed stats request', async () => {
@@ -294,7 +361,7 @@ describe('IssuesPage', () => {
       issues: issuePage([makeIssue()]),
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
 
     expect(await screen.findByRole('link', { name: 'Boom' })).toBeInTheDocument();
     expect(screen.queryByText('Events (last 24 hours)')).not.toBeInTheDocument();
@@ -307,7 +374,7 @@ describe('IssuesPage', () => {
     const user = userEvent.setup();
     const fetchMock = stubApi({ issues: issuePage([makeIssue()]) });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('table');
 
     expect(optionValues(screen.getByLabelText('Level'))).toEqual([
@@ -404,6 +471,26 @@ describe('IssuesPage', () => {
     );
     await screen.findByRole('table');
 
+    await waitFor(() =>
+      expect(optionValues(screen.getByLabelText('Platform'))).toEqual([
+        'unreal',
+        'unity',
+      ]),
+    );
+    await user.selectOptions(screen.getByLabelText('Platform'), [
+      'unreal',
+      'unity',
+    ]);
+    await waitFor(() =>
+      expect(hashParams().get('platform')).toBe('unreal,unity'),
+    );
+    await waitFor(() =>
+      expect(
+        lastIssueRequest(fetchMock).searchParams.get('platform'),
+      ).toBe('unreal,unity'),
+    );
+    await screen.findByRole('table');
+
     await user.selectOptions(screen.getByLabelText('Sort'), 'count');
     await waitFor(() => expect(hashParams().get('sort')).toBe('count'));
     await waitFor(() =>
@@ -412,7 +499,7 @@ describe('IssuesPage', () => {
     await screen.findByRole('table');
 
     expect(window.location.hash).toBe(
-      '#/issues?status=resolved&level=error&environment=production&release=1.0.0&label=crash&sort=count',
+      '#/issues?status=resolved&level=error&environment=production&release=1.0.0&label=crash&platform=unreal%2Cunity&sort=count',
     );
 
     const lastQuery = lastIssueRequest(fetchMock).searchParams;
@@ -421,6 +508,7 @@ describe('IssuesPage', () => {
     expect(lastQuery.get('environment')).toBe('production');
     expect(lastQuery.get('release')).toBe('1.0.0');
     expect(lastQuery.get('label')).toBe('crash');
+    expect(lastQuery.get('platform')).toBe('unreal,unity');
     expect(lastQuery.get('sort')).toBe('count');
     expect(lastQuery.get('limit')).toBe('25');
     expect(lastQuery.get('cursor')).toBeNull();
@@ -431,7 +519,7 @@ describe('IssuesPage', () => {
     await user.click(screen.getByRole('button', { name: 'Unresolved' }));
     await waitFor(() => expect(hashParams().has('status')).toBe(false));
     expect(window.location.hash).toBe(
-      '#/issues?level=error&environment=production&release=1.0.0&label=crash&sort=count',
+      '#/issues?level=error&environment=production&release=1.0.0&label=crash&platform=unreal%2Cunity&sort=count',
     );
   });
 
@@ -443,7 +531,7 @@ describe('IssuesPage', () => {
     );
     const fetchMock = stubApi();
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
 
     expect(screen.getByRole('button', { name: 'Unresolved' })).toHaveAttribute(
       'aria-pressed',
@@ -465,7 +553,7 @@ describe('IssuesPage', () => {
       issues: issuePage([makeIssue({ status: 'resolved' })]),
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
 
     expect(screen.getByLabelText('Search issues')).toHaveValue('null');
     expect(screen.getByRole('button', { name: 'Resolved' })).toHaveAttribute(
@@ -486,7 +574,7 @@ describe('IssuesPage', () => {
   it('debounces the search box and writes the trimmed query once', async () => {
     const fetchMock = stubApi();
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByText('No issues found.');
 
     const search = screen.getByLabelText('Search issues');
@@ -522,7 +610,7 @@ describe('IssuesPage', () => {
     const user = userEvent.setup();
     stubApi({ issues: issuePage([makeIssue()]) });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'Boom' });
 
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
@@ -547,7 +635,7 @@ describe('IssuesPage', () => {
       issues: [issuePage([first], 'cursor-1'), () => nextPage.promise],
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
 
     expect(await screen.findByRole('link', { name: 'First' })).toBeInTheDocument();
     expect(
@@ -591,7 +679,7 @@ describe('IssuesPage', () => {
       ]),
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'First' });
 
     const selectAll = screen.getByRole('checkbox', { name: 'Select all' });
@@ -623,7 +711,7 @@ describe('IssuesPage', () => {
       ],
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'First' });
 
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
@@ -665,7 +753,7 @@ describe('IssuesPage', () => {
       ],
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'First' });
 
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
@@ -727,7 +815,7 @@ describe('IssuesPage', () => {
       ],
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'First' });
 
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
@@ -752,7 +840,7 @@ describe('IssuesPage', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     const fetchMock = stubApi({ issues: issuePage([makeIssue()]) });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'Boom' });
 
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
@@ -771,7 +859,7 @@ describe('IssuesPage', () => {
       bulk: errorResponse(500, { error: 'nope' }),
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'Boom' });
 
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
@@ -786,7 +874,7 @@ describe('IssuesPage', () => {
   it('renders the empty state when no issues match', async () => {
     stubApi({ issues: issuePage([]) });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
 
     expect(screen.getByText('Loading...')).toBeInTheDocument();
     expect(await screen.findByText('No issues found.')).toBeInTheDocument();
@@ -799,7 +887,7 @@ describe('IssuesPage', () => {
   it('renders an error state for a failed list request', async () => {
     stubApi({ issues: errorResponse(500) });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
 
     expect(
       await screen.findByText('Failed to load issues: HTTP 500'),
@@ -811,7 +899,7 @@ describe('IssuesPage', () => {
   it('renders the VITE_ADMIN_TOKEN guidance for a 401 response', async () => {
     stubApi({ issues: errorResponse(401, { error: 'unauthorized' }) });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
 
     expect(
       await screen.findByText('Failed to load issues: HTTP 401: unauthorized'),
@@ -829,10 +917,70 @@ describe('IssuesPage', () => {
       issues: issuePage([makeIssue()]),
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('table');
 
     expect(optionValues(screen.getByLabelText('Label'))).toEqual(['']);
+  });
+
+  it('hides the platform filter when the project has no observed platforms', async () => {
+    stubApi({
+      issues: issuePage([makeIssue()]),
+      project: jsonResponse({ ...projectDetail, platforms: [] }),
+    });
+
+    renderPage(<IssuesPage projectId={1} />);
+    await screen.findByRole('table');
+
+    expect(screen.queryByLabelText('Platform')).not.toBeInTheDocument();
+  });
+
+  it('hides the platform filter when the project request fails', async () => {
+    stubApi({
+      issues: issuePage([makeIssue()]),
+      project: errorResponse(500, { error: 'boom' }),
+    });
+
+    renderPage(<IssuesPage projectId={1} />);
+    await screen.findByRole('table');
+
+    expect(screen.queryByLabelText('Platform')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Failed to load issues/),
+    ).not.toBeInTheDocument();
+  });
+
+  it('restores the selected platforms from the hash and sends them together', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/#/issues?platform=unity%2Cdotnet',
+    );
+    const fetchMock = stubApi({
+      issues: issuePage([makeIssue()]),
+      project: jsonResponse({
+        ...projectDetail,
+        platforms: ['unity', 'dotnet'],
+      }),
+    });
+
+    renderPage(<IssuesPage projectId={1} />);
+
+    const select = await screen.findByLabelText('Platform');
+    expect(
+      Array.from((select as HTMLSelectElement).selectedOptions).map(
+        (option) => option.value,
+      ),
+    ).toEqual(['unity', 'dotnet']);
+
+    await waitFor(() =>
+      expect(lastIssueRequest(fetchMock).searchParams.get('platform')).toBe(
+        'unity,dotnet',
+      ),
+    );
+    expect(
+      lastIssueRequest(fetchMock).searchParams.get('platform'),
+    ).toBe('unity,dotnet');
   });
 
   it('keeps the active environment and release in the options', async () => {
@@ -843,7 +991,7 @@ describe('IssuesPage', () => {
     );
     const fetchMock = stubApi({ issues: issuePage([makeIssue()]) });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('table');
 
     expect(optionValues(screen.getByLabelText('Environment'))).toEqual([
@@ -865,7 +1013,7 @@ describe('IssuesPage', () => {
   it('renders the no-project state without calling the API', () => {
     const fetchMock = stubApi();
 
-    render(<IssuesPage projectId={null} />);
+    renderPage(<IssuesPage projectId={null} />);
 
     expect(screen.getByTestId('issues-page')).toBeInTheDocument();
     expect(screen.getByText(/No project selected/)).toBeInTheDocument();
@@ -879,12 +1027,16 @@ describe('IssuesPage', () => {
     const fetchMock = stubApi();
     const requestedUrls = () =>
       fetchMock.mock.calls.map(([input]) => String(input));
-    const { rerender } = render(<IssuesPage projectId={1} />);
+    const { rerender } = renderPage(<IssuesPage projectId={1} />);
 
     expect(await screen.findByText('No issues found.')).toBeInTheDocument();
     expect(requestedUrls()).toContain(`${API}/projects/1/labels`);
 
-    rerender(<IssuesPage projectId={2} />);
+    rerender(
+      <I18nProvider>
+        <IssuesPage projectId={2} />
+      </I18nProvider>,
+    );
 
     await waitFor(() =>
       expect(requestedUrls()).toContain(
@@ -894,5 +1046,75 @@ describe('IssuesPage', () => {
     expect(requestedUrls()).toContain(`${API}/projects/2/labels`);
     expect(requestedUrls()).toContain(`${API}/projects/2/stats?period=24h`);
     expect(await screen.findByText('No issues found.')).toBeInTheDocument();
+  });
+
+  it('renders the list, filters, stats and bulk bar in Korean', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    stubApi({
+      issues: issuePage([makeIssue({ id: 7, title: 'Crash on startup' })]),
+    });
+
+    renderPage(<IssuesPage projectId={1} />);
+
+    expect(
+      screen.getByRole('heading', { level: 2, name: '이슈' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('불러오는 중...')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '미해결' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByLabelText('이슈 검색')).toBeInTheDocument();
+    expect(screen.getByLabelText('정렬')).toHaveValue('last_seen');
+
+    const table = await screen.findByRole('table');
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((header) => header.textContent),
+    ).toEqual([
+      '',
+      '제목',
+      '원인',
+      '레벨',
+      '플랫폼',
+      '라벨',
+      '이벤트',
+      '마지막 발생',
+      '첫 발생',
+      '상태',
+    ]);
+    expect(
+      within(table).getByRole('checkbox', { name: '이슈 7 선택' }),
+    ).toBeInTheDocument();
+    expect(within(table).getByText('오류')).toBeInTheDocument();
+    expect(within(table).getByText('미해결')).toBeInTheDocument();
+
+    expect(
+      await screen.findByRole('heading', { name: '이벤트 (최근 24시간)' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('9개 이벤트')).toBeInTheDocument();
+    expect(screen.getByText('4개 이슈')).toBeInTheDocument();
+
+    await user.click(
+      within(table).getByRole('checkbox', { name: '이슈 7 선택' }),
+    );
+    expect(screen.getByText('1개 선택됨')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '삭제' }));
+    expect(confirm).toHaveBeenCalledWith('선택한 이슈 1개를 삭제할까요?');
+  });
+
+  it('translates the error prefix but not the server error body', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
+    stubApi({ issues: errorResponse(500, { error: 'boom' }) });
+
+    renderPage(<IssuesPage projectId={1} />);
+
+    expect(
+      await screen.findByText('이슈를 불러오지 못했습니다: HTTP 500: boom'),
+    ).toBeInTheDocument();
   });
 });

@@ -18,8 +18,8 @@ internal sealed class EventV1Payload
     /// <summary>Normalized event level.</summary>
     public string? Level { get; init; }
 
-    /// <summary>Platform or SDK family.</summary>
-    public string? Platform { get; init; }
+    /// <summary>Normalized platform of the event; protocol v1 requires one.</summary>
+    public string Platform { get; init; } = string.Empty;
 
     /// <summary>Logger or subsystem that produced the event.</summary>
     public string? Logger { get; init; }

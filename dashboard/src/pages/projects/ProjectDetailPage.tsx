@@ -17,7 +17,9 @@ import type {
   UpdateProjectRequest,
 } from '../../api/types';
 import { navigate } from '../../router';
+import { formatNumber, useI18n } from '../../i18n';
 import { ErrorState, LoadingState, formatAbsoluteTime } from '../../ui';
+import { PlatformChips } from '../platform/PlatformChip';
 import { copyToClipboard } from './copy';
 import './project-detail.css';
 
@@ -64,7 +66,8 @@ function rateLimitText(key: ProjectKey): string {
     : String(key.rate_limit_per_minute);
 }
 
-const RATE_LIMIT_ERROR = 'Rate limit must be a non-negative integer.';
+/** Marks a client-side rate limit validation failure in the error state. */
+const INVALID_RATE = Symbol('invalid-rate');
 
 interface ProjectDetailPageProps {
   projectId: number;
@@ -84,6 +87,7 @@ export function ProjectDetailPage({
   projectId,
   onProjectsChanged,
 }: ProjectDetailPageProps) {
+  const { locale, t } = useI18n();
   const [projectState, setProjectState] = useState<Loadable<ProjectDetail>>({
     status: 'loading',
   });
@@ -238,11 +242,11 @@ export function ProjectDetailPage({
     return (
       <section className="project-detail-page" data-testid="project-detail-page">
         <header className="page-header">
-          <h2>Project not found</h2>
+          <h2>{t('projects.detail.notFound')}</h2>
         </header>
         <p>
-          Project {projectId} does not exist or was deleted.{' '}
-          <a href="#/projects">Back to projects</a>
+          {t('projects.detail.notFoundBody', { id: projectId })}{' '}
+          <a href="#/projects">{t('projects.detail.back')}</a>
         </p>
       </section>
     );
@@ -252,12 +256,12 @@ export function ProjectDetailPage({
     return (
       <section className="project-detail-page" data-testid="project-detail-page">
         <header className="page-header">
-          <h2>Project {projectId}</h2>
-          <a href="#/projects">Back to projects</a>
+          <h2>{t('projects.detail.title', { id: projectId })}</h2>
+          <a href="#/projects">{t('projects.detail.back')}</a>
         </header>
         <ErrorState
           error={projectState.error}
-          prefix="Failed to load project"
+          prefix={t('projects.detail.loadError')}
         />
       </section>
     );
@@ -269,33 +273,39 @@ export function ProjectDetailPage({
     <section className="project-detail-page" data-testid="project-detail-page">
       <header className="page-header">
         <h2>{project.name}</h2>
-        <a href="#/projects">Back to projects</a>
+        <a href="#/projects">{t('projects.detail.back')}</a>
       </header>
 
       <dl className="project-detail-facts" data-testid="project-detail-facts">
         <div className="project-detail-fact">
-          <dt>Slug</dt>
+          <dt>{t('projects.detail.slug')}</dt>
           <dd className="project-detail-mono">{project.slug}</dd>
         </div>
         <div className="project-detail-fact">
-          <dt>Platform</dt>
-          <dd>{project.platform ?? 'Not set'}</dd>
+          <dt>{t('projects.detail.platformsSeen')}</dt>
+          <dd>
+            <PlatformChips platforms={project.platforms} />
+          </dd>
         </div>
         <div className="project-detail-fact">
-          <dt>Created</dt>
+          <dt>{t('projects.detail.created')}</dt>
           <dd>
             <time dateTime={project.created_at}>
-              {formatAbsoluteTime(project.created_at)}
+              {formatAbsoluteTime(project.created_at, locale)}
             </time>
           </dd>
         </div>
         <div className="project-detail-fact">
-          <dt>Unresolved issues</dt>
-          <dd className="project-detail-number">{project.issue_count}</dd>
+          <dt>{t('projects.detail.unresolvedIssues')}</dt>
+          <dd className="project-detail-number">
+            {formatNumber(project.issue_count, locale)}
+          </dd>
         </div>
         <div className="project-detail-fact">
-          <dt>Active keys</dt>
-          <dd className="project-detail-number">{project.key_count}</dd>
+          <dt>{t('projects.detail.activeKeys')}</dt>
+          <dd className="project-detail-number">
+            {formatNumber(project.key_count, locale)}
+          </dd>
         </div>
       </dl>
 
@@ -309,16 +319,19 @@ export function ProjectDetailPage({
         className="project-detail-section"
         aria-labelledby="project-keys-heading"
       >
-        <h3 id="project-keys-heading">Keys</h3>
+        <h3 id="project-keys-heading">{t('projects.detail.keys.heading')}</h3>
 
         {keysState.status === 'loading' && <LoadingState />}
 
         {keysState.status === 'error' && (
-          <ErrorState error={keysState.error} prefix="Failed to load keys" />
+          <ErrorState
+            error={keysState.error}
+            prefix={t('projects.detail.keys.loadError')}
+          />
         )}
 
         {keysState.status === 'ready' && keysState.data.length === 0 && (
-          <p className="state state-empty">No keys yet.</p>
+          <p className="state state-empty">{t('projects.detail.keys.empty')}</p>
         )}
 
         {keysState.status === 'ready' && keysState.data.length > 0 && (
@@ -326,12 +339,12 @@ export function ProjectDetailPage({
             <table className="project-detail-keys">
               <thead>
                 <tr>
-                  <th scope="col">Public key</th>
-                  <th scope="col">Label</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Rate limit per minute</th>
-                  <th scope="col">DSN</th>
-                  <th scope="col">Actions</th>
+                  <th scope="col">{t('projects.detail.keys.publicKey')}</th>
+                  <th scope="col">{t('projects.detail.keys.label')}</th>
+                  <th scope="col">{t('projects.detail.keys.status')}</th>
+                  <th scope="col">{t('projects.detail.keys.rateLimit')}</th>
+                  <th scope="col">{t('projects.detail.keys.dsn')}</th>
+                  <th scope="col">{t('projects.detail.keys.actions')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -346,7 +359,7 @@ export function ProjectDetailPage({
               </tbody>
             </table>
             <p className="project-detail-hint">
-              A blank rate limit means no per-key limit; 0 means unlimited.
+              {t('projects.detail.keys.hint')}
             </p>
           </>
         )}
@@ -357,14 +370,13 @@ export function ProjectDetailPage({
       {createdKey !== null && (
         <div className="project-detail-created" data-testid="created-key">
           <p>
-            Created key{' '}
-            <strong>{createdKey.label ?? createdKey.public_key}</strong>. Copy
-            its DSN now: the key list always shows it, but this panel is the
-            quickest way to hand it to a game build.
+            {t('projects.detail.createdKey.message', {
+              name: createdKey.label ?? createdKey.public_key,
+            })}
           </p>
 
           <div className="project-detail-created-row">
-            <label htmlFor="created-key-dsn">DSN</label>
+            <label htmlFor="created-key-dsn">{t('projects.dsn')}</label>
             <input
               id="created-key-dsn"
               className="project-detail-dsn-input"
@@ -373,17 +385,17 @@ export function ProjectDetailPage({
               onFocus={(event) => event.currentTarget.select()}
             />
             <button type="button" onClick={() => void handleCreatedCopy()}>
-              Copy new key DSN
+              {t('projects.detail.createdKey.copy')}
             </button>
 
             {createdCopy === 'copied' && (
               <span className="project-detail-copied" role="status">
-                Copied
+                {t('projects.copied')}
               </span>
             )}
             {createdCopy === 'failed' && (
               <span className="project-detail-copy-failed" role="status">
-                Copy failed
+                {t('projects.copyFailed')}
               </span>
             )}
           </div>
@@ -394,16 +406,12 @@ export function ProjectDetailPage({
         className="project-detail-danger"
         aria-labelledby="project-danger-heading"
       >
-        <h3 id="project-danger-heading">Danger zone</h3>
-        <p>
-          Deleting <strong>{project.name}</strong> removes its issues, events,
-          labels and keys permanently. Type the exact project name to enable the
-          button.
-        </p>
+        <h3 id="project-danger-heading">{t('projects.detail.danger.heading')}</h3>
+        <p>{t('projects.detail.danger.warning', { name: project.name })}</p>
 
         <div className="project-detail-field">
           <label htmlFor="project-delete-confirmation">
-            Confirm project name
+            {t('projects.detail.danger.confirm')}
           </label>
           <input
             id="project-delete-confirmation"
@@ -419,11 +427,14 @@ export function ProjectDetailPage({
           disabled={confirmName !== project.name || deleting}
           onClick={() => void handleDelete(project)}
         >
-          Delete project
+          {t('projects.detail.danger.submit')}
         </button>
 
         {deleteError !== null && (
-          <ErrorState error={deleteError} prefix="Failed to delete project" />
+          <ErrorState
+            error={deleteError}
+            prefix={t('projects.detail.danger.error')}
+          />
         )}
       </section>
     </section>
@@ -437,11 +448,11 @@ function ProjectEditForm({
   project: ProjectDetail;
   onSaved: (project: ProjectDetail) => void;
 }) {
+  const { t } = useI18n();
   const [name, setName] = useState(project.name);
-  const [platform, setPlatform] = useState(project.platform ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState<'saved' | 'noChanges' | null>(null);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -451,32 +462,27 @@ function ProjectEditForm({
       return;
     }
 
-    const trimmedPlatform = platform.trim();
     const patch: UpdateProjectRequest = {};
 
     if (trimmedName !== project.name) {
       patch.name = trimmedName;
     }
-    if (trimmedPlatform !== (project.platform ?? '')) {
-      patch.platform = trimmedPlatform;
-    }
 
     if (Object.keys(patch).length === 0) {
       setError(null);
-      setMessage('No changes to save.');
+      setMessage('noChanges');
       return;
     }
 
     setSaving(true);
     setError(null);
-    setMessage('');
+    setMessage(null);
 
     try {
       const updated = await updateProject(project.id, patch);
       setName(updated.name);
-      setPlatform(updated.platform ?? '');
       onSaved(updated);
-      setMessage('Saved');
+      setMessage('saved');
     } catch (saveError) {
       setError(saveError);
     } finally {
@@ -490,10 +496,12 @@ function ProjectEditForm({
         className="project-detail-form"
         onSubmit={(event) => void handleSubmit(event)}
       >
-        <h3>Edit project</h3>
+        <h3>{t('projects.detail.edit.heading')}</h3>
 
         <div className="project-detail-field">
-          <label htmlFor="project-detail-name">Name</label>
+          <label htmlFor="project-detail-name">
+            {t('projects.detail.edit.name')}
+          </label>
           <input
             id="project-detail-name"
             required
@@ -502,31 +510,29 @@ function ProjectEditForm({
           />
         </div>
 
-        <div className="project-detail-field">
-          <label htmlFor="project-detail-platform">Platform</label>
-          <input
-            id="project-detail-platform"
-            value={platform}
-            onChange={(event) => setPlatform(event.target.value)}
-          />
-        </div>
-
         <button
           type="submit"
           disabled={saving || name.trim() === ''}
         >
-          Save changes
+          {t('projects.detail.edit.save')}
         </button>
 
-        {message !== '' && (
+        {message !== null && (
           <span className="project-detail-saved" role="status">
-            {message}
+            {t(
+              message === 'saved'
+                ? 'projects.detail.edit.saved'
+                : 'projects.detail.edit.noChanges',
+            )}
           </span>
         )}
       </form>
 
       {error !== null && (
-        <ErrorState error={error} prefix="Failed to update project" />
+        <ErrorState
+          error={error}
+          prefix={t('projects.detail.edit.error')}
+        />
       )}
     </>
   );
@@ -541,6 +547,7 @@ function KeyRow({
   onUpdated: (key: ProjectKey) => void;
   onRevoke: (keyId: number) => Promise<void>;
 }) {
+  const { locale, t } = useI18n();
   const [rate, setRate] = useState(rateLimitText(projectKey));
   const [savingRate, setSavingRate] = useState(false);
   const [rateError, setRateError] = useState<unknown>(null);
@@ -557,7 +564,7 @@ function KeyRow({
     const parsed = parseRateLimit(rate);
 
     if (!parsed.valid) {
-      setRateError(new Error(RATE_LIMIT_ERROR));
+      setRateError(INVALID_RATE);
       setRateSaved(false);
       return;
     }
@@ -596,6 +603,11 @@ function KeyRow({
     setCopyState((await copyToClipboard(projectKey.dsn)) ? 'copied' : 'failed');
   };
 
+  const rateErrorValue =
+    rateError === INVALID_RATE
+      ? new Error(t('projects.detail.keys.rateInvalid'))
+      : rateError;
+
   return (
     <Fragment>
       <tr>
@@ -604,22 +616,24 @@ function KeyRow({
         </td>
         <td>
           {projectKey.label ?? (
-            <span className="project-detail-muted">No label</span>
+            <span className="project-detail-muted">
+              {t('projects.detail.keys.noLabel')}
+            </span>
           )}
         </td>
         <td>
           {projectKey.is_active ? (
             <span className="project-key-status project-key-status-active">
-              Active
+              {t('projects.detail.keys.active')}
             </span>
           ) : (
             <span className="project-key-status project-key-status-revoked">
-              Revoked
+              {t('projects.detail.keys.revoked')}
               {projectKey.revoked_at !== null && (
                 <>
                   {' '}
                   <time dateTime={projectKey.revoked_at}>
-                    {formatAbsoluteTime(projectKey.revoked_at)}
+                    {formatAbsoluteTime(projectKey.revoked_at, locale)}
                   </time>
                 </>
               )}
@@ -629,9 +643,11 @@ function KeyRow({
         <td>
           <div className="project-detail-rate">
             <input
-              aria-label={`Rate limit for key ${projectKey.id}`}
+              aria-label={t('projects.detail.keys.rateLimitForKey', {
+                id: projectKey.id,
+              })}
               inputMode="numeric"
-              placeholder="No limit"
+              placeholder={t('projects.detail.keys.noLimit')}
               value={rate}
               onChange={(event) => {
                 setRate(event.target.value);
@@ -643,11 +659,11 @@ function KeyRow({
               disabled={savingRate}
               onClick={() => void handleRateSave()}
             >
-              Save
+              {t('projects.detail.keys.save')}
             </button>
             {rateSaved && (
               <span className="project-detail-saved" role="status">
-                Saved
+                {t('projects.detail.keys.saved')}
               </span>
             )}
           </div>
@@ -656,16 +672,16 @@ function KeyRow({
           <code className="project-detail-dsn">{projectKey.dsn}</code>
           <div className="project-detail-dsn-actions">
             <button type="button" onClick={() => void handleCopy()}>
-              Copy DSN
+              {t('projects.copyDsn')}
             </button>
             {copyState === 'copied' && (
               <span className="project-detail-copied" role="status">
-                Copied
+                {t('projects.copied')}
               </span>
             )}
             {copyState === 'failed' && (
               <span className="project-detail-copy-failed" role="status">
-                Copy failed
+                {t('projects.copyFailed')}
               </span>
             )}
           </div>
@@ -677,16 +693,19 @@ function KeyRow({
               disabled={revoking}
               onClick={() => void handleRevoke()}
             >
-              Revoke
+              {t('projects.detail.keys.revoke')}
             </button>
           )}
         </td>
       </tr>
 
-      {rateError !== null && (
+      {rateErrorValue !== null && (
         <tr>
           <td colSpan={6}>
-            <ErrorState error={rateError} prefix="Failed to save rate limit" />
+            <ErrorState
+              error={rateErrorValue}
+              prefix={t('projects.detail.keys.rateError')}
+            />
           </td>
         </tr>
       )}
@@ -694,7 +713,10 @@ function KeyRow({
       {revokeError !== null && (
         <tr>
           <td colSpan={6}>
-            <ErrorState error={revokeError} prefix="Failed to revoke key" />
+            <ErrorState
+              error={revokeError}
+              prefix={t('projects.detail.keys.revokeError')}
+            />
           </td>
         </tr>
       )}
@@ -709,6 +731,7 @@ function CreateKeyForm({
   projectId: number;
   onCreated: (key: ProjectKey) => Promise<void>;
 }) {
+  const { t } = useI18n();
   const [label, setLabel] = useState('');
   const [rate, setRate] = useState('');
   const [creating, setCreating] = useState(false);
@@ -732,7 +755,7 @@ function CreateKeyForm({
       const parsed = parseRateLimit(rate);
 
       if (!parsed.valid || parsed.rate === null) {
-        setError(new Error(RATE_LIMIT_ERROR));
+        setError(INVALID_RATE);
         return;
       }
 
@@ -754,45 +777,57 @@ function CreateKeyForm({
     }
   };
 
+  const errorValue =
+    error === INVALID_RATE
+      ? new Error(t('projects.detail.keys.rateInvalid'))
+      : error;
+
   return (
     <>
       <form
         className="project-detail-form"
         onSubmit={(event) => void handleSubmit(event)}
       >
-        <h3>Create key</h3>
+        <h3>{t('projects.detail.createKey.heading')}</h3>
 
         <div className="project-detail-field">
-          <label htmlFor="create-key-label">Label</label>
+          <label htmlFor="create-key-label">
+            {t('projects.detail.createKey.label')}
+          </label>
           <input
             id="create-key-label"
-            placeholder="production"
+            placeholder={t('projects.detail.createKey.labelPlaceholder')}
             value={label}
             onChange={(event) => setLabel(event.target.value)}
           />
         </div>
 
         <div className="project-detail-field">
-          <label htmlFor="create-key-rate-limit">Rate limit per minute</label>
+          <label htmlFor="create-key-rate-limit">
+            {t('projects.detail.createKey.rateLimit')}
+          </label>
           <input
             id="create-key-rate-limit"
             inputMode="numeric"
-            placeholder="No limit"
+            placeholder={t('projects.detail.createKey.rateLimitPlaceholder')}
             value={rate}
             onChange={(event) => setRate(event.target.value)}
           />
           <span className="project-detail-hint">
-            Leave blank for no per-key limit, 0 for unlimited.
+            {t('projects.detail.createKey.hint')}
           </span>
         </div>
 
         <button type="submit" disabled={creating}>
-          Create key
+          {t('projects.detail.createKey.submit')}
         </button>
       </form>
 
-      {error !== null && (
-        <ErrorState error={error} prefix="Failed to create key" />
+      {errorValue !== null && (
+        <ErrorState
+          error={errorValue}
+          prefix={t('projects.detail.createKey.error')}
+        />
       )}
     </>
   );

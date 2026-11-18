@@ -7,6 +7,7 @@ internal static class RelayResults
 {
     private const string UnauthorizedMessage = "A valid X-GlitchPort-Key header is required.";
     private const string RateLimitedMessage = "rate limit exceeded";
+    private const string ConfigurationNotLoadedMessage = "project configuration not loaded";
     private const string ServiceUnavailableMessage =
         "The event could not be published. Please retry later.";
 
@@ -35,6 +36,23 @@ internal static class RelayResults
     /// <summary>A 413 response for a body that exceeds the decompressed size limit.</summary>
     public static IResult PayloadTooLarge(string message) =>
         Error(StatusCodes.Status413PayloadTooLarge, message);
+
+    /// <summary>
+    /// A 503 response returned before the first successful Processor project
+    /// configuration load, including the <c>Retry-After</c> header clients should
+    /// honour before retrying.
+    /// </summary>
+    public static IResult ConfigurationNotLoaded(HttpResponse response)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+
+        response.Headers["Retry-After"] = RelayConstants.RetryAfterSeconds.ToString(
+            CultureInfo.InvariantCulture);
+
+        return Error(
+            StatusCodes.Status503ServiceUnavailable,
+            ConfigurationNotLoadedMessage);
+    }
 
     /// <summary>
     /// A 503 response for a failed publish to the Processor, including the

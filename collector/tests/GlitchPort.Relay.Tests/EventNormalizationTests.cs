@@ -184,7 +184,7 @@ public sealed class EventNormalizationTests
         var exceptions = Enumerable.Range(0, 12)
             .Select(index => new { type = $"Exception{index}" })
             .ToArray();
-        var json = JsonSerializer.Serialize(new { exception = exceptions });
+        var json = JsonSerializer.Serialize(new { platform = "unity", exception = exceptions });
 
         using var response = await RelayTestClient.PostEventAsync(client, json);
 
@@ -213,6 +213,7 @@ public sealed class EventNormalizationTests
             .ToArray();
         var json = JsonSerializer.Serialize(new
         {
+            platform = "unity",
             exception = new[]
             {
                 new { type = "System.Exception", stacktrace = new { frames } },
@@ -250,7 +251,8 @@ public sealed class EventNormalizationTests
         var breadcrumbs = Enumerable.Range(0, 120)
             .Select(index => new { message = $"Breadcrumb{index}", category = "test" })
             .ToArray();
-        var json = JsonSerializer.Serialize(new { message = "boom", breadcrumbs });
+        var json = JsonSerializer.Serialize(
+            new { message = "boom", platform = "unity", breadcrumbs });
 
         using var response = await RelayTestClient.PostEventAsync(client, json);
 
@@ -272,7 +274,7 @@ public sealed class EventNormalizationTests
 
         var tags = Enumerable.Range(0, 60)
             .ToDictionary(index => $"tag{index}", index => $"value{index}");
-        var json = JsonSerializer.Serialize(new { message = "boom", tags });
+        var json = JsonSerializer.Serialize(new { message = "boom", platform = "unity", tags });
 
         using var response = await RelayTestClient.PostEventAsync(client, json);
 
@@ -297,7 +299,8 @@ public sealed class EventNormalizationTests
         var fingerprint = Enumerable.Range(0, 12)
             .Select(index => $"entry{index}")
             .ToArray();
-        var json = JsonSerializer.Serialize(new { message = "boom", fingerprint });
+        var json = JsonSerializer.Serialize(
+            new { message = "boom", platform = "unity", fingerprint });
 
         using var response = await RelayTestClient.PostEventAsync(client, json);
 
@@ -321,6 +324,7 @@ public sealed class EventNormalizationTests
         var json = JsonSerializer.Serialize(new
         {
             message = "boom",
+            platform = "unity",
             contexts = new { big = oversized },
             extra = new { big = oversized },
         });
@@ -344,6 +348,7 @@ public sealed class EventNormalizationTests
         var json = JsonSerializer.Serialize(new
         {
             message = "boom",
+            platform = "unity",
             contexts = new { os = new { name = "Windows" } },
             extra = new { score = 42 },
         });
@@ -356,5 +361,102 @@ public sealed class EventNormalizationTests
             "Windows",
             payload.GetProperty("contexts").GetProperty("os").GetProperty("name").GetString());
         Assert.Equal(42, payload.GetProperty("extra").GetProperty("score").GetInt32());
+    }
+
+    [Theory]
+    [InlineData("""{"message":"boom"}""")]
+    [InlineData("""{"message":"boom","platform":null}""")]
+    [InlineData("""{"message":"boom","platform":""}""")]
+    [InlineData("""{"message":"boom","platform":"   "}""")]
+    public async Task PostEvent_WithoutUsablePlatform_ReturnsBadRequest(string json)
+    {
+        var publisher = new RecordingEnvelopePublisher();
+        using var factory = new RelayApplicationFactory(publisher);
+        using var client = factory.CreateClient();
+
+        using var response = await RelayTestClient.PostEventAsync(client, json);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("platform is required", await RelayTestClient.ReadErrorAsync(response));
+        Assert.Empty(publisher.Envelopes);
+    }
+
+    [Fact]
+    public async Task PostEvent_WithUppercasePlatform_StoresItLowercased()
+    {
+        var publisher = new RecordingEnvelopePublisher();
+        using var factory = new RelayApplicationFactory(publisher);
+        using var client = factory.CreateClient();
+
+        using var response = await RelayTestClient.PostEventAsync(
+            client,
+            """{"message":"boom","platform":"Unity"}""");
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var payload = RelayTestClient.Payload(Assert.Single(publisher.Envelopes));
+        Assert.Equal("unity", payload.GetProperty("platform").GetString());
+    }
+
+    [Theory]
+    [InlineData("unity/1")]
+    [InlineData("unity 1")]
+    [InlineData("Unity@2")]
+    [InlineData("유니티")]
+    public async Task PostEvent_WithInvalidPlatformCharacters_ReturnsBadRequest(string platform)
+    {
+        var publisher = new RecordingEnvelopePublisher();
+        using var factory = new RelayApplicationFactory(publisher);
+        using var client = factory.CreateClient();
+
+        var json = JsonSerializer.Serialize(new { message = "boom", platform });
+        using var response = await RelayTestClient.PostEventAsync(client, json);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(
+            "platform must match [a-z0-9._-]",
+            await RelayTestClient.ReadErrorAsync(response));
+        Assert.Empty(publisher.Envelopes);
+    }
+
+    [Fact]
+    public async Task PostEvent_TruncatesPlatformTo32Characters()
+    {
+        var publisher = new RecordingEnvelopePublisher();
+        using var factory = new RelayApplicationFactory(publisher);
+        using var client = factory.CreateClient();
+
+        // The last eight characters are not valid in a platform, but the value
+        // is truncated to 32 characters before it is validated.
+        var platform = new string('p', 32) + new string('/', 8);
+        Assert.Equal(40, platform.Length);
+
+        var json = JsonSerializer.Serialize(new { message = "boom", platform });
+        using var response = await RelayTestClient.PostEventAsync(client, json);
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var payload = RelayTestClient.Payload(Assert.Single(publisher.Envelopes));
+        Assert.Equal(new string('p', 32), payload.GetProperty("platform").GetString());
+    }
+
+    [Fact]
+    public async Task PostEvent_WithNewlineAtTruncationBoundary_ReturnsBadRequest()
+    {
+        var publisher = new RecordingEnvelopePublisher();
+        using var factory = new RelayApplicationFactory(publisher);
+        using var client = factory.CreateClient();
+
+        // Truncated to 32 characters the value ends with a newline, which a '$'
+        // anchor would accept (it also matches before a trailing '\n').
+        var platform = new string('p', 31) + "\n" + "x";
+        Assert.Equal(33, platform.Length);
+
+        var json = JsonSerializer.Serialize(new { message = "boom", platform });
+        using var response = await RelayTestClient.PostEventAsync(client, json);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(
+            "platform must match [a-z0-9._-]",
+            await RelayTestClient.ReadErrorAsync(response));
+        Assert.Empty(publisher.Envelopes);
     }
 }

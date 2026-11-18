@@ -41,16 +41,10 @@ URL, for example `https://<GLITCHPORT_HOST>:8443`, so generated DSNs of the
 form `https://<public-key>@<host>:<port>/<project-id>` point at the public
 Relay.
 
-`Relay__Projects__*` (fed by `INGEST_PUBLIC_KEY` in `.env`) is only a static
-bootstrap/fallback for keys that are not in the database yet. Remove those
-entries once the project and its keys exist in PostgreSQL, otherwise the static
-key stays valid forever and revoking it in the database has no effect.
-`Processor__Bootstrap__Projects` is only for first-start seeding, for example
-project 1 with `INGEST_PUBLIC_KEY` by setting
-`Processor__Bootstrap__Projects__0__Id`, `__Name`, `__Slug` and
-`__PublicKeys__0`; it creates missing projects and keys and never updates or
-deletes them. Manage projects and keys through the Management API after the
-first start.
+`INGEST_PUBLIC_KEY` is used only to seed project `1` and its key on first start
+via `Processor__Bootstrap__Projects` (`Processor__Bootstrap__Projects__0__*`).
+The Processor creates missing projects and keys and never updates or deletes
+them. Keys are created and revoked afterwards only through the Management API.
 
 Data persists in `glitch-port_postgres-data`. Back up with `pg_dump` before
 upgrades. `docker compose -f compose.yml down` preserves data; do not add `-v`.

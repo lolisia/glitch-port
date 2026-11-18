@@ -1,4 +1,5 @@
 import type { Label } from '../../../api/types';
+import { useI18n } from '../../../i18n';
 import { LabelChip } from '../../../ui';
 
 interface LabelsEditorProps {
@@ -24,21 +25,31 @@ export function LabelsEditor({
   onNewNamesChange,
   onSave,
 }: LabelsEditorProps) {
+  const { t } = useI18n();
+
   return (
     <section
       className="issue-labels"
       data-testid="issue-labels"
       aria-labelledby="issue-labels-heading"
     >
-      <h3 id="issue-labels-heading">Labels</h3>
+      <h3 id="issue-labels-heading">{t('issues.detail.labels.title')}</h3>
 
       <div className="label-chips" data-testid="issue-label-chips">
-        {issueLabels.map((label) => (
-          <LabelChip key={label.id} label={label} />
-        ))}
+        {issueLabels.length === 0 ? (
+          <span className="label-chips-empty">
+            {t('issues.detail.labels.empty')}
+          </span>
+        ) : (
+          issueLabels.map((label) => <LabelChip key={label.id} label={label} />)
+        )}
       </div>
 
-      <div className="label-options" role="group" aria-label="Project labels">
+      <div
+        className="label-options"
+        role="group"
+        aria-label={t('issues.detail.labels.projectLabels')}
+      >
         {projectLabels.map((label) => (
           <label className="label-option" key={label.id}>
             <input
@@ -55,13 +66,13 @@ export function LabelsEditor({
       <div className="label-new">
         <input
           type="text"
-          aria-label="New label names"
-          placeholder="New labels, comma separated"
+          aria-label={t('issues.detail.labels.newNames')}
+          placeholder={t('issues.detail.labels.newPlaceholder')}
           value={newNames}
           onChange={(event) => onNewNamesChange(event.target.value)}
         />
         <button type="button" onClick={onSave} disabled={saving}>
-          Save labels
+          {t('issues.detail.labels.save')}
         </button>
       </div>
     </section>

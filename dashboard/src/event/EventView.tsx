@@ -8,17 +8,16 @@ import type {
   SdkInfo,
   StackFrame,
 } from '../api/types';
+import { useI18n, type Translate } from '../i18n';
 import { LevelBadge } from '../ui/LevelBadge';
 import { formatClockTime } from '../ui/time';
 import './event.css';
 
-const UNKNOWN_FRAME = '<unknown>';
-
 const USER_FIELDS: ReadonlyArray<[keyof EventUser, string]> = [
-  ['id', 'ID'],
-  ['username', 'Username'],
-  ['email', 'Email'],
-  ['ip_address', 'IP address'],
+  ['id', 'event.userFields.id'],
+  ['username', 'event.userFields.username'],
+  ['email', 'event.userFields.email'],
+  ['ip_address', 'event.userFields.ipAddress'],
 ];
 
 function isNonEmptyString(value: unknown): value is string {
@@ -46,12 +45,14 @@ function KeyValueTable({
 }: {
   entries: ReadonlyArray<readonly [string, unknown]>;
 }) {
+  const { t } = useI18n();
+
   return (
     <table className="key-value-table">
       <thead>
         <tr>
-          <th scope="col">Key</th>
-          <th scope="col">Value</th>
+          <th scope="col">{t('event.key')}</th>
+          <th scope="col">{t('event.value')}</th>
         </tr>
       </thead>
       <tbody>
@@ -68,7 +69,7 @@ function KeyValueTable({
   );
 }
 
-function frameLabel(frame: StackFrame): string {
+function frameLabel(frame: StackFrame, fallback: string): string {
   const moduleName = isNonEmptyString(frame.module) ? frame.module : null;
   const functionName = isNonEmptyString(frame.function) ? frame.function : null;
 
@@ -84,7 +85,7 @@ function frameLabel(frame: StackFrame): string {
     return functionName;
   }
 
-  return UNKNOWN_FRAME;
+  return fallback;
 }
 
 function frameLocation(frame: StackFrame): string | null {
@@ -112,11 +113,14 @@ function frameClassName(frame: StackFrame): string {
 }
 
 function Frame({ frame }: { frame: StackFrame }) {
+  const { t } = useI18n();
   const location = frameLocation(frame);
 
   return (
     <div className={frameClassName(frame)} data-testid="frame">
-      <div className="frame-title">{frameLabel(frame)}</div>
+      <div className="frame-title">
+        {frameLabel(frame, t('event.unknownFrame'))}
+      </div>
       {location !== null && <div className="frame-location">{location}</div>}
       {isNonEmptyString(frame.context_line) && (
         <code className="frame-context">{frame.context_line}</code>
@@ -132,6 +136,7 @@ function exceptionTitle(exception: ExceptionValue): string {
 }
 
 function ExceptionBlock({ exception }: { exception: ExceptionValue }) {
+  const { t } = useI18n();
   const [showSystemFrames, setShowSystemFrames] = useState(false);
 
   // v1 stack traces are ordered caller -> callee, so the last frame is the
@@ -163,8 +168,8 @@ function ExceptionBlock({ exception }: { exception: ExceptionValue }) {
           onClick={() => setShowSystemFrames((value) => !value)}
         >
           {showSystemFrames
-            ? `Hide ${systemFrameCount} system frames`
-            : `Show ${systemFrameCount} system frames`}
+            ? t('event.hideSystemFrames', { count: systemFrameCount })
+            : t('event.showSystemFrames', { count: systemFrameCount })}
         </button>
       )}
     </section>
@@ -179,7 +184,7 @@ function contextEntries(value: unknown): ReadonlyArray<readonly [string, unknown
   return [['value', value]];
 }
 
-function sdkText(sdk: SdkInfo): string {
+function sdkText(sdk: SdkInfo, unknownLabel: string): string {
   const name = isNonEmptyString(sdk.name) ? sdk.name : null;
   const version = isNonEmptyString(sdk.version) ? sdk.version : null;
 
@@ -187,17 +192,20 @@ function sdkText(sdk: SdkInfo): string {
     return `${name}@${version}`;
   }
 
-  return name ?? version ?? 'unknown';
+  return name ?? version ?? unknownLabel;
 }
 
-function userRows(user: EventUser): Array<{ label: string; value: string }> {
+function userRows(
+  user: EventUser,
+  t: Translate,
+): Array<{ label: string; value: string }> {
   const rows: Array<{ label: string; value: string }> = [];
 
-  for (const [field, label] of USER_FIELDS) {
+  for (const [field, labelKey] of USER_FIELDS) {
     const value = user[field];
 
     if (isNonEmptyString(value)) {
-      rows.push({ label, value });
+      rows.push({ label: t(labelKey), value });
     }
   }
 
@@ -205,6 +213,7 @@ function userRows(user: EventUser): Array<{ label: string; value: string }> {
 }
 
 function BreadcrumbItem({ breadcrumb }: { breadcrumb: Breadcrumb }) {
+  const { locale, t } = useI18n();
   const data = breadcrumb.data;
   const showData = hasEntries(data);
 
@@ -212,7 +221,7 @@ function BreadcrumbItem({ breadcrumb }: { breadcrumb: Breadcrumb }) {
     <li className="breadcrumb">
       {isNonEmptyString(breadcrumb.timestamp) && (
         <time dateTime={breadcrumb.timestamp}>
-          {formatClockTime(breadcrumb.timestamp)}
+          {formatClockTime(breadcrumb.timestamp, locale)}
         </time>
       )}
       {isNonEmptyString(breadcrumb.category) && (
@@ -226,7 +235,7 @@ function BreadcrumbItem({ breadcrumb }: { breadcrumb: Breadcrumb }) {
       )}
       {showData && (
         <details className="breadcrumb-data">
-          <summary>data</summary>
+          <summary>{t('event.data')}</summary>
           <pre>{JSON.stringify(data, null, 2)}</pre>
         </details>
       )}
@@ -235,6 +244,7 @@ function BreadcrumbItem({ breadcrumb }: { breadcrumb: Breadcrumb }) {
 }
 
 export function EventView({ event }: { event: EventDetail }) {
+  const { t } = useI18n();
   const payload: EventPayload = event.payload ?? {};
   const exceptions = Array.isArray(payload.exception) ? payload.exception : [];
   const tags = payload.tags;
@@ -245,13 +255,13 @@ export function EventView({ event }: { event: EventDetail }) {
   const extra = payload.extra;
   const sdk = payload.sdk;
   const user = payload.user;
-  const rows = user ? userRows(user) : [];
+  const rows = user ? userRows(user, t) : [];
 
   return (
     <div className="event-view">
       {exceptions.length > 0 && (
         <section className="event-section">
-          <h3>Exceptions</h3>
+          <h3>{t('event.exceptions')}</h3>
           {[...exceptions].reverse().map((exception, index) => (
             <ExceptionBlock
               key={`${exception.type}:${index}`}
@@ -263,21 +273,21 @@ export function EventView({ event }: { event: EventDetail }) {
 
       {isNonEmptyString(payload.message) && (
         <section className="event-section">
-          <h3>Message</h3>
+          <h3>{t('event.message')}</h3>
           <pre className="event-message">{payload.message}</pre>
         </section>
       )}
 
       {hasEntries(tags) && (
         <section className="event-section">
-          <h3>Tags</h3>
+          <h3>{t('event.tags')}</h3>
           <KeyValueTable entries={Object.entries(tags)} />
         </section>
       )}
 
       {rows.length > 0 && (
         <section className="event-section">
-          <h3>User</h3>
+          <h3>{t('event.user')}</h3>
           <table className="key-value-table">
             <tbody>
               {rows.map((row) => (
@@ -293,7 +303,7 @@ export function EventView({ event }: { event: EventDetail }) {
 
       {hasEntries(contexts) && (
         <section className="event-section">
-          <h3>Contexts</h3>
+          <h3>{t('event.contexts')}</h3>
           {Object.entries(contexts).map(([name, value]) => (
             <div className="context" key={name}>
               <h4>{name}</h4>
@@ -305,7 +315,7 @@ export function EventView({ event }: { event: EventDetail }) {
 
       {breadcrumbs.length > 0 && (
         <section className="event-section">
-          <h3>Breadcrumbs</h3>
+          <h3>{t('event.breadcrumbs')}</h3>
           <ol className="breadcrumbs">
             {breadcrumbs.map((breadcrumb, index) => (
               <BreadcrumbItem
@@ -319,14 +329,14 @@ export function EventView({ event }: { event: EventDetail }) {
 
       {sdk != null && (
         <section className="event-section">
-          <h3>SDK</h3>
-          <p className="event-sdk">{sdkText(sdk)}</p>
+          <h3>{t('event.sdk')}</h3>
+          <p className="event-sdk">{sdkText(sdk, t('event.unknownSdk'))}</p>
         </section>
       )}
 
       {hasEntries(extra) && (
         <section className="event-section">
-          <h3>Extra</h3>
+          <h3>{t('event.extra')}</h3>
           <KeyValueTable entries={Object.entries(extra)} />
         </section>
       )}
@@ -335,7 +345,7 @@ export function EventView({ event }: { event: EventDetail }) {
           section heading. */}
       <section className="event-section raw-json">
         <details>
-          <summary>Raw JSON</summary>
+          <summary>{t('event.rawJson')}</summary>
           <pre>{JSON.stringify(event.payload, null, 2)}</pre>
         </details>
       </section>

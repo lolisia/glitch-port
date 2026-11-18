@@ -35,7 +35,12 @@ internal static class ManagementStatsEndpoints
         }
 
         var buckets = await stats.GetAsync(projectId, normalized, cancellationToken).ConfigureAwait(false);
+        var byPlatform = await stats
+            .GetPlatformStatsAsync(projectId, cancellationToken)
+            .ConfigureAwait(false);
 
-        return ManagementHttp.Json(buckets, ProcessorJsonContext.Default.ListStatsBucketResponse);
+        return ManagementHttp.Json(
+            new ManagementStatsResponse(buckets, byPlatform),
+            ProcessorJsonContext.Default.ManagementStatsResponse);
     }
 }

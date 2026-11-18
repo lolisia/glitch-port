@@ -1,10 +1,12 @@
 import type { IssueStatus } from '../../../api/types';
+import { useI18n } from '../../../i18n';
 
-const STATUS_ACTIONS: ReadonlyArray<{ label: string; status: IssueStatus }> = [
-  { label: 'Resolve', status: 'resolved' },
-  { label: 'Unresolve', status: 'unresolved' },
-  { label: 'Ignore', status: 'ignored' },
-];
+const STATUS_ACTIONS: ReadonlyArray<{ labelKey: string; status: IssueStatus }> =
+  [
+    { labelKey: 'issues.detail.resolve', status: 'resolved' },
+    { labelKey: 'issues.detail.unresolve', status: 'unresolved' },
+    { labelKey: 'issues.detail.ignore', status: 'ignored' },
+  ];
 
 interface IssueActionsProps {
   onChangeStatus: (status: IssueStatus) => void;
@@ -16,19 +18,25 @@ interface IssueActionsProps {
  * StatusBadge never traps the user in one state.
  */
 export function IssueActions({ onChangeStatus, onDelete }: IssueActionsProps) {
+  const { t } = useI18n();
+
   return (
-    <div className="issue-actions" role="group" aria-label="Issue actions">
+    <div
+      className="issue-actions"
+      role="group"
+      aria-label={t('issues.detail.actions')}
+    >
       {STATUS_ACTIONS.map((action) => (
         <button
           key={action.status}
           type="button"
           onClick={() => onChangeStatus(action.status)}
         >
-          {action.label}
+          {t(action.labelKey)}
         </button>
       ))}
       <button type="button" className="button-danger" onClick={onDelete}>
-        Delete issue
+        {t('issues.detail.deleteIssue')}
       </button>
     </div>
   );

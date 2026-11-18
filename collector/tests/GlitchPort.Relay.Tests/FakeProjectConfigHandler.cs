@@ -127,6 +127,15 @@ internal sealed class FakeProjectConfigHandler : HttpMessageHandler
         return JsonSerializer.Serialize(new { version, projects });
     }
 
+    /// <summary>
+    /// Creates a handler that answers every request with the supplied project
+    /// config. Used as the default key source of <see cref="RelayApplicationFactory"/>.
+    /// </summary>
+    public static FakeProjectConfigHandler ForConfig(
+        string version,
+        params (long ProjectId, string PublicKey, int? RateLimitPerMinute)[] keys) =>
+        new(_ => JsonResponse(ConfigJson(version, keys)));
+
     /// <inheritdoc />
     protected override Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,

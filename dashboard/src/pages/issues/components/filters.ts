@@ -26,6 +26,8 @@ export interface IssueFilters {
   environment: string;
   release: string;
   label: string;
+  /** Selected platforms; an empty list means "all platforms". */
+  platform: string[];
   q: string;
   sort: IssueSortFilter;
 }
@@ -36,6 +38,7 @@ export const DEFAULT_ISSUE_FILTERS: IssueFilters = {
   environment: '',
   release: '',
   label: '',
+  platform: [],
   q: '',
   sort: 'last_seen',
 };
@@ -60,6 +63,28 @@ function readTrimmed(query: URLSearchParams, key: string): string {
   return query.get(key)?.trim() ?? '';
 }
 
+/**
+ * Reads the comma-separated `platform` filter into distinct, trimmed values.
+ * Blank entries are dropped, so `platform=` (or only commas) means no filter.
+ */
+export function parsePlatformFilter(value: string | null): string[] {
+  if (value === null) {
+    return [];
+  }
+
+  const platforms: string[] = [];
+
+  for (const entry of value.split(',')) {
+    const platform = entry.trim();
+
+    if (platform !== '' && !platforms.includes(platform)) {
+      platforms.push(platform);
+    }
+  }
+
+  return platforms;
+}
+
 /** Reads the known filter keys, falling back for missing or invalid values. */
 export function readIssueFilters(query: URLSearchParams): IssueFilters {
   return {
@@ -68,6 +93,7 @@ export function readIssueFilters(query: URLSearchParams): IssueFilters {
     environment: readTrimmed(query, 'environment'),
     release: readTrimmed(query, 'release'),
     label: readTrimmed(query, 'label'),
+    platform: parsePlatformFilter(query.get('platform')),
     q: readTrimmed(query, 'q'),
     sort: parseIssueSortFilter(query.get('sort')),
   };
@@ -95,6 +121,8 @@ export function buildIssueFilterParams(
   append('environment', filters.environment);
   append('release', filters.release);
   append('label', filters.label);
+  // One comma-separated value keeps shared links compact and matches the API.
+  append('platform', filters.platform.join(','));
   if (filters.sort !== DEFAULT_ISSUE_FILTERS.sort) {
     append('sort', filters.sort);
   }
@@ -113,6 +141,7 @@ export function buildIssueListQuery(
     environment: filters.environment,
     release: filters.release,
     label: filters.label,
+    platform: filters.platform,
     q: filters.q,
     sort: filters.sort,
     limit: ISSUE_PAGE_SIZE,
@@ -147,28 +176,29 @@ export function collectFilterOptions(
 
 export const STATUS_TABS: ReadonlyArray<{
   value: IssueStatusFilter;
-  label: string;
+  labelKey: string;
 }> = [
-  { value: 'unresolved', label: 'Unresolved' },
-  { value: 'resolved', label: 'Resolved' },
-  { value: 'ignored', label: 'Ignored' },
-  { value: 'all', label: 'All' },
+  { value: 'unresolved', labelKey: 'issues.status.unresolved' },
+  { value: 'resolved', labelKey: 'issues.status.resolved' },
+  { value: 'ignored', labelKey: 'issues.status.ignored' },
+  { value: 'all', labelKey: 'issues.status.all' },
 ];
 
-export const LEVEL_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: '', label: 'All levels' },
-  { value: 'debug', label: 'Debug' },
-  { value: 'info', label: 'Info' },
-  { value: 'warning', label: 'Warning' },
-  { value: 'error', label: 'Error' },
-  { value: 'fatal', label: 'Fatal' },
-];
+export const LEVEL_OPTIONS: ReadonlyArray<{ value: string; labelKey: string }> =
+  [
+    { value: '', labelKey: 'issues.filters.allLevels' },
+    { value: 'debug', labelKey: 'issues.filters.debug' },
+    { value: 'info', labelKey: 'issues.filters.info' },
+    { value: 'warning', labelKey: 'issues.filters.warning' },
+    { value: 'error', labelKey: 'issues.filters.error' },
+    { value: 'fatal', labelKey: 'issues.filters.fatal' },
+  ];
 
 export const SORT_OPTIONS: ReadonlyArray<{
   value: IssueSortFilter;
-  label: string;
+  labelKey: string;
 }> = [
-  { value: 'last_seen', label: 'Last seen' },
-  { value: 'first_seen', label: 'First seen' },
-  { value: 'count', label: 'Event count' },
+  { value: 'last_seen', labelKey: 'issues.filters.lastSeen' },
+  { value: 'first_seen', labelKey: 'issues.filters.firstSeen' },
+  { value: 'count', labelKey: 'issues.filters.eventCount' },
 ];

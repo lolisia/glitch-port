@@ -184,13 +184,12 @@ public sealed class ProjectStoreTests
         using var dataSource = NpgsqlDataSource.Create(database.ConnectionString);
         var store = new ProjectStore(dataSource, new PublicKeyGenerator());
 
-        var created = await store.CreateAsync("Star Raiders", "star-raiders", "unity", CancellationToken.None);
+        var created = await store.CreateAsync("Star Raiders", "star-raiders", CancellationToken.None);
 
         Assert.NotNull(created);
         Assert.True(created.Project.Id > 0);
         Assert.Equal("Star Raiders", created.Project.Name);
         Assert.Equal("star-raiders", created.Project.Slug);
-        Assert.Equal("unity", created.Project.Platform);
         Assert.Equal(created.Project.Id, created.Key.ProjectId);
         Assert.True(created.Key.IsActive);
         Assert.Null(created.Key.Label);
@@ -211,10 +210,10 @@ public sealed class ProjectStoreTests
         using var dataSource = NpgsqlDataSource.Create(database.ConnectionString);
         var store = new ProjectStore(dataSource, new PublicKeyGenerator());
 
-        var first = await store.CreateAsync("First", "taken", null, CancellationToken.None);
+        var first = await store.CreateAsync("First", "taken", CancellationToken.None);
         Assert.NotNull(first);
 
-        Assert.Null(await store.CreateAsync("Second", "taken", null, CancellationToken.None));
+        Assert.Null(await store.CreateAsync("Second", "taken", CancellationToken.None));
 
         var projects = await store.ListAsync(CancellationToken.None);
         Assert.Equal([first.Project.Id], projects.Select(project => project.Id));
@@ -232,8 +231,8 @@ public sealed class ProjectStoreTests
         using var dataSource = NpgsqlDataSource.Create(database.ConnectionString);
         var store = new ProjectStore(dataSource, new PublicKeyGenerator());
 
-        var alpha = await store.CreateAsync("Alpha", "alpha", "unity", CancellationToken.None);
-        var beta = await store.CreateAsync("Beta", "beta", "godot", CancellationToken.None);
+        var alpha = await store.CreateAsync("Alpha", "alpha", CancellationToken.None);
+        var beta = await store.CreateAsync("Beta", "beta", CancellationToken.None);
         Assert.NotNull(alpha);
         Assert.NotNull(beta);
 
@@ -260,6 +259,8 @@ public sealed class ProjectStoreTests
         Assert.Equal(1, projects[0].ActiveKeyCount);
         Assert.Equal(1, projects[1].UnresolvedIssueCount);
         Assert.Equal(0, projects[1].ActiveKeyCount);
+        Assert.Equal(["unity"], projects[0].Platforms);
+        Assert.Equal(["unity"], projects[1].Platforms);
     }
 
     [Fact]
@@ -271,17 +272,16 @@ public sealed class ProjectStoreTests
         using var dataSource = NpgsqlDataSource.Create(database.ConnectionString);
         var store = new ProjectStore(dataSource, new PublicKeyGenerator());
 
-        var created = await store.CreateAsync("Item", "item", null, CancellationToken.None);
+        var created = await store.CreateAsync("Item", "item", CancellationToken.None);
         Assert.NotNull(created);
 
-        var updated = await store.UpdateAsync(created.Project.Id, "Renamed", "godot", CancellationToken.None);
+        var updated = await store.UpdateAsync(created.Project.Id, "Renamed", CancellationToken.None);
 
         Assert.NotNull(updated);
         Assert.Equal("Renamed", updated.Name);
         Assert.Equal("item", updated.Slug);
-        Assert.Equal("godot", updated.Platform);
 
-        Assert.Null(await store.UpdateAsync(created.Project.Id + 1, "Renamed", null, CancellationToken.None));
+        Assert.Null(await store.UpdateAsync(created.Project.Id + 1, "Renamed", CancellationToken.None));
 
         Assert.True(await store.DeleteAsync(created.Project.Id, CancellationToken.None));
         Assert.False(await store.DeleteAsync(created.Project.Id, CancellationToken.None));
@@ -298,7 +298,7 @@ public sealed class ProjectStoreTests
         using var dataSource = NpgsqlDataSource.Create(database.ConnectionString);
         var store = new ProjectStore(dataSource, new PublicKeyGenerator());
 
-        var project = await store.CreateAsync("Keys", "keys", null, CancellationToken.None);
+        var project = await store.CreateAsync("Keys", "keys", CancellationToken.None);
         Assert.NotNull(project);
 
         var second = await store.CreateKeyAsync(project.Project.Id, "ci", 30, CancellationToken.None);
@@ -354,8 +354,8 @@ public sealed class ProjectStoreTests
         using var dataSource = NpgsqlDataSource.Create(database.ConnectionString);
         var store = new ProjectStore(dataSource, new PublicKeyGenerator());
 
-        var alpha = await store.CreateAsync("Alpha", "alpha", "unity", CancellationToken.None);
-        var beta = await store.CreateAsync("Beta", "beta", "godot", CancellationToken.None);
+        var alpha = await store.CreateAsync("Alpha", "alpha", CancellationToken.None);
+        var beta = await store.CreateAsync("Beta", "beta", CancellationToken.None);
         Assert.NotNull(alpha);
         Assert.NotNull(beta);
 
@@ -367,7 +367,6 @@ public sealed class ProjectStoreTests
 
         Assert.Equal([alpha.Project.Id, beta.Project.Id], configs.Select(config => config.Id));
         Assert.Equal("alpha", configs[0].Slug);
-        Assert.Equal("unity", configs[0].Platform);
         Assert.Equal([alpha.Key.Id], configs[0].Keys.Select(key => key.Id));
         Assert.Equal(alpha.Key.PublicKey, configs[0].Keys[0].PublicKey);
         Assert.Equal([beta.Key.Id], configs[1].Keys.Select(key => key.Id));
