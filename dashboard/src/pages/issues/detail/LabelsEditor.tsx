@@ -36,9 +36,13 @@ export function LabelsEditor({
       <h3 id="issue-labels-heading">{t('issues.detail.labels.title')}</h3>
 
       <div className="label-chips" data-testid="issue-label-chips">
-        {issueLabels.map((label) => (
-          <LabelChip key={label.id} label={label} />
-        ))}
+        {issueLabels.length === 0 ? (
+          <span className="label-chips-empty">
+            {t('issues.detail.labels.empty')}
+          </span>
+        ) : (
+          issueLabels.map((label) => <LabelChip key={label.id} label={label} />)
+        )}
       </div>
 
       <div

@@ -95,6 +95,7 @@ export const issues: IssuesMessages = {
     confirmDelete: '이 이슈와 모든 이벤트를 삭제할까요?',
     labels: {
       title: '라벨',
+      empty: '라벨 없음',
       projectLabels: '프로젝트 라벨',
       newNames: '새 라벨 이름',
       newPlaceholder: '새 라벨 (쉼표로 구분)',

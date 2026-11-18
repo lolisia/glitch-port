@@ -101,9 +101,8 @@
   gap: 0.375rem;
 }
 
-.label-chips:empty::before {
+.label-chips-empty {
   color: var(--color-fg-muted);
-  content: 'No labels';
   font-size: 0.875rem;
 }
 

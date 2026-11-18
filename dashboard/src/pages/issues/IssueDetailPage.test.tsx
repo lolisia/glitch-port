@@ -564,6 +564,20 @@ describe('IssueDetailPage', () => {
     ).toBeInTheDocument();
   });
 
+  it('renders the localized empty label state when the issue has no labels', async () => {
+    stubApi({ issue: { ...baseIssue, labels: [] } });
+
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
+
+    await screen.findByTestId('issue-detail-header');
+
+    const chips = screen.getByTestId('issue-label-chips');
+    expect(within(chips).getByText('No labels')).toBeInTheDocument();
+    expect(chips.querySelector('.label-chip')).toBeNull();
+    // The project labels remain selectable even though the issue has none.
+    expect(screen.getByRole('checkbox', { name: 'crash' })).not.toBeChecked();
+  });
+
   it('shows an action error when a status update fails', async () => {
     const user = userEvent.setup();
     stubApi({ patchError: jsonResponse({ error: 'boom' }, 500) });
@@ -929,5 +943,19 @@ describe('IssueDetailPage', () => {
     expect(confirm).toHaveBeenCalledWith(
       '이 이슈와 모든 이벤트를 삭제할까요?',
     );
+  });
+
+  it('renders the Korean empty label state instead of the English text', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
+    stubApi({ issue: { ...baseIssue, labels: [] } });
+
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
+
+    await screen.findByTestId('issue-detail-header');
+
+    const chips = screen.getByTestId('issue-label-chips');
+    expect(within(chips).getByText('라벨 없음')).toBeInTheDocument();
+    expect(screen.queryByText('No labels')).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'crash' })).not.toBeChecked();
   });
 });

@@ -101,6 +101,7 @@ export const issues = {
     confirmDelete: 'Delete this issue and all of its events?',
     labels: {
       title: 'Labels',
+      empty: 'No labels',
       projectLabels: 'Project labels',
       newNames: 'New label names',
       newPlaceholder: 'New labels, comma separated',
