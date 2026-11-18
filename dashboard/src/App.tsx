@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { listProjects } from './api/client';
+import logoUrl from './assets/glitch-port-icon.svg';
 import type { ProjectListItem } from './api/types';
 import { isLocale, useI18n } from './i18n';
 import { IssueDetailPage } from './pages/issues/IssueDetailPage';
@@ -187,7 +188,10 @@ export default function App() {
   return (
     <>
       <header className="top-bar">
-        <h1>glitch-port</h1>
+        <h1 className="brand">
+          <img className="brand-logo" src={logoUrl} alt="" width={28} height={28} />
+          glitch-port
+        </h1>
         <nav className="tabs" aria-label={t('nav.sections')}>
           <a
             className="tab"

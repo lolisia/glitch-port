@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="logo/glitch-port-signal-dark.png">
+    <img alt="glitch-port: catch the signal, trace the crash" src="logo/glitch-port-signal-light.png" width="560">
+  </picture>
+</p>
+
 # glitch-port
 
 glitch-port is a Sentry-like error and crash reporting platform specialised for

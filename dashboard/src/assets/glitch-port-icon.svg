@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="glitch-port"><defs>
+    <linearGradient id="bbg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#143C42"/><stop offset="1" stop-color="#0A1C2B"/></linearGradient>
+    <linearGradient id="bwave" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#30E0C0"/><stop offset="0.5" stop-color="#F3FCF9"/><stop offset="1" stop-color="#35DAD9"/></linearGradient>
+    </defs>
+    <rect x="8" y="8" width="240" height="240" rx="61" fill="url(#bbg)"/>
+    <rect x="9" y="9" width="238" height="238" rx="60" fill="none" stroke="#99FFF2" stroke-opacity="0.12" stroke-width="2"/>
+    <path d="M59 100V80Q59 59 80 59H101" fill="none" stroke="#34D7C1" stroke-width="15" stroke-linecap="round"/>
+    <path d="M154 59H176Q197 59 197 80V96" fill="none" stroke="#34D7C1" stroke-width="15" stroke-linecap="round"/>
+    <path d="M59 156V177Q59 197 80 197H101" fill="none" stroke="#34D7C1" stroke-width="15" stroke-linecap="round"/>
+    <path d="M155 197H176Q197 197 197 176V156" fill="none" stroke="#34D7C1" stroke-width="15" stroke-linecap="round"/>
+    <path d="M53 133H91L111 107L138 168L161 125H208" fill="none" stroke="url(#bwave)" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="197" cy="75" r="15" fill="#FF775F"/>
+    <circle cx="197" cy="75" r="5" fill="#FFDDCD"/>
+</svg>

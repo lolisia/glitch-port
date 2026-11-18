@@ -106,6 +106,18 @@ main {
   font-size: 1.25rem;
 }
 
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.brand-logo {
+  display: block;
+  flex: none;
+}
+
 .tabs {
   display: flex;
   gap: 0.25rem;
