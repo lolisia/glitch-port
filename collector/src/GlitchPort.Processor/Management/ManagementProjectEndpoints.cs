@@ -22,6 +22,10 @@ internal static class ManagementProjectEndpoints
 {
     private const string DefaultSlug = "project";
 
+    private const int MaxInboundFilterItems = 50;
+
+    private const int MaxInboundFilterItemLength = 200;
+
     private const string PlatformIsNotAProjectSetting =
         "platform is no longer a project setting; events carry their own platform";
 
@@ -61,7 +65,8 @@ internal static class ManagementProjectEndpoints
                 project.Platforms,
                 project.CreatedAt,
                 project.UnresolvedIssueCount,
-                project.ActiveKeyCount))
+                project.ActiveKeyCount,
+                ToResponse(project.InboundFilters)))
             .ToList();
 
         return ManagementHttp.Json(response, ProcessorJsonContext.Default.ListProjectListItemResponse);
@@ -183,8 +188,25 @@ internal static class ManagementProjectEndpoints
             }
         }
 
+        var update = ProjectUpdate.None with { Name = name };
+
+        if (body.InboundFilters.ValueKind != JsonValueKind.Undefined)
+        {
+            if (!TryReadInboundFilters(body.InboundFilters, out var inboundFilters, out var error))
+            {
+                return ManagementHttp.BadRequest(error);
+            }
+
+            update = update with
+            {
+                Releases = inboundFilters.Releases,
+                Environments = inboundFilters.Environments,
+                MessagePatterns = inboundFilters.MessagePatterns,
+            };
+        }
+
         var updated = await store
-            .UpdateAsync(projectId, name, cancellationToken)
+            .UpdateAsync(projectId, update, cancellationToken)
             .ConfigureAwait(false);
 
         if (updated is null)
@@ -388,8 +410,14 @@ internal static class ManagementProjectEndpoints
             project.CreatedAt,
             project.UnresolvedIssueCount,
             project.ActiveKeyCount,
+            ToResponse(project.InboundFilters),
             activeKey is null ? null : BuildDsn(publicRelayUrl, activeKey, project.Id));
     }
+
+    private static InboundFiltersResponse ToResponse(ProjectRecords filters) => new(
+        filters.Releases,
+        filters.Environments,
+        filters.MessagePatterns);
 
     private static ProjectKeyResponse ToResponse(ProjectKeyRecord key, string publicRelayUrl) => new(
         key.Id,
@@ -413,6 +441,115 @@ internal static class ManagementProjectEndpoints
 
         var trimmed = label.Trim();
         return trimmed.Length == 0 ? null : trimmed;
+    }
+
+    /// <summary>
+    /// Reads the optional <c>inbound_filters</c> object of a project update.
+    /// Only the sub-arrays present in the body are specified; an omitted
+    /// sub-array keeps the stored value.
+    /// </summary>
+    private static bool TryReadInboundFilters(
+        JsonElement element,
+        out ProjectUpdate filters,
+        out string error)
+    {
+        filters = ProjectUpdate.None;
+
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            error = "inbound_filters must be an object with releases, environments and/or message_patterns arrays.";
+            return false;
+        }
+
+        var releases = OptionalField<IReadOnlyList<string>>.Unspecified;
+        if (element.TryGetProperty("releases", out var releasesElement))
+        {
+            if (!TryReadFilterArray(releasesElement, "releases", out var values, out error))
+            {
+                return false;
+            }
+
+            releases = OptionalField<IReadOnlyList<string>>.Specified(values);
+        }
+
+        var environments = OptionalField<IReadOnlyList<string>>.Unspecified;
+        if (element.TryGetProperty("environments", out var environmentsElement))
+        {
+            if (!TryReadFilterArray(environmentsElement, "environments", out var values, out error))
+            {
+                return false;
+            }
+
+            environments = OptionalField<IReadOnlyList<string>>.Specified(values);
+        }
+
+        var messagePatterns = OptionalField<IReadOnlyList<string>>.Unspecified;
+        if (element.TryGetProperty("message_patterns", out var messagePatternsElement))
+        {
+            if (!TryReadFilterArray(
+                    messagePatternsElement,
+                    "message_patterns",
+                    out var values,
+                    out error))
+            {
+                return false;
+            }
+
+            messagePatterns = OptionalField<IReadOnlyList<string>>.Specified(values);
+        }
+
+        filters = new ProjectUpdate(null, releases, environments, messagePatterns);
+        error = string.Empty;
+        return true;
+    }
+
+    private static bool TryReadFilterArray(
+        JsonElement element,
+        string name,
+        out IReadOnlyList<string> values,
+        out string error)
+    {
+        values = [];
+
+        if (element.ValueKind != JsonValueKind.Array)
+        {
+            error = $"inbound_filters.{name} must be an array of strings.";
+            return false;
+        }
+
+        if (element.GetArrayLength() > MaxInboundFilterItems)
+        {
+            error = $"inbound_filters.{name} must contain at most {MaxInboundFilterItems} items.";
+            return false;
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var items = new List<string>(element.GetArrayLength());
+
+        foreach (var item in element.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String)
+            {
+                error = $"inbound_filters.{name} must be an array of strings.";
+                return false;
+            }
+
+            var value = (item.GetString() ?? string.Empty).Trim();
+            if (value.Length is < 1 or > MaxInboundFilterItemLength)
+            {
+                error = $"inbound_filters.{name} items must be 1 to {MaxInboundFilterItemLength} characters after trimming.";
+                return false;
+            }
+
+            if (seen.Add(value))
+            {
+                items.Add(value);
+            }
+        }
+
+        values = items;
+        error = string.Empty;
+        return true;
     }
 
     private static string DeriveSlug(string name)

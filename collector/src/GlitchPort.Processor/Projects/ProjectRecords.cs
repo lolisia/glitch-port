@@ -8,6 +8,19 @@ public sealed record ProjectRecord(
     DateTimeOffset CreatedAt);
 
 /// <summary>
+/// The inbound filters of a project: glob patterns that make the Relay drop an
+/// event before it is published. An empty list disables the filter.
+/// </summary>
+public sealed record ProjectRecords(
+    IReadOnlyList<string> Releases,
+    IReadOnlyList<string> Environments,
+    IReadOnlyList<string> MessagePatterns)
+{
+    /// <summary>A project without any inbound filter.</summary>
+    public static ProjectRecords Empty { get; } = new([], [], []);
+}
+
+/// <summary>
 /// A project together with the counters shown by the project list:
 /// unresolved issues, active keys and the platforms of its issues.
 /// </summary>
@@ -18,7 +31,8 @@ public sealed record ProjectSummary(
     DateTimeOffset CreatedAt,
     long UnresolvedIssueCount,
     long ActiveKeyCount,
-    IReadOnlyList<string> Platforms);
+    IReadOnlyList<string> Platforms,
+    ProjectRecords InboundFilters);
 
 /// <summary>A public key of a project, including revoked keys.</summary>
 public sealed record ProjectKeyRecord(
@@ -50,6 +64,21 @@ public sealed record ProjectKeyUpdate(
     OptionalField<int?> RateLimitPerMinute,
     OptionalField<bool> IsActive);
 
+/// <summary>The fields of a project that a partial update may change.</summary>
+public sealed record ProjectUpdate(
+    string? Name,
+    OptionalField<IReadOnlyList<string>> Releases,
+    OptionalField<IReadOnlyList<string>> Environments,
+    OptionalField<IReadOnlyList<string>> MessagePatterns)
+{
+    /// <summary>An update that changes nothing.</summary>
+    public static ProjectUpdate None { get; } = new(
+        null,
+        OptionalField<IReadOnlyList<string>>.Unspecified,
+        OptionalField<IReadOnlyList<string>>.Unspecified,
+        OptionalField<IReadOnlyList<string>>.Unspecified);
+}
+
 /// <summary>The project returned by a create, with the key created alongside it.</summary>
 public sealed record CreatedProject(ProjectRecord Project, ProjectKeyRecord Key);
 
@@ -58,7 +87,8 @@ public sealed record ProjectConfig(
     long Id,
     string Name,
     string Slug,
-    IReadOnlyList<ProjectKeyConfig> Keys);
+    IReadOnlyList<ProjectKeyConfig> Keys,
+    ProjectRecords InboundFilters);
 
 /// <summary>An active public key as exposed by the relay configuration.</summary>
 public sealed record ProjectKeyConfig(

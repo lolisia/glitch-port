@@ -9,6 +9,21 @@ internal static class RelayConstants
     /// <summary>Header that declares an optional request body compression.</summary>
     public const string ContentEncodingHeader = "Content-Encoding";
 
+    /// <summary>
+    /// Header set on a <c>202</c> response to tell the client which inbound
+    /// filter dropped the event.
+    /// </summary>
+    public const string FilteredHeader = "X-GlitchPort-Filtered";
+
+    /// <summary>Value of <see cref="FilteredHeader"/> for a release filter.</summary>
+    public const string FilteredRelease = "release";
+
+    /// <summary>Value of <see cref="FilteredHeader"/> for an environment filter.</summary>
+    public const string FilteredEnvironment = "environment";
+
+    /// <summary>Value of <see cref="FilteredHeader"/> for a message filter.</summary>
+    public const string FilteredMessage = "message";
+
     /// <summary>Compression supported by the ingest endpoints.</summary>
     public const string GzipEncoding = "gzip";
 

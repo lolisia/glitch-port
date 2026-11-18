@@ -37,7 +37,7 @@ public sealed class MigrationTests
             "select version from schema_migrations order by version");
 
         Assert.Equal(
-            ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql", "006_regression_releases.sql", "007_alerts.sql"],
+            ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql", "006_regression_releases.sql", "007_alerts.sql", "008_inbound_filters.sql"],
             versions);
     }
 
@@ -94,7 +94,7 @@ public sealed class MigrationTests
             await ColumnsAsync("issue_labels"));
 
         Assert.Equal(
-            ["id", "name", "slug", "created_at"],
+            ["id", "name", "slug", "created_at", "filter_releases", "filter_environments", "filter_message_patterns"],
             await ColumnsAsync("projects"));
 
         Assert.Equal(
@@ -377,7 +377,7 @@ public sealed class MigrationTests
             "select version from schema_migrations order by version");
 
         Assert.Equal(
-            ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql", "006_regression_releases.sql", "007_alerts.sql"],
+            ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql", "006_regression_releases.sql", "007_alerts.sql", "008_inbound_filters.sql"],
             versions);
     }
 
@@ -409,7 +409,7 @@ public sealed class MigrationTests
                 .ToArray();
 
             Assert.Equal(
-                ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql", "006_regression_releases.sql", "007_alerts.sql"],
+                ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql", "006_regression_releases.sql", "007_alerts.sql", "008_inbound_filters.sql"],
                 appliedByThisRun);
 
             var recordedVersions = await TestDatabase.QueryStringsAsync(
@@ -417,7 +417,7 @@ public sealed class MigrationTests
                 "select version from schema_migrations order by version");
 
             Assert.Equal(
-                ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql", "006_regression_releases.sql", "007_alerts.sql"],
+                ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql", "006_regression_releases.sql", "007_alerts.sql", "008_inbound_filters.sql"],
                 recordedVersions);
         }
         finally

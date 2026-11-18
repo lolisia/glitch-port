@@ -19,6 +19,7 @@ namespace GlitchPort.Relay;
 [JsonSerializable(typeof(ErrorResponse))]
 [JsonSerializable(typeof(HealthResponse))]
 [JsonSerializable(typeof(ProjectConfigResponse))]
+[JsonSerializable(typeof(ProjectConfigInboundFilters))]
 internal sealed partial class RelayJsonContext : JsonSerializerContext
 {
 }

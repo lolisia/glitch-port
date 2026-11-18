@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using GlitchPort.Relay.Filtering;
 using Microsoft.Extensions.Logging;
 
 namespace GlitchPort.Relay.Config;
@@ -341,6 +342,7 @@ public sealed class ProjectConfigClient
     private static ProjectConfigSnapshot ToSnapshot(ProjectConfigResponse payload)
     {
         var projects = new Dictionary<long, IReadOnlyDictionary<string, int?>>();
+        var filters = new Dictionary<long, InboundFilterConfig>();
 
         foreach (var project in payload.Projects ?? [])
         {
@@ -355,9 +357,18 @@ public sealed class ProjectConfigClient
             }
 
             projects[project.Id] = keys;
+
+            // A response without the field comes from a Processor that predates
+            // inbound filters; it means an empty (disabled) filter set.
+            filters[project.Id] = project.InboundFilters is { } inbound
+                ? new InboundFilterConfig(
+                    inbound.Releases ?? [],
+                    inbound.Environments ?? [],
+                    inbound.MessagePatterns ?? [])
+                : InboundFilterConfig.Empty;
         }
 
-        return new ProjectConfigSnapshot(payload.Version, projects);
+        return new ProjectConfigSnapshot(payload.Version, projects, filters);
     }
 }
 
@@ -410,6 +421,25 @@ internal sealed class ProjectConfigProject
 
     /// <summary>Active keys of the project.</summary>
     public List<ProjectConfigKey>? Keys { get; init; }
+
+    /// <summary>
+    /// Inbound filters of the project. Missing in responses of a Processor
+    /// that predates filtering, which means no filter.
+    /// </summary>
+    public ProjectConfigInboundFilters? InboundFilters { get; init; }
+}
+
+/// <summary>The inbound filter globs of a project in the Processor config.</summary>
+internal sealed class ProjectConfigInboundFilters
+{
+    /// <summary>Release glob patterns.</summary>
+    public List<string>? Releases { get; init; }
+
+    /// <summary>Environment glob patterns.</summary>
+    public List<string>? Environments { get; init; }
+
+    /// <summary>Message glob patterns.</summary>
+    public List<string>? MessagePatterns { get; init; }
 }
 
 /// <summary>An active public key in the Processor project config.</summary>
