@@ -56,6 +56,11 @@ namespace GlitchPort.Processor;
 [JsonSerializable(typeof(AlertNotificationResponse))]
 [JsonSerializable(typeof(List<AlertNotificationResponse>))]
 [JsonSerializable(typeof(AlertNotificationListResponse))]
+[JsonSerializable(typeof(ReleaseResponse))]
+[JsonSerializable(typeof(ReleaseListResponse))]
+[JsonSerializable(typeof(TagValueResponse))]
+[JsonSerializable(typeof(TagFacetResponse))]
+[JsonSerializable(typeof(IssueTagsResponse))]
 internal sealed partial class ProcessorJsonContext : JsonSerializerContext
 {
 }
