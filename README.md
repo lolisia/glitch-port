@@ -160,7 +160,7 @@ Create another project and read its DSN from the response:
 curl -s -X POST "http://localhost:5091/api/manage/projects" \
   -H "Authorization: Bearer dev-admin-token" \
   -H "Content-Type: application/json" \
-  --data-binary '{"name":"Star Raiders","platform":"unity"}'
+  --data-binary '{"name":"Star Raiders"}'
 ```
 
 PowerShell:
@@ -169,8 +169,11 @@ PowerShell:
 Invoke-RestMethod -Method Post -Uri "http://localhost:5091/api/manage/projects" `
   -Headers @{ Authorization = "Bearer dev-admin-token" } `
   -ContentType "application/json" `
-  -Body '{"name":"Star Raiders","platform":"unity"}'
+  -Body '{"name":"Star Raiders"}'
 ```
+
+Platforms are not a project setting: each event reports its own platform, and a
+project's `platforms` are derived from the platform of its issues.
 
 The `201` response contains the new project's `dsn`, for example
 `http://<public-key>@localhost:5080/<project-id>`. The seeded project `1`
