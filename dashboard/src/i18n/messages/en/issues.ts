@@ -64,6 +64,8 @@ export const issues = {
     issueCount_one: '{count} issue',
     issueCount_other: '{count} issues',
     bucketTitle: '{bucket}: {count}',
+    bucketCount_one: '{count} event',
+    bucketCount_other: '{count} events',
   },
   bulk: {
     actions: 'Bulk actions',

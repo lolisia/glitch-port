@@ -305,8 +305,8 @@ describe('IssuesPage', () => {
   it('renders the 24h stats chart, total and platform breakdown from getStats', async () => {
     const stats: StatsResponse = {
       buckets: [
-        { bucket: '2026-02-01T00:00:00Z', count: 2 },
-        { bucket: '2026-02-01T01:00:00Z', count: 5 },
+        { bucket: '2026-02-01T00:00:00Z', count: 1 },
+        { bucket: '2026-02-01T01:00:00Z', count: 4 },
       ],
       by_platform: [
         { platform: 'unity', issue_count: 4, event_count: 128 },
@@ -326,11 +326,30 @@ describe('IssuesPage', () => {
     const chart = screen.getByTestId('stats-chart');
     const bars = within(chart).getAllByTestId('stats-bar');
     expect(bars).toHaveLength(2);
-    expect(bars[0]).toHaveAttribute('title', '2026-02-01T00:00:00Z: 2');
-    expect(bars[1]).toHaveAttribute('title', '2026-02-01T01:00:00Z: 5');
-    expect(bars[0].style.height).toBe('40%');
+    // The y-axis rounds the busiest bucket (4) to a clean 0-4 scale.
+    expect(bars[0].style.height).toBe('25%');
     expect(bars[1].style.height).toBe('100%');
-    expect(screen.getByText('7 events')).toBeInTheDocument();
+    expect(screen.getByText('5 events')).toBeInTheDocument();
+
+    // Each bucket is a focusable mark named by its local time range and count.
+    const start = formatAbsoluteTime('2026-02-01T01:00:00Z').replace(/:\d{2}$/, '');
+    const end = formatAbsoluteTime('2026-02-01T02:00:00Z').slice(-8, -3);
+    const range = `${start} – ${end}`;
+    const slot = within(chart).getByRole('img', { name: `${range}: 4 events` });
+    expect(within(chart).getByRole('img', { name: /: 1 event$/ })).toBeInTheDocument();
+
+    expect(screen.queryByTestId('stats-tooltip')).not.toBeInTheDocument();
+    fireEvent.mouseEnter(slot);
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip).toHaveTextContent('4 events');
+    expect(tooltip).toHaveTextContent(range);
+    fireEvent.mouseLeave(chart.querySelector('.stats-plot')!);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+
+    fireEvent.focus(slot);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('4 events');
+    fireEvent.blur(slot);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
 
     const platforms = screen.getByTestId('stats-platforms');
     expect(within(platforms).getByText('unity')).toHaveClass('platform-chip');

@@ -59,6 +59,8 @@ export const issues: IssuesMessages = {
     issueCount_one: '{count}개 이슈',
     issueCount_other: '{count}개 이슈',
     bucketTitle: '{bucket}: {count}',
+    bucketCount_one: '{count}개 이벤트',
+    bucketCount_other: '{count}개 이벤트',
   },
   bulk: {
     actions: '일괄 작업',
