@@ -30,7 +30,10 @@ internal static class RelayConstants
     /// <summary>Maximum accepted length of an exception module, in characters.</summary>
     public const int MaxExceptionModuleLength = 200;
 
-    /// <summary>Maximum accepted length of the platform field, in characters.</summary>
+    /// <summary>
+    /// Maximum accepted length of the platform field, in characters. Protocol
+    /// v1 platforms are lowercased and must match <c>[a-z0-9._-]</c>.
+    /// </summary>
     public const int MaxPlatformLength = 32;
 
     /// <summary>Maximum accepted length of the logger field, in characters.</summary>
@@ -75,7 +78,7 @@ internal static class RelayConstants
     /// <summary>Maximum serialized size of <c>contexts</c> or <c>extra</c>, in bytes (64 KB).</summary>
     public const int MaxFreeFormBytes = 64 * 1024;
 
-    /// <summary>Platform used when an event does not declare one.</summary>
+    /// <summary>Platform used by the legacy messages endpoint when none is supplied.</summary>
     public const string DefaultPlatform = "other";
 
     /// <summary>Level used for message events that do not declare one.</summary>

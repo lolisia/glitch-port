@@ -7,13 +7,16 @@
 #   3. starts the Processor (5090) and the Relay (5080) in the background with
 #      ASPNETCORE_ENVIRONMENT=Development, writing their output to
 #      .artifact/e2e/e2e-events-*.log
-#   4. waits for both /healthz endpoints
-#   5. posts sdk/protocol/examples/exception-unity.json twice with different
+#   4. waits for both /healthz endpoints and for the Relay project
+#      configuration
+#   5. posts a protocol v1 event without `platform` and asserts that the Relay
+#      rejects it with 400 and the `platform is required` error
+#   6. posts sdk/protocol/examples/exception-unity.json twice with different
 #      event ids and polls the Management API until exactly one issue matches
 #      the example's exception and has event_count 2
-#   6. marks that issue resolved and posts a third copy, then polls until the
+#   7. marks that issue resolved and posts a third copy, then polls until the
 #      same issue is unresolved again with event_count 3
-#   7. posts a legacy message to POST /api/1/messages and asserts that
+#   8. posts a legacy message to POST /api/1/messages and asserts that
 #      GET /api/manage/messages lists it with the endpoint POST /api/1/messages,
 #      proving the events table and the legacy messages path share one list
 #
@@ -297,6 +300,41 @@ post_ingest() {
     echo "e2e-events: posted $description"
 }
 
+# Protocol v1 requires a platform. A body without one must be rejected with
+# 400 and the documented error, proving the Relay enforces the field before it
+# publishes anything to the Processor.
+check_missing_platform_rejected() {
+    local body_file="$work_dir/event-without-platform.json"
+    local response_file="$work_dir/missing-platform-response.json"
+    local http_code=""
+    local response=""
+
+    printf '{"message":"e2e-events event without platform"}\n' >"$body_file"
+
+    http_code="$(curl -sS -o "$response_file" -w '%{http_code}' \
+        -X POST \
+        -H "X-GlitchPort-Key: $public_key" \
+        -H "Content-Type: application/json" \
+        --data-binary @"$body_file" \
+        "$events_url" 2>/dev/null || true)"
+
+    response="$(cat "$response_file" 2>/dev/null || true)"
+
+    if [ "$http_code" != "400" ]; then
+        echo "e2e-events: POST $events_url without platform returned HTTP ${http_code:-<no response>}, expected 400" >&2
+        printf '%s\n' "${response:-<no response>}" >&2
+        fail "an event without platform was not rejected"
+    fi
+
+    if ! grep -Fq '"error":"platform is required"' <<<"$response"; then
+        echo "e2e-events: POST $events_url without platform returned:" >&2
+        printf '%s\n' "${response:-<no response>}" >&2
+        fail "the missing-platform rejection did not report 'platform is required'"
+    fi
+
+    echo "e2e-events: event without platform rejected with 400 platform is required"
+}
+
 # Extract a string field from one compact JSON object. The Processor writes
 # snake_case JSON without whitespace, but the patterns also accept pretty output.
 json_string_field() {
@@ -442,6 +480,10 @@ wait_for_legacy_message() {
         sleep 1
     done
 }
+
+# The Relay is now accepting ingest requests; prove that a platform-less
+# protocol v1 event is rejected end to end before posting the regular flow.
+check_missing_platform_rejected
 
 event_id_1="$(new_event_id)"
 event_id_2="$(new_event_id)"

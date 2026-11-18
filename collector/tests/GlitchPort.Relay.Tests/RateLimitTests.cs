@@ -275,14 +275,14 @@ public sealed class RateLimitTests
 
         using (var accepted = await RelayTestClient.PostEventAsync(
             client,
-            """{ "message": "boom" }"""))
+            """{ "message": "boom", "platform": "unity" }"""))
         {
             Assert.Equal(HttpStatusCode.Accepted, accepted.StatusCode);
         }
 
         using var rejected = await RelayTestClient.PostEventAsync(
             client,
-            """{ "message": "boom" }""");
+            """{ "message": "boom", "platform": "unity" }""");
 
         Assert.Equal(HttpStatusCode.TooManyRequests, rejected.StatusCode);
         Assert.True(ReadRetryAfter(rejected) >= 1);

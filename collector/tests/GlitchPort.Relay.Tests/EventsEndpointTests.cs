@@ -74,7 +74,7 @@ public sealed class EventsEndpointTests
 
         using var response = await RelayTestClient.PostEventAsync(
             client,
-            """{"message":"boom"}""");
+            """{"message":"boom","platform":"unity"}""");
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
 
@@ -98,7 +98,7 @@ public sealed class EventsEndpointTests
 
         using var response = await RelayTestClient.PostEventAsync(
             client,
-            """{"message":"boom"}""");
+            """{"message":"boom","platform":"unity"}""");
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
 
@@ -116,10 +116,10 @@ public sealed class EventsEndpointTests
     }
 
     [Theory]
-    [InlineData("""{"message":"boom"}""", "info")]
-    [InlineData("""{"exception":[{"type":"System.Exception"}]}""", "error")]
-    [InlineData("""{"message":"boom","exception":[]}""", "info")]
-    [InlineData("""{"message":"boom","level":"fatal"}""", "fatal")]
+    [InlineData("""{"message":"boom","platform":"unity"}""", "info")]
+    [InlineData("""{"exception":[{"type":"System.Exception"}],"platform":"unity"}""", "error")]
+    [InlineData("""{"message":"boom","exception":[],"platform":"unity"}""", "info")]
+    [InlineData("""{"message":"boom","level":"fatal","platform":"unity"}""", "fatal")]
     public async Task PostEvent_ResolvesLevelDefault(string json, string expectedLevel)
     {
         var publisher = new RecordingEnvelopePublisher();
@@ -134,7 +134,7 @@ public sealed class EventsEndpointTests
     }
 
     [Fact]
-    public async Task PostEvent_PlatformDefaultsToOther()
+    public async Task PostEvent_WithoutPlatform_ReturnsBadRequest()
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
@@ -144,9 +144,25 @@ public sealed class EventsEndpointTests
             client,
             """{"message":"boom"}""");
 
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("platform is required", await RelayTestClient.ReadErrorAsync(response));
+        Assert.Empty(publisher.Envelopes);
+    }
+
+    [Fact]
+    public async Task PostEvent_WithUppercasePlatform_StoresItLowercased()
+    {
+        var publisher = new RecordingEnvelopePublisher();
+        using var factory = new RelayApplicationFactory(publisher);
+        using var client = await factory.CreateLoadedClientAsync();
+
+        using var response = await RelayTestClient.PostEventAsync(
+            client,
+            """{"message":"boom","platform":"Unity"}""");
+
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         var envelope = Assert.Single(publisher.Envelopes);
-        Assert.Equal("other", RelayTestClient.PayloadString(envelope, "platform"));
+        Assert.Equal("unity", RelayTestClient.PayloadString(envelope, "platform"));
     }
 
     [Fact]
@@ -159,6 +175,7 @@ public sealed class EventsEndpointTests
         const string Json = """
             {
               "message": "outer",
+              "platform": "unity",
               "exception": [
                 {
                   "type": "Inner",
@@ -196,50 +213,50 @@ public sealed class EventsEndpointTests
     }
 
     [Theory]
-    [InlineData("""{"level":"verbose","message":"boom"}""", "level:")]
-    [InlineData("""{"level":"","message":"boom"}""", "level:")]
-    [InlineData("""{"level":3,"message":"boom"}""", "level:")]
-    [InlineData("""{"event_id":"not-a-guid","message":"boom"}""", "event_id:")]
-    [InlineData("""{"event_id":42,"message":"boom"}""", "event_id:")]
-    [InlineData("""{"event_id":"","message":"boom"}""", "event_id:")]
-    [InlineData("""{"timestamp":"yesterday","message":"boom"}""", "timestamp:")]
-    [InlineData("""{"timestamp":"2026-11-14T09:30:00","message":"boom"}""", "timestamp:")]
-    [InlineData("""{"timestamp":123,"message":"boom"}""", "timestamp:")]
-    [InlineData("""{"message":42}""", "message:")]
-    [InlineData("""{"exception":[{"value":"no type"}]}""", "exception[0].type:")]
-    [InlineData("""{"exception":[{"type":"   "}]}""", "exception[0].type:")]
-    [InlineData("""{"exception":[{"type":42}]}""", "exception[0].type:")]
-    [InlineData("""{"exception":"boom"}""", "exception:")]
-    [InlineData("""{"tags":{"region":7},"message":"boom"}""", "tags.")]
-    [InlineData("""{"tags":[],"message":"boom"}""", "tags:")]
-    [InlineData("""{"fingerprint":[7],"message":"boom"}""", "fingerprint[0]:")]
-    [InlineData("""{"fingerprint":"boom","message":"boom"}""", "fingerprint:")]
-    [InlineData("""{"user":[],"message":"boom"}""", "user:")]
-    [InlineData("""{"sdk":"glitchport","message":"boom"}""", "sdk:")]
-    [InlineData("""{"contexts":[],"message":"boom"}""", "contexts:")]
-    [InlineData("""{"extra":"boom","message":"boom"}""", "extra:")]
-    [InlineData("""{"breadcrumbs":{},"message":"boom"}""", "breadcrumbs:")]
+    [InlineData("""{"level":"verbose","message":"boom","platform":"unity"}""", "level:")]
+    [InlineData("""{"level":"","message":"boom","platform":"unity"}""", "level:")]
+    [InlineData("""{"level":3,"message":"boom","platform":"unity"}""", "level:")]
+    [InlineData("""{"event_id":"not-a-guid","message":"boom","platform":"unity"}""", "event_id:")]
+    [InlineData("""{"event_id":42,"message":"boom","platform":"unity"}""", "event_id:")]
+    [InlineData("""{"event_id":"","message":"boom","platform":"unity"}""", "event_id:")]
+    [InlineData("""{"timestamp":"yesterday","message":"boom","platform":"unity"}""", "timestamp:")]
+    [InlineData("""{"timestamp":"2026-11-14T09:30:00","message":"boom","platform":"unity"}""", "timestamp:")]
+    [InlineData("""{"timestamp":123,"message":"boom","platform":"unity"}""", "timestamp:")]
+    [InlineData("""{"message":42,"platform":"unity"}""", "message:")]
+    [InlineData("""{"exception":[{"value":"no type"}],"platform":"unity"}""", "exception[0].type:")]
+    [InlineData("""{"exception":[{"type":"   "}],"platform":"unity"}""", "exception[0].type:")]
+    [InlineData("""{"exception":[{"type":42}],"platform":"unity"}""", "exception[0].type:")]
+    [InlineData("""{"exception":"boom","platform":"unity"}""", "exception:")]
+    [InlineData("""{"tags":{"region":7},"message":"boom","platform":"unity"}""", "tags.")]
+    [InlineData("""{"tags":[],"message":"boom","platform":"unity"}""", "tags:")]
+    [InlineData("""{"fingerprint":[7],"message":"boom","platform":"unity"}""", "fingerprint[0]:")]
+    [InlineData("""{"fingerprint":"boom","message":"boom","platform":"unity"}""", "fingerprint:")]
+    [InlineData("""{"user":[],"message":"boom","platform":"unity"}""", "user:")]
+    [InlineData("""{"sdk":"glitchport","message":"boom","platform":"unity"}""", "sdk:")]
+    [InlineData("""{"contexts":[],"message":"boom","platform":"unity"}""", "contexts:")]
+    [InlineData("""{"extra":"boom","message":"boom","platform":"unity"}""", "extra:")]
+    [InlineData("""{"breadcrumbs":{},"message":"boom","platform":"unity"}""", "breadcrumbs:")]
     [InlineData(
-        """{"breadcrumbs":[{"level":"verbose"}],"message":"boom"}""",
+        """{"breadcrumbs":[{"level":"verbose"}],"message":"boom","platform":"unity"}""",
         "breadcrumbs[0].level:")]
     [InlineData(
-        """{"breadcrumbs":[{"timestamp":"soon"}],"message":"boom"}""",
+        """{"breadcrumbs":[{"timestamp":"soon"}],"message":"boom","platform":"unity"}""",
         "breadcrumbs[0].timestamp:")]
     [InlineData(
-        """{"exception":[{"type":"T","stacktrace":{"frames":[{"lineno":"one"}]}}]}""",
+        """{"exception":[{"type":"T","stacktrace":{"frames":[{"lineno":"one"}]}}],"platform":"unity"}""",
         "exception[0].stacktrace.frames[0].lineno:")]
     [InlineData(
-        """{"exception":[{"type":"T","stacktrace":{"frames":[{"in_app":"yes"}]}}]}""",
+        """{"exception":[{"type":"T","stacktrace":{"frames":[{"in_app":"yes"}]}}],"platform":"unity"}""",
         "exception[0].stacktrace.frames[0].in_app:")]
     [InlineData(
-        """{"exception":[{"type":"T","stacktrace":"boom"}]}""",
+        """{"exception":[{"type":"T","stacktrace":"boom"}],"platform":"unity"}""",
         "exception[0].stacktrace:")]
     [InlineData(
-        """{"exception":[{"type":"T","stacktrace":{"frames":{}}}]}""",
+        """{"exception":[{"type":"T","stacktrace":{"frames":{}}}],"platform":"unity"}""",
         "exception[0].stacktrace.frames:")]
-    [InlineData("""{}""", "message:")]
-    [InlineData("""{"message":null}""", "message:")]
-    [InlineData("""{"exception":[]}""", "message:")]
+    [InlineData("""{"platform":"unity"}""", "message:")]
+    [InlineData("""{"message":null,"platform":"unity"}""", "message:")]
+    [InlineData("""{"exception":[],"platform":"unity"}""", "message:")]
     [InlineData("""[]""", "body:")]
     [InlineData("""{"message":}""", "body:")]
     public async Task PostEvent_WithFormatError_ReturnsBadRequestWithFieldPath(
@@ -267,7 +284,7 @@ public sealed class EventsEndpointTests
 
         using var response = await RelayTestClient.PostEventAsync(
             client,
-            """{"message":"boom","unknown_field":{"nested":true},"another":7}""");
+            """{"message":"boom","platform":"unity","unknown_field":{"nested":true},"another":7}""");
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         var payload = RelayTestClient.Payload(Assert.Single(publisher.Envelopes));
@@ -332,7 +349,7 @@ public sealed class EventsEndpointTests
 
         using var response = await RelayTestClient.PostEventAsync(
             client,
-            """{"message":"compressed boom"}""",
+            """{"message":"compressed boom","platform":"unity"}""",
             gzip: true);
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
@@ -432,10 +449,13 @@ public sealed class EventsEndpointTests
         using var factory = new RelayApplicationFactory(publisher);
         using var client = await factory.CreateLoadedClientAsync();
 
-        // {"message":"..."} is 14 bytes around the message.
-        const int PrefixLength = 14;
+        // The JSON envelope around the message and the platform is 33 bytes.
+        var overhead = JsonSerializer
+            .Serialize(new { message = string.Empty, platform = "unity" })
+            .Length;
+        Assert.Equal(33, overhead);
         var json = JsonSerializer.Serialize(
-            new { message = new string('a', 1_048_576 - PrefixLength) });
+            new { message = new string('a', 1_048_576 - overhead), platform = "unity" });
         Assert.Equal(1_048_576, json.Length);
 
         using var response = await RelayTestClient.PostEventAsync(client, json);
@@ -454,7 +474,7 @@ public sealed class EventsEndpointTests
 
         using var response = await RelayTestClient.PostEventAsync(
             client,
-            """{"message":"boom"}""");
+            """{"message":"boom","platform":"unity"}""");
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         Assert.Equal("5", response.Headers.GetValues("Retry-After").Single());
@@ -470,7 +490,7 @@ public sealed class EventsEndpointTests
 
         using var response = await RelayTestClient.PostEventAsync(
             client,
-            """{"message":"boom","user":{"id":"player-1","ip_address":"{{auto}}"}}""",
+            """{"message":"boom","platform":"unity","user":{"id":"player-1","ip_address":"{{auto}}"}}""",
             headers: new Dictionary<string, string>
             {
                 [RelayTestClient.RemoteIpHeader] = "198.51.100.23",
@@ -494,7 +514,7 @@ public sealed class EventsEndpointTests
 
         using var response = await RelayTestClient.PostEventAsync(
             client,
-            """{"message":"boom","user":{"ip_address":"198.51.100.7"}}""");
+            """{"message":"boom","platform":"unity","user":{"ip_address":"198.51.100.7"}}""");
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         var envelope = Assert.Single(publisher.Envelopes);

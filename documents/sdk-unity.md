@@ -7,9 +7,11 @@ initializes itself before the first scene loads, captures errors automatically
 and flushes on quit — no game code is required.
 
 Every event reports `platform` `unity`, `sdk.name` `glitchport.unity` and the
-package version as `sdk.version`. Exceptions are sent as structured
-`exception` objects with their inner-exception chain and stack frames, and the
-SDK adds device contexts, tags and lifecycle breadcrumbs to each event.
+package version as `sdk.version`. Protocol v1 requires a platform on every
+event, so the SDK always sends `unity` and no setting is needed. Exceptions are
+sent as structured `exception` objects with their inner-exception chain and
+stack frames, and the SDK adds device contexts, tags and lifecycle breadcrumbs
+to each event.
 
 The package targets Unity 2022.3 and later and is verified on Unity 6000.6.8f1.
 It is shipped as source plus a precompiled `netstandard2.1` Core DLL

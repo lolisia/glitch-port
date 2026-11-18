@@ -14,7 +14,8 @@ dependency injection, a per-request middleware and `ILogger` forwarding.
 Every relay receives the same compact JSON body that is documented in
 [Event ingest API (protocol v1)](http-api-events.md): `snake_case` field names,
 `event_id`, `timestamp`, `level`, `platform` and `sdk` always present, and at
-least one of `message` or `exception`.
+least one of `message` or `exception`. Events report `platform` `dotnet`; set
+the `Platform` option to report a different value.
 
 ## Installation
 
