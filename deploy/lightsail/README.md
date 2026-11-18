@@ -23,6 +23,15 @@ defaults. Create `secrets/dashboard.htpasswd` with an SHA-512 crypt password has
 The nginx worker must be able to read that file. Do not commit credentials.
 
 Start with `docker compose -f compose.yml up -d`. Open TCP 8443 in Lightsail.
+Compose enforces the startup order `postgres -> processor (healthy) -> relay ->
+dashboard` with `depends_on` and `condition: service_healthy`: postgres starts
+first, compose waits for the Processor `/healthz` healthcheck, then starts the
+relay, then the dashboard. The Relay itself reports healthy at `/healthz`
+before its first project-config load, while ingest still answers `503` with
+`{"error":"project configuration not loaded"}`; during that window the Relay
+retries the Processor with exponential backoff starting at 1s and capped at
+`Relay:ConfigRefreshSeconds` (default 60s) instead of waiting a whole refresh
+interval. Ingest clients should honour the `Retry-After` header.
 The dashboard requires HTTP Basic authentication over HTTPS. Its frontend build
 has empty `VITE_API_BASE` and `VITE_ADMIN_TOKEN`: same-origin browser credentials
 authenticate at the gateway, which adds the management bearer token internally.

@@ -1,5 +1,6 @@
 using System.Net;
 using GlitchPort.Relay.Config;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -418,6 +419,214 @@ public sealed class ProjectConfigCacheTests
         }
     }
 
+    [Theory]
+    [InlineData(1, 60, 1.0)]
+    [InlineData(2, 60, 2.0)]
+    [InlineData(3, 60, 4.0)]
+    [InlineData(4, 60, 8.0)]
+    [InlineData(7, 60, 60.0)]
+    [InlineData(8, 60, 60.0)]
+    [InlineData(int.MaxValue, 60, 60.0)]
+    [InlineData(0, 60, 1.0)]
+    [InlineData(-5, 60, 1.0)]
+    [InlineData(1, 3, 1.0)]
+    [InlineData(2, 3, 2.0)]
+    [InlineData(3, 3, 3.0)]
+    [InlineData(10, 3, 3.0)]
+    public void GetStartupRetryDelay_DoublesPerAttemptAndIsCappedAtRefreshInterval(
+        int failedAttempts,
+        int refreshIntervalSeconds,
+        double expectedSeconds)
+    {
+        var delay = ProjectConfigCache.GetStartupRetryDelay(
+            failedAttempts,
+            TimeSpan.FromSeconds(refreshIntervalSeconds));
+
+        Assert.Equal(TimeSpan.FromSeconds(expectedSeconds), delay);
+    }
+
+    [Fact]
+    public async Task StartAsync_WhileProcessorIsDown_RetriesWithExponentialBackoff()
+    {
+        var clock = new ManualTimeProvider(
+            new DateTimeOffset(2026, 11, 18, 9, 0, 0, TimeSpan.Zero));
+        using var harness = new CacheHarness(["http://processor-a:5090"], timeProvider: clock);
+        harness.Handler
+            .Enqueue(_ => throw new HttpRequestException("connection refused"))
+            .EnqueueStatus(HttpStatusCode.InternalServerError)
+            .Enqueue(_ => throw new HttpRequestException("connection refused"))
+            .EnqueueConfig("v1", (1, "processor-key", null));
+        var startedAt = clock.GetUtcNow();
+
+        await harness.Cache.StartAsync(CancellationToken.None);
+        try
+        {
+            await harness.Handler.WaitForRequestCountAsync(1);
+
+            await clock.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+            clock.Advance(TimeSpan.FromSeconds(1));
+            await harness.Handler.WaitForRequestCountAsync(2);
+
+            await clock.WaitForTimerAsync(TimeSpan.FromSeconds(2));
+            clock.Advance(TimeSpan.FromSeconds(2));
+            await harness.Handler.WaitForRequestCountAsync(3);
+
+            await clock.WaitForTimerAsync(TimeSpan.FromSeconds(4));
+            clock.Advance(TimeSpan.FromSeconds(4));
+            await harness.Handler.WaitForRequestCountAsync(4);
+
+            // The periodic timer is only created after the successful refresh
+            // applied the snapshot, so this wait also replaces polling.
+            await clock.WaitForTimerAsync(harness.Cache.RefreshInterval);
+
+            Assert.Equal(ProjectConfigProvider.ProcessorSource, harness.Provider.Source);
+            Assert.Equal("v1", harness.Provider.Snapshot.Version);
+            Assert.Equal(TimeSpan.FromSeconds(7), clock.GetUtcNow() - startedAt);
+        }
+        finally
+        {
+            await harness.Cache.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AfterFirstSuccess_DoesNotUseStartupBackoffAndKeepsSnapshot()
+    {
+        var clock = new ManualTimeProvider(
+            new DateTimeOffset(2026, 11, 18, 9, 0, 0, TimeSpan.Zero));
+        var logger = new RecordingLogger<ProjectConfigCache>();
+        using var harness = new CacheHarness(
+            ["http://processor-a:5090"],
+            timeProvider: clock,
+            logger: logger);
+        harness.Handler.EnqueueConfig("v1", (1, "processor-key", null));
+
+        await harness.Cache.StartAsync(CancellationToken.None);
+        try
+        {
+            // The first refresh succeeds immediately and arms the periodic timer.
+            await clock.WaitForTimerAsync(harness.Cache.RefreshInterval);
+            Assert.Equal(ProjectConfigProvider.ProcessorSource, harness.Provider.Source);
+            var snapshot = harness.Provider.Snapshot;
+
+            // The next tick fails (the fake handler answers 500 by default).
+            clock.Advance(harness.Cache.RefreshInterval);
+            await harness.Handler.WaitForRequestCountAsync(2);
+            await logger.WaitForEntryAsync(entry =>
+                entry.Level == LogLevel.Warning
+                && entry.Message.Contains(
+                    "keeping the last known configuration",
+                    StringComparison.Ordinal));
+
+            // A failed periodic refresh still warns exactly once through the
+            // cache; the client reports the endpoint failure at debug level.
+            Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Warning);
+            Assert.DoesNotContain(
+                logger.Entries,
+                entry => entry.Message.Contains("startup attempt", StringComparison.Ordinal));
+            Assert.DoesNotContain(
+                harness.ClientLogger.Entries,
+                entry => entry.Level >= LogLevel.Warning);
+            Assert.Contains(
+                harness.ClientLogger.Entries,
+                entry => entry.Level == LogLevel.Debug
+                    && entry.Message.Contains("returned HTTP 500", StringComparison.Ordinal));
+
+            // A failed refresh after the first success must not schedule a 1s,
+            // 2s or 4s startup retry: nothing happens before the interval ends.
+            clock.Advance(TimeSpan.FromSeconds(59));
+            Assert.Equal(2, harness.Handler.Requests.Count);
+
+            clock.Advance(TimeSpan.FromSeconds(1));
+            await harness.Handler.WaitForRequestCountAsync(3);
+
+            Assert.Equal(ProjectConfigProvider.ProcessorSource, harness.Provider.Source);
+            Assert.Same(snapshot, harness.Provider.Snapshot);
+            Assert.Equal("v1", harness.Provider.Snapshot.Version);
+            Assert.NotNull(harness.Provider.Authorize(1, "processor-key"));
+        }
+        finally
+        {
+            await harness.Cache.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task StartAsync_WhileProcessorKeepsFailing_LogsWarningOnlyAtFirstAndTenthAttempt()
+    {
+        var clock = new ManualTimeProvider(
+            new DateTimeOffset(2026, 11, 18, 9, 0, 0, TimeSpan.Zero));
+        var logger = new RecordingLogger<ProjectConfigCache>();
+        using var harness = new CacheHarness(
+            ["http://processor-a:5090"],
+            timeProvider: clock,
+            logger: logger);
+
+        await harness.Cache.StartAsync(CancellationToken.None);
+        try
+        {
+            await harness.Handler.WaitForRequestCountAsync(1);
+
+            // Attempts 1-9 schedule 1s, 2s, 4s, 8s, 16s, 32s and then the
+            // refresh interval (60s), so attempt 10 is the second warning.
+            double[] retryDelays = [1, 2, 4, 8, 16, 32, 60, 60, 60];
+
+            for (var attempt = 1; attempt < 10; attempt++)
+            {
+                var delay = TimeSpan.FromSeconds(retryDelays[attempt - 1]);
+                await clock.WaitForTimerAsync(delay);
+                clock.Advance(delay);
+                await harness.Handler.WaitForRequestCountAsync(attempt + 1);
+            }
+
+            await clock.WaitForTimerAsync(TimeSpan.FromSeconds(60));
+
+            var retryEntries = logger.Entries
+                .Where(entry => entry.Message.Contains("startup attempt", StringComparison.Ordinal))
+                .ToArray();
+
+            Assert.Equal(10, retryEntries.Length);
+
+            var warnings = retryEntries
+                .Where(entry => entry.Level == LogLevel.Warning)
+                .ToArray();
+
+            Assert.Equal(2, warnings.Length);
+            Assert.Contains("startup attempt 1", warnings[0].Message, StringComparison.Ordinal);
+            Assert.Contains("retrying in 1s", warnings[0].Message, StringComparison.Ordinal);
+            Assert.Contains("startup attempt 10", warnings[1].Message, StringComparison.Ordinal);
+            Assert.Contains("retrying in 60s", warnings[1].Message, StringComparison.Ordinal);
+            Assert.All(
+                retryEntries.Where(entry => entry.Level != LogLevel.Warning),
+                entry => Assert.Equal(LogLevel.Debug, entry.Level));
+            Assert.Equal(2, logger.Entries.Count(entry => entry.Level == LogLevel.Warning));
+
+            // The client keeps the per-endpoint failure detail visible, but at
+            // debug level only: attempts 2-9 must not warn, so at the default
+            // Information level the two cache warnings above are the only ones.
+            Assert.DoesNotContain(
+                harness.ClientLogger.Entries,
+                entry => entry.Level >= LogLevel.Warning);
+
+            var clientFailures = harness.ClientLogger.Entries
+                .Where(entry => entry.Message.Contains("returned HTTP 500", StringComparison.Ordinal))
+                .ToArray();
+
+            Assert.Equal(10, clientFailures.Length);
+            Assert.All(
+                clientFailures,
+                entry =>
+                {
+                    Assert.Equal(LogLevel.Debug, entry.Level);
+                    Assert.Contains("processor-a:5090", entry.Message, StringComparison.Ordinal);
+                });
+        }
+        finally
+        {
+            await harness.Cache.StopAsync(CancellationToken.None);
+        }
+    }
+
     private static async Task WaitForProviderAsync(ProjectConfigProvider provider)
     {
         var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10);
@@ -437,7 +646,11 @@ public sealed class ProjectConfigCacheTests
     {
         private readonly HttpClient _httpClient;
 
-        public CacheHarness(string[] endpoints, int configRefreshSeconds = 60)
+        public CacheHarness(
+            string[] endpoints,
+            int configRefreshSeconds = 60,
+            TimeProvider? timeProvider = null,
+            ILogger<ProjectConfigCache>? logger = null)
         {
             Handler = new FakeProjectConfigHandler();
             Options = new RelayOptions
@@ -446,13 +659,17 @@ public sealed class ProjectConfigCacheTests
                 InternalSharedSecret = "internal-secret",
                 ConfigRefreshSeconds = configRefreshSeconds,
             };
-            Provider = new ProjectConfigProvider(Options);
+            Provider = new ProjectConfigProvider(Options, timeProvider);
+            ClientLogger = new RecordingLogger<ProjectConfigClient>();
             _httpClient = new HttpClient(Handler);
-            Cache = new ProjectConfigCache(
-                new ProjectConfigClient(_httpClient, NullLogger<ProjectConfigClient>.Instance),
-                Provider,
-                Options,
-                NullLogger<ProjectConfigCache>.Instance);
+            var client = new ProjectConfigClient(_httpClient, ClientLogger);
+            var cacheLogger = logger ?? NullLogger<ProjectConfigCache>.Instance;
+
+            // Tests without a fake clock keep the four-argument construction so
+            // the optional clock parameter stays source compatible.
+            Cache = timeProvider is null
+                ? new ProjectConfigCache(client, Provider, Options, cacheLogger)
+                : new ProjectConfigCache(client, Provider, Options, cacheLogger, timeProvider);
         }
 
         public FakeProjectConfigHandler Handler { get; }
@@ -460,6 +677,9 @@ public sealed class ProjectConfigCacheTests
         public RelayOptions Options { get; }
 
         public ProjectConfigProvider Provider { get; }
+
+        /// <summary>Log entries written by the project-config client.</summary>
+        public RecordingLogger<ProjectConfigClient> ClientLogger { get; }
 
         public ProjectConfigCache Cache { get; }
 

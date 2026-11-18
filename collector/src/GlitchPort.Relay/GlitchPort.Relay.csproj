@@ -9,4 +9,8 @@
     <ProjectReference Include="..\GlitchPort.Transport.Http\GlitchPort.Transport.Http.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="GlitchPort.Relay.Tests" />
+  </ItemGroup>
+
 </Project>
