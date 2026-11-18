@@ -12,6 +12,7 @@ import type {
   StatsResponse,
 } from '../../api/types';
 import { navigate, useHashRoute } from '../../router';
+import { useI18n } from '../../i18n';
 import { EmptyState, ErrorState, LoadingState } from '../../ui';
 import { BulkActionBar } from './components/BulkActionBar';
 import { IssueFilterBar } from './components/IssueFilterBar';
@@ -42,6 +43,7 @@ import './issues.css';
  */
 export function IssuesPage({ projectId }: { projectId: number | null }) {
   const route = useHashRoute();
+  const { t } = useI18n();
   // Memoized so array filters keep a stable identity between renders.
   const filters = useMemo(() => readIssueFilters(route.query), [route.query]);
   const { status, level, environment, release, label, platform, q, sort } =
@@ -308,7 +310,7 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
   const handleBulkAction = (action: BulkAction) => {
     if (action === 'delete') {
       const confirmed = window.confirm(
-        `Delete ${selection.size} selected issues?`,
+        t('issues.bulk.confirmDelete', { count: selection.size }),
       );
 
       if (!confirmed) {
@@ -397,7 +399,7 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
     return (
       <section className="issues-page" data-testid="issues-page">
         <header className="page-header">
-          <h2>Issues</h2>
+          <h2>{t('issues.title')}</h2>
         </header>
 
         <NoProjectState />
@@ -408,7 +410,7 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
   return (
     <section className="issues-page" data-testid="issues-page">
       <header className="page-header">
-        <h2>Issues</h2>
+        <h2>{t('issues.title')}</h2>
       </header>
 
       {stats !== null && <StatsSummary stats={stats} />}
@@ -439,11 +441,11 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
       {loading && <LoadingState />}
 
       {!loading && listError !== null && (
-        <ErrorState error={listError} prefix="Failed to load issues" />
+        <ErrorState error={listError} prefix={t('issues.loadError')} />
       )}
 
       {!loading && listError === null && items.length === 0 && (
-        <EmptyState>No issues found.</EmptyState>
+        <EmptyState>{t('issues.empty')}</EmptyState>
       )}
 
       {!loading && listError === null && items.length > 0 && (
@@ -456,7 +458,7 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
           />
 
           {moreError !== null && (
-            <ErrorState error={moreError} prefix="Failed to load issues" />
+            <ErrorState error={moreError} prefix={t('issues.loadError')} />
           )}
 
           {nextCursor !== null && (
@@ -466,7 +468,7 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
               onClick={() => void loadMore(filters, nextCursor)}
               disabled={loading || loadingMore}
             >
-              Load more
+              {t('issues.loadMore')}
             </button>
           )}
         </>

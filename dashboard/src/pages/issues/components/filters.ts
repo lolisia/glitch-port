@@ -176,28 +176,29 @@ export function collectFilterOptions(
 
 export const STATUS_TABS: ReadonlyArray<{
   value: IssueStatusFilter;
-  label: string;
+  labelKey: string;
 }> = [
-  { value: 'unresolved', label: 'Unresolved' },
-  { value: 'resolved', label: 'Resolved' },
-  { value: 'ignored', label: 'Ignored' },
-  { value: 'all', label: 'All' },
+  { value: 'unresolved', labelKey: 'issues.status.unresolved' },
+  { value: 'resolved', labelKey: 'issues.status.resolved' },
+  { value: 'ignored', labelKey: 'issues.status.ignored' },
+  { value: 'all', labelKey: 'issues.status.all' },
 ];
 
-export const LEVEL_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: '', label: 'All levels' },
-  { value: 'debug', label: 'Debug' },
-  { value: 'info', label: 'Info' },
-  { value: 'warning', label: 'Warning' },
-  { value: 'error', label: 'Error' },
-  { value: 'fatal', label: 'Fatal' },
-];
+export const LEVEL_OPTIONS: ReadonlyArray<{ value: string; labelKey: string }> =
+  [
+    { value: '', labelKey: 'issues.filters.allLevels' },
+    { value: 'debug', labelKey: 'issues.filters.debug' },
+    { value: 'info', labelKey: 'issues.filters.info' },
+    { value: 'warning', labelKey: 'issues.filters.warning' },
+    { value: 'error', labelKey: 'issues.filters.error' },
+    { value: 'fatal', labelKey: 'issues.filters.fatal' },
+  ];
 
 export const SORT_OPTIONS: ReadonlyArray<{
   value: IssueSortFilter;
-  label: string;
+  labelKey: string;
 }> = [
-  { value: 'last_seen', label: 'Last seen' },
-  { value: 'first_seen', label: 'First seen' },
-  { value: 'count', label: 'Event count' },
+  { value: 'last_seen', labelKey: 'issues.filters.lastSeen' },
+  { value: 'first_seen', labelKey: 'issues.filters.firstSeen' },
+  { value: 'count', labelKey: 'issues.filters.eventCount' },
 ];

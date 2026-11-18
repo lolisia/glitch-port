@@ -925,4 +925,77 @@ describe('App', () => {
       '프로젝트를 사용할 수 없습니다.',
     );
   });
+
+  it('translates the issues, issue detail and projects screens after switching to Korean', async () => {
+    const user = userEvent.setup();
+    stubFetch();
+
+    renderApp();
+
+    const language = await screen.findByLabelText('Language');
+    await user.selectOptions(language, 'ko');
+
+    // Issue list
+    expect(
+      await screen.findByRole('heading', { level: 2, name: '이슈' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '미해결' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(await screen.findByText('이슈가 없습니다.')).toBeInTheDocument();
+    expect(screen.getByLabelText('레벨')).toBeInTheDocument();
+    expect(screen.getByLabelText('정렬')).toHaveValue('last_seen');
+
+    // Issue detail
+    act(() => {
+      window.history.replaceState(null, '', '/#/issues/42');
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+
+    const header = await screen.findByTestId('issue-detail-header');
+    expect(
+      within(header).getByRole('link', { name: '이슈 목록으로' }),
+    ).toHaveAttribute('href', '#/issues');
+    expect(within(header).getByText('레벨')).toBeInTheDocument();
+    expect(within(header).getByText('플랫폼')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '이슈 삭제' })).toBeInTheDocument();
+
+    // Projects
+    act(() => {
+      window.history.replaceState(null, '', '/#/projects');
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+
+    const page = await screen.findByTestId('projects-page');
+    expect(
+      within(page).getByRole('heading', { level: 2, name: '프로젝트' }),
+    ).toBeInTheDocument();
+    const table = await within(page).findByRole('table');
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((cell) => cell.textContent),
+    ).toEqual(['이름', '슬러그', '플랫폼', '미해결 이슈', '활성 키']);
+    expect(
+      within(page).getByRole('heading', { level: 2, name: '프로젝트 만들기' }),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps API error bodies untranslated in Korean', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
+    window.history.replaceState(null, '', '/#/projects/3');
+    stubFetch({
+      projectDetail: () => errorResponse(500, { error: 'boom' }),
+      projectKeys: () => errorResponse(500, { error: 'boom' }),
+    });
+
+    renderApp();
+
+    expect(
+      await screen.findByText(
+        '프로젝트를 불러오지 못했습니다: HTTP 500: boom',
+      ),
+    ).toBeInTheDocument();
+  });
 });

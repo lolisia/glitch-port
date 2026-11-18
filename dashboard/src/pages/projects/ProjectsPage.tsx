@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { createProject, listProjects } from '../../api/client';
 import type { CreatedProject, ProjectListItem } from '../../api/types';
+import { formatNumber, useI18n } from '../../i18n';
 import { EmptyState, ErrorState, LoadingState } from '../../ui';
 import { PlatformChips } from '../platform/PlatformChip';
 import { copyToClipboard } from './copy';
@@ -27,6 +28,7 @@ interface ProjectsPageProps {
  * a copy button so it is not lost.
  */
 export function ProjectsPage({ onProjectsChanged }: ProjectsPageProps) {
+  const { locale, t } = useI18n();
   const [state, setState] = useState<ListState>({ status: 'loading' });
   const [name, setName] = useState('');
   const [creating, setCreating] = useState(false);
@@ -92,31 +94,31 @@ export function ProjectsPage({ onProjectsChanged }: ProjectsPageProps) {
   return (
     <section className="projects-page" data-testid="projects-page">
       <header className="page-header">
-        <h2>Projects</h2>
+        <h2>{t('projects.title')}</h2>
         <button type="button" onClick={() => void load()} disabled={loading}>
-          Refresh
+          {t('common.refresh')}
         </button>
       </header>
 
       {loading && <LoadingState />}
 
       {state.status === 'error' && (
-        <ErrorState error={state.error} prefix="Failed to load projects" />
+        <ErrorState error={state.error} prefix={t('projects.loadError')} />
       )}
 
       {state.status === 'ready' && state.projects.length === 0 && (
-        <EmptyState>No projects yet.</EmptyState>
+        <EmptyState>{t('projects.empty')}</EmptyState>
       )}
 
       {state.status === 'ready' && state.projects.length > 0 && (
         <table className="projects-table">
           <thead>
             <tr>
-              <th scope="col">Name</th>
-              <th scope="col">Slug</th>
-              <th scope="col">Platforms</th>
-              <th scope="col">Unresolved issues</th>
-              <th scope="col">Active keys</th>
+              <th scope="col">{t('projects.table.name')}</th>
+              <th scope="col">{t('projects.table.slug')}</th>
+              <th scope="col">{t('projects.table.platforms')}</th>
+              <th scope="col">{t('projects.table.unresolvedIssues')}</th>
+              <th scope="col">{t('projects.table.activeKeys')}</th>
             </tr>
           </thead>
           <tbody>
@@ -129,8 +131,12 @@ export function ProjectsPage({ onProjectsChanged }: ProjectsPageProps) {
                 <td>
                   <PlatformChips platforms={project.platforms} />
                 </td>
-                <td className="projects-number">{project.issue_count}</td>
-                <td className="projects-number">{project.key_count}</td>
+                <td className="projects-number">
+                  {formatNumber(project.issue_count, locale)}
+                </td>
+                <td className="projects-number">
+                  {formatNumber(project.key_count, locale)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -141,10 +147,10 @@ export function ProjectsPage({ onProjectsChanged }: ProjectsPageProps) {
         className="project-form"
         onSubmit={(event) => void handleSubmit(event)}
       >
-        <h2>Create project</h2>
+        <h2>{t('projects.create.heading')}</h2>
 
         <div className="project-field">
-          <label htmlFor="project-name">Name</label>
+          <label htmlFor="project-name">{t('projects.create.name')}</label>
           <input
             id="project-name"
             name="name"
@@ -155,21 +161,24 @@ export function ProjectsPage({ onProjectsChanged }: ProjectsPageProps) {
         </div>
 
         <button type="submit" disabled={creating || name.trim() === ''}>
-          Create project
+          {t('projects.create.submit')}
         </button>
       </form>
 
       {createError !== null && (
-        <ErrorState error={createError} prefix="Failed to create project" />
+        <ErrorState error={createError} prefix={t('projects.create.error')} />
       )}
 
       {created !== null && (
         <div className="project-created" data-testid="created-project">
           <p>
-            Created <strong>{created.name}</strong> ({created.slug}).
+            {t('projects.create.created', {
+              name: created.name,
+              slug: created.slug,
+            })}
           </p>
 
-          <label htmlFor="created-project-dsn">DSN</label>
+          <label htmlFor="created-project-dsn">{t('projects.dsn')}</label>
           <input
             id="created-project-dsn"
             className="project-dsn"
@@ -179,21 +188,21 @@ export function ProjectsPage({ onProjectsChanged }: ProjectsPageProps) {
           />
 
           <button type="button" onClick={() => void handleCopy()}>
-            Copy DSN
+            {t('projects.copyDsn')}
           </button>
 
           {copyState === 'copied' && (
             <span className="project-copied" role="status">
-              Copied
+              {t('projects.copied')}
             </span>
           )}
           {copyState === 'failed' && (
             <span className="project-copy-failed" role="status">
-              Copy failed
+              {t('projects.copyFailed')}
             </span>
           )}
 
-          <a href={`#/projects/${created.id}`}>Open project</a>
+          <a href={`#/projects/${created.id}`}>{t('projects.open')}</a>
         </div>
       )}
     </section>

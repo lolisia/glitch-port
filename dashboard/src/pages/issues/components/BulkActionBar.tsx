@@ -1,4 +1,5 @@
 import type { BulkAction } from '../../../api/types';
+import { useI18n } from '../../../i18n';
 import { ErrorState } from '../../../ui';
 
 export interface BulkActionBarProps {
@@ -24,11 +25,14 @@ export function BulkActionBar({
   onAction,
   onLabelAction,
 }: BulkActionBarProps) {
+  const { t } = useI18n();
   const hasLabelName = labelName.trim() !== '';
 
   return (
-    <div className="bulk-bar" role="group" aria-label="Bulk actions">
-      <span className="bulk-count">{count} selected</span>
+    <div className="bulk-bar" role="group" aria-label={t('issues.bulk.actions')}>
+      <span className="bulk-count">
+        {t('issues.bulk.selected', { count })}
+      </span>
 
       <div className="bulk-actions">
         <button
@@ -36,27 +40,27 @@ export function BulkActionBar({
           onClick={() => onAction('resolve')}
           disabled={pending}
         >
-          Resolve
+          {t('issues.bulk.resolve')}
         </button>
         <button
           type="button"
           onClick={() => onAction('unresolve')}
           disabled={pending}
         >
-          Unresolve
+          {t('issues.bulk.unresolve')}
         </button>
         <button
           type="button"
           onClick={() => onAction('ignore')}
           disabled={pending}
         >
-          Ignore
+          {t('issues.bulk.ignore')}
         </button>
 
         <input
           type="text"
-          aria-label="Label name"
-          placeholder="Label name"
+          aria-label={t('issues.bulk.labelName')}
+          placeholder={t('issues.bulk.labelName')}
           value={labelName}
           onChange={(event) => onLabelNameChange(event.target.value)}
         />
@@ -65,14 +69,14 @@ export function BulkActionBar({
           onClick={() => onLabelAction('add_labels')}
           disabled={pending || !hasLabelName}
         >
-          Add label
+          {t('issues.bulk.addLabel')}
         </button>
         <button
           type="button"
           onClick={() => onLabelAction('remove_labels')}
           disabled={pending || !hasLabelName}
         >
-          Remove label
+          {t('issues.bulk.removeLabel')}
         </button>
 
         <button
@@ -81,11 +85,13 @@ export function BulkActionBar({
           onClick={() => onAction('delete')}
           disabled={pending}
         >
-          Delete
+          {t('issues.bulk.delete')}
         </button>
       </div>
 
-      {error !== null && <ErrorState error={error} prefix="Bulk action failed" />}
+      {error !== null && (
+        <ErrorState error={error} prefix={t('issues.bulk.error')} />
+      )}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import type {
   UpdateProjectKeyRequest,
   UpdateProjectRequest,
 } from '../../api/types';
+import { I18nProvider, LOCALE_STORAGE_KEY } from '../../i18n';
 import { formatAbsoluteTime } from '../../ui';
 import { ProjectDetailPage } from './ProjectDetailPage';
 
@@ -182,10 +183,12 @@ function callBody(call: unknown): unknown {
 function renderPage() {
   const onProjectsChanged = vi.fn();
   render(
-    <ProjectDetailPage
-      projectId={7}
-      onProjectsChanged={onProjectsChanged}
-    />,
+    <I18nProvider>
+      <ProjectDetailPage
+        projectId={7}
+        onProjectsChanged={onProjectsChanged}
+      />
+    </I18nProvider>,
   );
 
   return { onProjectsChanged };
@@ -198,6 +201,7 @@ async function findKeyRows(): Promise<HTMLElement[]> {
 
 beforeEach(() => {
   window.history.replaceState(null, '', '/');
+  window.localStorage.clear();
 });
 
 afterEach(() => {
@@ -599,6 +603,78 @@ describe('ProjectDetailPage', () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole('link', { name: 'Back to projects' }),
+    ).toHaveAttribute('href', '#/projects');
+  });
+
+  it('renders the facts, key table, forms and danger zone in Korean', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
+    stubApi();
+
+    renderPage();
+
+    const facts = await screen.findByTestId('project-detail-facts');
+    expect(within(facts).getByText('슬러그')).toBeInTheDocument();
+    expect(within(facts).getByText('확인된 플랫폼')).toBeInTheDocument();
+    expect(within(facts).getByText('생성일')).toBeInTheDocument();
+    expect(within(facts).getByText('미해결 이슈')).toBeInTheDocument();
+    expect(within(facts).getByText('활성 키')).toBeInTheDocument();
+    expect(
+      within(facts).getByText(formatAbsoluteTime(project.created_at, 'ko')),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole('link', { name: '프로젝트 목록으로' }),
+    ).toHaveAttribute('href', '#/projects');
+
+    const rows = await findKeyRows();
+    const activeRow = within(rows[1]);
+    expect(activeRow.getByText('활성')).toBeInTheDocument();
+    expect(activeRow.getByLabelText('키 5의 요청 제한')).toHaveValue('');
+    expect(activeRow.getByRole('button', { name: '저장' })).toBeInTheDocument();
+    expect(
+      activeRow.getByRole('button', { name: 'DSN 복사' }),
+    ).toBeInTheDocument();
+    expect(activeRow.getByRole('button', { name: '해지' })).toBeInTheDocument();
+
+    const revokedRow = within(rows[2]);
+    expect(revokedRow.getByText(/해지됨/)).toBeInTheDocument();
+
+    expect(
+      screen.getByRole('heading', { level: 3, name: '프로젝트 편집' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '변경 사항 저장' }),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole('heading', { level: 3, name: '키 만들기' }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('분당 요청 제한')).toBeInTheDocument();
+
+    expect(
+      screen.getByRole('heading', { level: 3, name: '위험 구역' }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('프로젝트 이름 확인')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '프로젝트 삭제' }),
+    ).toBeDisabled();
+  });
+
+  it('renders the not-found state in Korean', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
+    stubApi({
+      project: () =>
+        errorResponse(404, { error: 'Project 7 was not found.' }),
+      keys: () => errorResponse(404, { error: 'Project 7 was not found.' }),
+    });
+
+    renderPage();
+
+    expect(
+      await screen.findByText('프로젝트를 찾을 수 없습니다'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: '프로젝트 목록으로' }),
     ).toHaveAttribute('href', '#/projects');
   });
 });

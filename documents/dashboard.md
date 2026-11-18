@@ -151,13 +151,21 @@ the selector.
 All dashboard-owned text comes from the message dictionaries in
 `src/i18n/messages/`: `en.ts` is the English source object and `ko.ts` must
 define the same keys, which the `Messages` type and a key-parity test enforce.
-The navigation tabs, project picker states, screen headings and column headers,
-loading/empty/error states, level and status badges and the 401 token guidance
-all follow the active locale. Dates, relative times, clock values and formatted
-counts go through `Intl.DateTimeFormat`, `Intl.RelativeTimeFormat` and
-`Intl.NumberFormat`, so an English timestamp stays `2026-01-02 03:04:05` and a
-Korean one reads `2026. 01. 02. 03:04:05`. Server-provided API error text is
-displayed verbatim and is never translated.
+The dictionaries are split into per-screen modules (`messages/en/issues.ts`,
+`messages/en/event.ts` and `messages/en/projects.ts` with their `ko`
+counterparts) and merged into `en.ts`/`ko.ts`, so a screen only owns the keys
+it renders. The navigation tabs, project picker states, loading/empty/error
+states, level and status badges and the 401 token guidance follow the active
+locale, and so do the issues list and detail screens, the event body and the
+project screens: their headings, filter labels and options, table headers,
+buttons, confirmations, count summaries and aria-labels/titles are translated.
+Counter messages use `_one`/`_other` plural keys with a `{count}` placeholder.
+Dates, relative times, clock values and formatted numbers go through
+`Intl.DateTimeFormat`, `Intl.RelativeTimeFormat` and `Intl.NumberFormat`, so an
+English timestamp stays `2026-01-02 03:04:05` and a Korean one reads
+`2026. 01. 02. 03:04:05`. Raw data values (issue ids, project slugs, platform
+names, label names, release and environment names) and server-provided API
+error text are displayed verbatim and are never translated.
 
 ## Routes
 
@@ -201,7 +209,11 @@ filters.
 
 ### Issues list (`#/issues`)
 
-The main screen lists issue groups matching the current filters.
+The main screen lists issue groups matching the current filters. Every label on
+this screen follows the selected language: the status tabs, filter names and
+options, table headers, the 24-hour summary, the bulk bar and its confirmation,
+and the empty/error prefixes. Issue titles, culprits, labels, platform names and
+the counts themselves stay as returned by the API.
 
 - **Status tabs** — Unresolved (default), Resolved, Ignored and All map to the
   `status` query parameter.
@@ -238,14 +250,17 @@ The main screen lists issue groups matching the current filters.
   **Resolve**, **Unresolve**, **Ignore**, **Add label**, **Remove label** and
   **Delete**. Add and Remove label use the entered label name and are disabled
   while it is empty. Delete asks for confirmation first
-  (`Delete N selected issues?`). Actions call
+  (`Delete N selected issues?`, localized in Korean). Actions call
   `POST /api/manage/issues/bulk`, clear the selection and refetch the first
   page. Select all applies to the rows currently loaded.
 
 ### Issue detail (`#/issues/<id>`)
 
 The detail screen loads the issue, its first page of events and the project
-label list in parallel.
+label list in parallel. Headings, metadata labels, action buttons,
+confirmation prompts, label controls and the event list/panel headings follow
+the selected language; raw issue fields and event payload values are shown
+unchanged.
 
 - **Header** — title and a "Back to issues" link, culprit, level, platform,
   status, first and last seen times, event count, last release and last
@@ -278,7 +293,9 @@ label list in parallel.
   event page and selects the new `latest_event`.
 
 The selected event body starts with a small facts row showing the event's
-platform, followed by these sections:
+platform, followed by these sections (their headings, the key/value table
+headers, the system-frame toggle, the `data` summary and the raw JSON summary
+are translated; payload values are not):
 
 1. **Exceptions** — one block per exception, displayed **outermost first**:
    the API returns the `exception` array from the innermost cause to the
@@ -309,7 +326,9 @@ Sections with no data are omitted.
 
 ### Projects (`#/projects`)
 
-The project list is the entry point for project and key management.
+The project list is the entry point for project and key management. Screen
+headings, table headers, buttons, copy feedback and the create form follow the
+selected language; project names, slugs and platform names stay as stored.
 
 - **Project table** — one row per project with a link to `#/projects/<id>`, the
   slug, chips for the platforms observed in its issues (an em dash when none
@@ -324,7 +343,10 @@ The project list is the entry point for project and key management.
 ### Project detail (`#/projects/<id>`)
 
 The detail screen loads `GET /api/manage/projects/{id}` and
-`GET /api/manage/projects/{id}/keys` in parallel.
+`GET /api/manage/projects/{id}/keys` in parallel. Its facts labels, key table
+headers, form labels and hints, status labels, buttons, copy feedback and the
+danger-zone confirmation follow the selected language; the project name, slug,
+key values, DSNs and the created/revoked times are shown as stored/returned.
 
 - **Header and facts** — the project name, a "Back to projects" link, the slug,
   a **Platforms seen** chip list built from the project's `platforms` (an em

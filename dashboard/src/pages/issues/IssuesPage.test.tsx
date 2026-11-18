@@ -1,7 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Issue, Label, StatsResponse } from '../../api/types';
+import { I18nProvider, LOCALE_STORAGE_KEY } from '../../i18n';
 import { formatAbsoluteTime } from '../../ui';
 import { IssuesPage } from './IssuesPage';
 
@@ -194,9 +196,15 @@ function optionValues(select: HTMLElement): string[] {
     .map((option) => (option as HTMLOptionElement).value);
 }
 
+/** Renders the screen the way the app does, inside the locale provider. */
+function renderPage(ui: ReactElement) {
+  return render(<I18nProvider>{ui}</I18nProvider>);
+}
+
 describe('IssuesPage', () => {
   beforeEach(() => {
     window.history.replaceState(null, '', '/');
+    window.localStorage.clear();
   });
 
   it('renders selectable rows with links, badges, chips, counts and relative times', async () => {
@@ -220,7 +228,7 @@ describe('IssuesPage', () => {
       issues: issuePage([first, second]),
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
 
     expect(screen.getByTestId('issues-page')).toBeInTheDocument();
     expect(screen.getByText('Loading...')).toBeInTheDocument();
@@ -307,7 +315,7 @@ describe('IssuesPage', () => {
     };
     const fetchMock = stubApi({ stats: jsonResponse(stats) });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
 
     expect(
       await screen.findByRole('heading', {
@@ -341,7 +349,7 @@ describe('IssuesPage', () => {
       stats: jsonResponse({ buckets: [], by_platform: [] }),
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
 
     await screen.findByRole('heading', { name: 'Events (last 24 hours)' });
     expect(screen.queryByTestId('stats-platforms')).not.toBeInTheDocument();
@@ -353,7 +361,7 @@ describe('IssuesPage', () => {
       issues: issuePage([makeIssue()]),
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
 
     expect(await screen.findByRole('link', { name: 'Boom' })).toBeInTheDocument();
     expect(screen.queryByText('Events (last 24 hours)')).not.toBeInTheDocument();
@@ -366,7 +374,7 @@ describe('IssuesPage', () => {
     const user = userEvent.setup();
     const fetchMock = stubApi({ issues: issuePage([makeIssue()]) });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('table');
 
     expect(optionValues(screen.getByLabelText('Level'))).toEqual([
@@ -523,7 +531,7 @@ describe('IssuesPage', () => {
     );
     const fetchMock = stubApi();
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
 
     expect(screen.getByRole('button', { name: 'Unresolved' })).toHaveAttribute(
       'aria-pressed',
@@ -545,7 +553,7 @@ describe('IssuesPage', () => {
       issues: issuePage([makeIssue({ status: 'resolved' })]),
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
 
     expect(screen.getByLabelText('Search issues')).toHaveValue('null');
     expect(screen.getByRole('button', { name: 'Resolved' })).toHaveAttribute(
@@ -566,7 +574,7 @@ describe('IssuesPage', () => {
   it('debounces the search box and writes the trimmed query once', async () => {
     const fetchMock = stubApi();
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByText('No issues found.');
 
     const search = screen.getByLabelText('Search issues');
@@ -602,7 +610,7 @@ describe('IssuesPage', () => {
     const user = userEvent.setup();
     stubApi({ issues: issuePage([makeIssue()]) });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'Boom' });
 
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
@@ -627,7 +635,7 @@ describe('IssuesPage', () => {
       issues: [issuePage([first], 'cursor-1'), () => nextPage.promise],
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
 
     expect(await screen.findByRole('link', { name: 'First' })).toBeInTheDocument();
     expect(
@@ -671,7 +679,7 @@ describe('IssuesPage', () => {
       ]),
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'First' });
 
     const selectAll = screen.getByRole('checkbox', { name: 'Select all' });
@@ -703,7 +711,7 @@ describe('IssuesPage', () => {
       ],
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'First' });
 
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
@@ -745,7 +753,7 @@ describe('IssuesPage', () => {
       ],
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'First' });
 
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
@@ -807,7 +815,7 @@ describe('IssuesPage', () => {
       ],
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'First' });
 
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
@@ -832,7 +840,7 @@ describe('IssuesPage', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     const fetchMock = stubApi({ issues: issuePage([makeIssue()]) });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'Boom' });
 
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
@@ -851,7 +859,7 @@ describe('IssuesPage', () => {
       bulk: errorResponse(500, { error: 'nope' }),
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('link', { name: 'Boom' });
 
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
@@ -866,7 +874,7 @@ describe('IssuesPage', () => {
   it('renders the empty state when no issues match', async () => {
     stubApi({ issues: issuePage([]) });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
 
     expect(screen.getByText('Loading...')).toBeInTheDocument();
     expect(await screen.findByText('No issues found.')).toBeInTheDocument();
@@ -879,7 +887,7 @@ describe('IssuesPage', () => {
   it('renders an error state for a failed list request', async () => {
     stubApi({ issues: errorResponse(500) });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
 
     expect(
       await screen.findByText('Failed to load issues: HTTP 500'),
@@ -891,7 +899,7 @@ describe('IssuesPage', () => {
   it('renders the VITE_ADMIN_TOKEN guidance for a 401 response', async () => {
     stubApi({ issues: errorResponse(401, { error: 'unauthorized' }) });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
 
     expect(
       await screen.findByText('Failed to load issues: HTTP 401: unauthorized'),
@@ -909,7 +917,7 @@ describe('IssuesPage', () => {
       issues: issuePage([makeIssue()]),
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('table');
 
     expect(optionValues(screen.getByLabelText('Label'))).toEqual(['']);
@@ -921,7 +929,7 @@ describe('IssuesPage', () => {
       project: jsonResponse({ ...projectDetail, platforms: [] }),
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('table');
 
     expect(screen.queryByLabelText('Platform')).not.toBeInTheDocument();
@@ -933,7 +941,7 @@ describe('IssuesPage', () => {
       project: errorResponse(500, { error: 'boom' }),
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('table');
 
     expect(screen.queryByLabelText('Platform')).not.toBeInTheDocument();
@@ -956,7 +964,7 @@ describe('IssuesPage', () => {
       }),
     });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
 
     const select = await screen.findByLabelText('Platform');
     expect(
@@ -983,7 +991,7 @@ describe('IssuesPage', () => {
     );
     const fetchMock = stubApi({ issues: issuePage([makeIssue()]) });
 
-    render(<IssuesPage projectId={1} />);
+    renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('table');
 
     expect(optionValues(screen.getByLabelText('Environment'))).toEqual([
@@ -1005,7 +1013,7 @@ describe('IssuesPage', () => {
   it('renders the no-project state without calling the API', () => {
     const fetchMock = stubApi();
 
-    render(<IssuesPage projectId={null} />);
+    renderPage(<IssuesPage projectId={null} />);
 
     expect(screen.getByTestId('issues-page')).toBeInTheDocument();
     expect(screen.getByText(/No project selected/)).toBeInTheDocument();
@@ -1019,12 +1027,16 @@ describe('IssuesPage', () => {
     const fetchMock = stubApi();
     const requestedUrls = () =>
       fetchMock.mock.calls.map(([input]) => String(input));
-    const { rerender } = render(<IssuesPage projectId={1} />);
+    const { rerender } = renderPage(<IssuesPage projectId={1} />);
 
     expect(await screen.findByText('No issues found.')).toBeInTheDocument();
     expect(requestedUrls()).toContain(`${API}/projects/1/labels`);
 
-    rerender(<IssuesPage projectId={2} />);
+    rerender(
+      <I18nProvider>
+        <IssuesPage projectId={2} />
+      </I18nProvider>,
+    );
 
     await waitFor(() =>
       expect(requestedUrls()).toContain(
@@ -1034,5 +1046,75 @@ describe('IssuesPage', () => {
     expect(requestedUrls()).toContain(`${API}/projects/2/labels`);
     expect(requestedUrls()).toContain(`${API}/projects/2/stats?period=24h`);
     expect(await screen.findByText('No issues found.')).toBeInTheDocument();
+  });
+
+  it('renders the list, filters, stats and bulk bar in Korean', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    stubApi({
+      issues: issuePage([makeIssue({ id: 7, title: 'Crash on startup' })]),
+    });
+
+    renderPage(<IssuesPage projectId={1} />);
+
+    expect(
+      screen.getByRole('heading', { level: 2, name: '이슈' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('불러오는 중...')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '미해결' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByLabelText('이슈 검색')).toBeInTheDocument();
+    expect(screen.getByLabelText('정렬')).toHaveValue('last_seen');
+
+    const table = await screen.findByRole('table');
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((header) => header.textContent),
+    ).toEqual([
+      '',
+      '제목',
+      '원인',
+      '레벨',
+      '플랫폼',
+      '라벨',
+      '이벤트',
+      '마지막 발생',
+      '첫 발생',
+      '상태',
+    ]);
+    expect(
+      within(table).getByRole('checkbox', { name: '이슈 7 선택' }),
+    ).toBeInTheDocument();
+    expect(within(table).getByText('오류')).toBeInTheDocument();
+    expect(within(table).getByText('미해결')).toBeInTheDocument();
+
+    expect(
+      await screen.findByRole('heading', { name: '이벤트 (최근 24시간)' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('9개 이벤트')).toBeInTheDocument();
+    expect(screen.getByText('4개 이슈')).toBeInTheDocument();
+
+    await user.click(
+      within(table).getByRole('checkbox', { name: '이슈 7 선택' }),
+    );
+    expect(screen.getByText('1개 선택됨')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '삭제' }));
+    expect(confirm).toHaveBeenCalledWith('선택한 이슈 1개를 삭제할까요?');
+  });
+
+  it('translates the error prefix but not the server error body', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
+    stubApi({ issues: errorResponse(500, { error: 'boom' }) });
+
+    renderPage(<IssuesPage projectId={1} />);
+
+    expect(
+      await screen.findByText('이슈를 불러오지 못했습니다: HTTP 500: boom'),
+    ).toBeInTheDocument();
   });
 });

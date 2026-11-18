@@ -15,6 +15,7 @@ export {
 } from './locale';
 export {
   createTranslator,
+  formatNumber,
   translate,
   type Dictionaries,
   type Translate,

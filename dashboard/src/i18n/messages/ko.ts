@@ -1,4 +1,7 @@
 import type { Messages } from './en';
+import { event } from './ko/event';
+import { issues } from './ko/issues';
+import { projects } from './ko/projects';
 
 /**
  * Korean messages. Declaring the object as {@link Messages} makes `tsc` fail
@@ -58,4 +61,7 @@ export const ko: Messages = {
     empty: '아직 메시지가 없습니다.',
     loadError: '메시지를 불러오지 못했습니다',
   },
+  issues,
+  event,
+  projects,
 };

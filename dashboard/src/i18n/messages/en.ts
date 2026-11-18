@@ -9,10 +9,10 @@
  * number.
  */
 
-/** Maps the literal English object to the same shape with plain strings. */
-type DeepStringify<T> = {
-  [K in keyof T]: T[K] extends string ? string : DeepStringify<T[K]>;
-};
+import { event } from './en/event';
+import { issues } from './en/issues';
+import { projects } from './en/projects';
+import type { DeepStringify } from './types';
 
 export const en = {
   nav: {
@@ -69,6 +69,9 @@ export const en = {
     empty: 'No messages yet.',
     loadError: 'Failed to load messages',
   },
+  issues,
+  event,
+  projects,
 } as const;
 
 export type Messages = DeepStringify<typeof en>;

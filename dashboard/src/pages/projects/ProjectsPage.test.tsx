@@ -1,7 +1,9 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ReactElement } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CreatedProject, ProjectListItem } from '../../api/types';
+import { I18nProvider, LOCALE_STORAGE_KEY } from '../../i18n';
 import { ProjectsPage } from './ProjectsPage';
 import { copyToClipboard } from './copy';
 
@@ -121,6 +123,15 @@ function createBody(call: unknown): unknown {
   return JSON.parse(String(init?.body));
 }
 
+/** Renders the screen the way the app does, inside the locale provider. */
+function renderPage(ui: ReactElement) {
+  return render(<I18nProvider>{ui}</I18nProvider>);
+}
+
+beforeEach(() => {
+  window.localStorage.clear();
+});
+
 afterEach(() => {
   Reflect.deleteProperty(navigator, 'clipboard');
   Reflect.deleteProperty(document, 'execCommand');
@@ -130,7 +141,7 @@ describe('ProjectsPage', () => {
   it('renders the project table with links, slugs and counters', async () => {
     const fetchMock = stubApi();
 
-    render(<ProjectsPage onProjectsChanged={vi.fn()} />);
+    renderPage(<ProjectsPage onProjectsChanged={vi.fn()} />);
 
     expect(screen.getByText('Loading...')).toBeInTheDocument();
 
@@ -173,7 +184,7 @@ describe('ProjectsPage', () => {
   it('renders the empty state when there are no projects', async () => {
     stubApi({ lists: [jsonResponse([])] });
 
-    render(<ProjectsPage onProjectsChanged={vi.fn()} />);
+    renderPage(<ProjectsPage onProjectsChanged={vi.fn()} />);
 
     expect(await screen.findByText('No projects yet.')).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
@@ -182,7 +193,7 @@ describe('ProjectsPage', () => {
   it('renders the load error', async () => {
     stubApi({ lists: [errorResponse(500, { error: 'boom' })] });
 
-    render(<ProjectsPage onProjectsChanged={vi.fn()} />);
+    renderPage(<ProjectsPage onProjectsChanged={vi.fn()} />);
 
     expect(
       await screen.findByText('Failed to load projects: HTTP 500: boom'),
@@ -196,7 +207,7 @@ describe('ProjectsPage', () => {
       lists: [jsonResponse(projects), jsonResponse([])],
     });
 
-    render(<ProjectsPage onProjectsChanged={vi.fn()} />);
+    renderPage(<ProjectsPage onProjectsChanged={vi.fn()} />);
     await screen.findByRole('table');
 
     await user.click(screen.getByRole('button', { name: 'Refresh' }));
@@ -219,7 +230,7 @@ describe('ProjectsPage', () => {
         ]),
       ],
     });
-    render(<ProjectsPage onProjectsChanged={vi.fn()} />);
+    renderPage(<ProjectsPage onProjectsChanged={vi.fn()} />);
 
     const table = await screen.findByRole('table');
     expect(screen.queryByLabelText('Platform')).not.toBeInTheDocument();
@@ -236,7 +247,7 @@ describe('ProjectsPage', () => {
       lists: [jsonResponse([]), jsonResponse([...projects, createdListItem])],
     });
 
-    render(<ProjectsPage onProjectsChanged={onProjectsChanged} />);
+    renderPage(<ProjectsPage onProjectsChanged={onProjectsChanged} />);
 
     expect(await screen.findByText('No projects yet.')).toBeInTheDocument();
     expect(screen.getByLabelText('Name')).toBeRequired();
@@ -276,7 +287,7 @@ describe('ProjectsPage', () => {
     const user = userEvent.setup();
     const fetchMock = stubApi({ lists: [jsonResponse([])] });
 
-    render(<ProjectsPage onProjectsChanged={vi.fn()} />);
+    renderPage(<ProjectsPage onProjectsChanged={vi.fn()} />);
     await screen.findByText('No projects yet.');
 
     await user.type(screen.getByLabelText('Name'), 'Only name');
@@ -298,7 +309,7 @@ describe('ProjectsPage', () => {
         }),
     });
 
-    render(<ProjectsPage onProjectsChanged={onProjectsChanged} />);
+    renderPage(<ProjectsPage onProjectsChanged={onProjectsChanged} />);
     await screen.findByText('No projects yet.');
 
     await user.type(screen.getByLabelText('Name'), 'Dup');
@@ -324,7 +335,7 @@ describe('ProjectsPage', () => {
         }),
     });
 
-    render(<ProjectsPage onProjectsChanged={vi.fn()} />);
+    renderPage(<ProjectsPage onProjectsChanged={vi.fn()} />);
     await screen.findByText('No projects yet.');
 
     await user.type(screen.getByLabelText('Name'), 'Bad slug');
@@ -347,7 +358,7 @@ describe('ProjectsPage', () => {
     });
     stubApi({ lists: [jsonResponse([]), jsonResponse([])] });
 
-    render(<ProjectsPage onProjectsChanged={vi.fn()} />);
+    renderPage(<ProjectsPage onProjectsChanged={vi.fn()} />);
     await screen.findByText('No projects yet.');
 
     await user.type(screen.getByLabelText('Name'), 'New game');
@@ -375,5 +386,46 @@ describe('ProjectsPage', () => {
 
   it('reports a failed copy without throwing when no mechanism exists', async () => {
     await expect(copyToClipboard('dsn-value')).resolves.toBe(false);
+  });
+
+  it('renders the table, create form and counters in Korean', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
+    stubApi();
+
+    renderPage(<ProjectsPage onProjectsChanged={vi.fn()} />);
+
+    expect(
+      screen.getByRole('heading', { level: 2, name: '프로젝트' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '새로고침' })).toBeInTheDocument();
+
+    const table = await screen.findByRole('table');
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((header) => header.textContent),
+    ).toEqual(['이름', '슬러그', '플랫폼', '미해결 이슈', '활성 키']);
+    expect(within(table).getByText('unreal')).toHaveClass('platform-chip');
+
+    expect(
+      screen.getByRole('heading', { level: 2, name: '프로젝트 만들기' }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('이름')).toBeRequired();
+    expect(
+      screen.getByRole('button', { name: '프로젝트 만들기' }),
+    ).toBeDisabled();
+  });
+
+  it('translates the load prefix but not the server error body', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
+    stubApi({ lists: [errorResponse(500, { error: 'boom' })] });
+
+    renderPage(<ProjectsPage onProjectsChanged={vi.fn()} />);
+
+    expect(
+      await screen.findByText(
+        '프로젝트를 불러오지 못했습니다: HTTP 500: boom',
+      ),
+    ).toBeInTheDocument();
   });
 });

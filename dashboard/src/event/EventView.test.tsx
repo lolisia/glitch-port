@@ -1,7 +1,9 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import type { ReactElement } from 'react';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { EventDetail, EventPayload } from '../api/types';
+import { I18nProvider, LOCALE_STORAGE_KEY } from '../i18n';
 import EventView, { EventView as NamedEventView } from './EventView';
 
 function makeEvent(payload: EventPayload): EventDetail {
@@ -26,13 +28,22 @@ function sectionHeadings(): string[] {
     .map((heading) => heading.textContent ?? '');
 }
 
+/** Renders the event body the way the app does, inside the locale provider. */
+function renderView(ui: ReactElement) {
+  return render(<I18nProvider>{ui}</I18nProvider>);
+}
+
+beforeEach(() => {
+  window.localStorage.clear();
+});
+
 describe('EventView', () => {
   it('exposes the named and default exports', () => {
     expect(NamedEventView).toBe(EventView);
   });
 
   it('renders exceptions outermost first and joins type and value', () => {
-    render(
+    renderView(
       <EventView
         event={makeEvent({
           exception: [
@@ -60,7 +71,7 @@ describe('EventView', () => {
   });
 
   it('renders the stack throw-site first with module.function, filename:lineno and context_line', () => {
-    render(
+    renderView(
       <EventView
         event={makeEvent({
           exception: [
@@ -128,7 +139,7 @@ describe('EventView', () => {
   it('reveals system frames in place and hides them again', async () => {
     const user = userEvent.setup();
 
-    render(
+    renderView(
       <EventView
         event={makeEvent({
           exception: [
@@ -184,7 +195,7 @@ describe('EventView', () => {
   it('keeps system-frame visibility state per exception', async () => {
     const user = userEvent.setup();
 
-    render(
+    renderView(
       <EventView
         event={makeEvent({
           exception: [
@@ -247,7 +258,7 @@ describe('EventView', () => {
   it('treats frames without in_app as unemphasised application frames', async () => {
     const user = userEvent.setup();
 
-    render(
+    renderView(
       <EventView
         event={makeEvent({
           exception: [
@@ -282,7 +293,7 @@ describe('EventView', () => {
   });
 
   it('falls back when frame parts, filenames or line numbers are missing', () => {
-    render(
+    renderView(
       <EventView
         event={makeEvent({
           exception: [
@@ -321,7 +332,7 @@ describe('EventView', () => {
   });
 
   it('renders the message without exceptions', () => {
-    render(<EventView event={makeEvent({ message: 'Something went wrong.' })} />);
+    renderView(<EventView event={makeEvent({ message: 'Something went wrong.' })} />);
 
     expect(
       screen.getByRole('heading', { level: 3, name: 'Message' }),
@@ -335,7 +346,7 @@ describe('EventView', () => {
   });
 
   it('renders the message alongside exceptions', () => {
-    render(
+    renderView(
       <EventView
         event={makeEvent({
           message: 'Request failed.',
@@ -392,7 +403,7 @@ describe('EventView', () => {
       extra: { attempts: 7, response: { status: 500 } },
     };
 
-    const { container } = render(<EventView event={makeEvent(payload)} />);
+    const { container } = renderView(<EventView event={makeEvent(payload)} />);
 
     expect(sectionHeadings()).toEqual([
       'Message',
@@ -477,7 +488,7 @@ describe('EventView', () => {
     [{ name: 'package', version: '1.0.0' }, 'package@1.0.0'],
     [{}, 'unknown'],
   ])('renders the SDK text %o as %s', (sdk, expected) => {
-    render(<EventView event={makeEvent({ sdk })} />);
+    renderView(<EventView event={makeEvent({ sdk })} />);
 
     expect(
       screen.getByRole('heading', { level: 3, name: 'SDK' }),
@@ -490,7 +501,7 @@ describe('EventView', () => {
       message: 'boom',
       extra: { retries: 2 },
     };
-    const { container } = render(<EventView event={makeEvent(payload)} />);
+    const { container } = renderView(<EventView event={makeEvent(payload)} />);
 
     const summary = screen.getByText('Raw JSON');
     const details = summary.closest('details');
@@ -505,7 +516,7 @@ describe('EventView', () => {
   });
 
   it('omits missing or empty sections while still rendering raw JSON', () => {
-    const { container } = render(
+    const { container } = renderView(
       <EventView
         event={makeEvent({
           message: '',
@@ -536,5 +547,68 @@ describe('EventView', () => {
       rawSection,
     );
     expect(screen.getByText('Raw JSON')).toBeInTheDocument();
+  });
+
+  it('renders the sections and system frame toggle in Korean', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
+    const user = userEvent.setup();
+
+    renderView(
+      <EventView
+        event={makeEvent({
+          message: 'boom',
+          exception: [
+            {
+              type: 'Error',
+              stacktrace: {
+                frames: [
+                  { function: 'App', in_app: true },
+                  { function: 'EngineTick', in_app: false },
+                ],
+              },
+            },
+          ],
+          tags: { region: 'eu-west-1' },
+          user: { id: 'user-42' },
+          breadcrumbs: [
+            {
+              timestamp: '2026-11-14T10:11:12',
+              category: 'navigation',
+              message: 'opened menu',
+              level: 'info',
+            },
+          ],
+          sdk: {},
+        })}
+      />,
+    );
+
+    expect(sectionHeadings()).toEqual([
+      '예외',
+      '메시지',
+      '태그',
+      '사용자',
+      '브레드크럼',
+      'SDK',
+    ]);
+
+    // Raw payload values stay untranslated.
+    expect(screen.getByText('eu-west-1')).toBeInTheDocument();
+    expect(screen.getByText('user-42')).toBeInTheDocument();
+    expect(screen.getByText('ID')).toBeInTheDocument();
+    expect(screen.getByText('알 수 없음')).toBeInTheDocument();
+    expect(screen.getByText('10:11:12')).toBeInTheDocument();
+
+    const showFrames = screen.getByRole('button', {
+      name: '시스템 프레임 1개 표시',
+    });
+    expect(showFrames).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(showFrames);
+    expect(screen.getByText('EngineTick')).toBeInTheDocument();
+
+    expect(
+      screen.getByRole('button', { name: '시스템 프레임 1개 숨기기' }),
+    ).toHaveAttribute('aria-expanded', 'true');
   });
 });

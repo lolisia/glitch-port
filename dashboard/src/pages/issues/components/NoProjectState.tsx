@@ -1,3 +1,4 @@
+import { useI18n } from '../../../i18n';
 import { EmptyState } from '../../../ui';
 
 /**
@@ -6,9 +7,13 @@ import { EmptyState } from '../../../ui';
  * screens must not call the API in that state.
  */
 export function NoProjectState() {
+  const { t } = useI18n();
+
   return (
     <EmptyState>
-      No project selected — <a href="#/projects">choose a project</a> to continue.
+      {t('issues.noProject')} —{' '}
+      <a href="#/projects">{t('issues.chooseProject')}</a>{' '}
+      {t('issues.noProjectSuffix')}
     </EmptyState>
   );
 }

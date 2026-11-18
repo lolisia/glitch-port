@@ -145,3 +145,12 @@ export function createTranslator(
 ): Translate {
   return (key, params) => translate(dictionaries, locale, key, params);
 }
+
+/**
+ * Formats a standalone number (a count shown in its own cell, for example)
+ * with the active locale's `Intl.NumberFormat`. Use `t()` with a `{count}`
+ * placeholder instead when the number is part of a sentence.
+ */
+export function formatNumber(value: number, locale: Locale): string {
+  return numberFormatFor(locale).format(value);
+}

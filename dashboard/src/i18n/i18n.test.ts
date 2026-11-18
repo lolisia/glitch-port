@@ -58,6 +58,30 @@ describe('messages', () => {
     expect(createTranslator('en')('nav.issues')).toBe('Issues');
     expect(createTranslator('ko')('nav.issues')).toBe('이슈');
   });
+
+  it('defines the issue, event and project namespaces in both locales', () => {
+    const enT = createTranslator('en');
+    const koT = createTranslator('ko');
+
+    expect(enT('issues.title')).toBe('Issues');
+    expect(koT('issues.title')).toBe('이슈');
+    expect(enT('event.rawJson')).toBe('Raw JSON');
+    expect(koT('event.rawJson')).toBe('원본 JSON');
+    expect(enT('projects.title')).toBe('Projects');
+    expect(koT('projects.title')).toBe('프로젝트');
+  });
+
+  it('keeps the screen counters in plural keys', () => {
+    const enT = createTranslator('en');
+    const koT = createTranslator('ko');
+
+    expect(enT('issues.stats.total', { count: 3 })).toBe('3 events');
+    expect(enT('issues.stats.issueCount', { count: 1 })).toBe('1 issue');
+    expect(enT('issues.stats.issueCount', { count: 3 })).toBe('3 issues');
+    expect(enT('issues.bulk.selected', { count: 2 })).toBe('2 selected');
+    expect(koT('issues.bulk.selected', { count: 2 })).toBe('2개 선택됨');
+    expect(koT('issues.stats.issueCount', { count: 3 })).toBe('3개 이슈');
+  });
 });
 
 describe('locale resolution', () => {

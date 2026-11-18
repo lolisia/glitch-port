@@ -1,3 +1,4 @@
+import { useI18n } from '../../../i18n';
 import {
   LEVEL_OPTIONS,
   SORT_OPTIONS,
@@ -32,6 +33,8 @@ export function IssueFilterBar({
   onFilterChange,
   onSearchChange,
 }: IssueFilterBarProps) {
+  const { t } = useI18n();
+
   // Keep platforms restored from a shared link selectable even when the
   // project list has not caught up yet.
   const platformChoices = [...platformOptions];
@@ -43,7 +46,11 @@ export function IssueFilterBar({
 
   return (
     <div className="issues-filters">
-      <div className="issues-status-tabs" role="group" aria-label="Status">
+      <div
+        className="issues-status-tabs"
+        role="group"
+        aria-label={t('issues.filters.status')}
+      >
         {STATUS_TABS.map((tab) => (
           <button
             key={tab.value}
@@ -51,7 +58,7 @@ export function IssueFilterBar({
             aria-pressed={filters.status === tab.value}
             onClick={() => onFilterChange({ status: tab.value })}
           >
-            {tab.label}
+            {t(tab.labelKey)}
           </button>
         ))}
       </div>
@@ -60,32 +67,32 @@ export function IssueFilterBar({
         <input
           type="search"
           className="issues-search"
-          aria-label="Search issues"
-          placeholder="Search title..."
+          aria-label={t('issues.filters.search')}
+          placeholder={t('issues.filters.searchPlaceholder')}
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
         />
 
         <select
-          aria-label="Level"
+          aria-label={t('issues.filters.level')}
           value={filters.level}
           onChange={(event) => onFilterChange({ level: event.target.value })}
         >
           {LEVEL_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
-              {option.label}
+              {t(option.labelKey)}
             </option>
           ))}
         </select>
 
         <select
-          aria-label="Environment"
+          aria-label={t('issues.filters.environment')}
           value={filters.environment}
           onChange={(event) =>
             onFilterChange({ environment: event.target.value })
           }
         >
-          <option value="">All environments</option>
+          <option value="">{t('issues.filters.allEnvironments')}</option>
           {environmentOptions.map((value) => (
             <option key={value} value={value}>
               {value}
@@ -94,11 +101,11 @@ export function IssueFilterBar({
         </select>
 
         <select
-          aria-label="Release"
+          aria-label={t('issues.filters.release')}
           value={filters.release}
           onChange={(event) => onFilterChange({ release: event.target.value })}
         >
-          <option value="">All releases</option>
+          <option value="">{t('issues.filters.allReleases')}</option>
           {releaseOptions.map((value) => (
             <option key={value} value={value}>
               {value}
@@ -107,11 +114,11 @@ export function IssueFilterBar({
         </select>
 
         <select
-          aria-label="Label"
+          aria-label={t('issues.filters.label')}
           value={filters.label}
           onChange={(event) => onFilterChange({ label: event.target.value })}
         >
-          <option value="">All labels</option>
+          <option value="">{t('issues.filters.allLabels')}</option>
           {labelNames.map((name) => (
             <option key={name} value={name}>
               {name}
@@ -121,7 +128,7 @@ export function IssueFilterBar({
 
         {platformChoices.length > 0 && (
           <select
-            aria-label="Platform"
+            aria-label={t('issues.filters.platform')}
             className="issues-platform-filter"
             multiple
             size={Math.min(platformChoices.length, 3)}
@@ -144,7 +151,7 @@ export function IssueFilterBar({
         )}
 
         <select
-          aria-label="Sort"
+          aria-label={t('issues.filters.sort')}
           value={filters.sort}
           onChange={(event) =>
             onFilterChange({ sort: parseIssueSortFilter(event.target.value) })
@@ -152,7 +159,7 @@ export function IssueFilterBar({
         >
           {SORT_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
-              {option.label}
+              {t(option.labelKey)}
             </option>
           ))}
         </select>

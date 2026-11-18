@@ -1,5 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   EventDetail,
@@ -10,6 +11,7 @@ import type {
   Label,
   UpdateIssueRequest,
 } from '../../api/types';
+import { I18nProvider, LOCALE_STORAGE_KEY } from '../../i18n';
 import { IssueDetailPage } from './IssueDetailPage';
 
 interface MockResponse {
@@ -293,13 +295,19 @@ function callsTo(calls: RecordedCall[], method: string, path: string) {
 
 beforeEach(() => {
   window.history.replaceState(null, '', '/#/issues/42');
+  window.localStorage.clear();
 });
+
+/** Renders the screen the way the app does, inside the locale provider. */
+function renderPage(ui: ReactElement) {
+  return render(<I18nProvider>{ui}</I18nProvider>);
+}
 
 describe('IssueDetailPage', () => {
   it('loads the issue, labels and event list and renders the header without an event GET', async () => {
     const { calls } = stubApi();
 
-    render(<IssueDetailPage issueId={42} projectId={1} />);
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
 
     expect(screen.getByText('Loading...')).toBeInTheDocument();
 
@@ -397,7 +405,7 @@ describe('IssueDetailPage', () => {
       },
     });
 
-    render(<IssueDetailPage issueId={42} projectId={1} />);
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByTestId('issue-detail-header');
     const items = within(
@@ -417,7 +425,7 @@ describe('IssueDetailPage', () => {
       },
     });
 
-    render(<IssueDetailPage issueId={42} projectId={1} />);
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
 
     const header = await screen.findByTestId('issue-detail-header');
     expect(within(header).getAllByText('-')).toHaveLength(2);
@@ -426,7 +434,7 @@ describe('IssueDetailPage', () => {
   it('renders the load error and token guidance on 401', async () => {
     stubApi({ issueError: jsonResponse({ error: 'unauthorized' }, 401) });
 
-    render(<IssueDetailPage issueId={42} projectId={1} />);
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
 
     expect(
       await screen.findByText('Failed to load issue: HTTP 401: unauthorized'),
@@ -442,7 +450,7 @@ describe('IssueDetailPage', () => {
   it('renders the load error on 404', async () => {
     stubApi({ issueError: jsonResponse({ error: 'not found' }, 404) });
 
-    render(<IssueDetailPage issueId={42} projectId={1} />);
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
 
     expect(
       await screen.findByText('Failed to load issue: HTTP 404: not found'),
@@ -454,7 +462,7 @@ describe('IssueDetailPage', () => {
     const user = userEvent.setup();
     const { calls } = stubApi();
 
-    render(<IssueDetailPage issueId={42} projectId={1} />);
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
 
     const header = await screen.findByTestId('issue-detail-header');
 
@@ -489,7 +497,7 @@ describe('IssueDetailPage', () => {
     const user = userEvent.setup();
     const { calls } = stubApi();
 
-    render(<IssueDetailPage issueId={42} projectId={1} />);
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByTestId('issue-detail-header');
 
@@ -520,7 +528,7 @@ describe('IssueDetailPage', () => {
     const user = userEvent.setup();
     const { calls } = stubApi();
 
-    render(<IssueDetailPage issueId={42} projectId={1} />);
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByTestId('issue-detail-header');
 
@@ -560,7 +568,7 @@ describe('IssueDetailPage', () => {
     const user = userEvent.setup();
     stubApi({ patchError: jsonResponse({ error: 'boom' }, 500) });
 
-    render(<IssueDetailPage issueId={42} projectId={1} />);
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
 
     const header = await screen.findByTestId('issue-detail-header');
 
@@ -576,7 +584,7 @@ describe('IssueDetailPage', () => {
     const user = userEvent.setup();
     const { calls } = stubApi();
 
-    render(<IssueDetailPage issueId={42} projectId={1} />);
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByText('Latest payload body');
     const items = within(
@@ -601,7 +609,7 @@ describe('IssueDetailPage', () => {
     const user = userEvent.setup();
     const { calls } = stubApi();
 
-    render(<IssueDetailPage issueId={42} projectId={1} />);
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByText('Latest payload body');
 
@@ -641,7 +649,7 @@ describe('IssueDetailPage', () => {
     const user = userEvent.setup();
     stubApi({ eventError: jsonResponse({ error: 'gone' }, 500) });
 
-    render(<IssueDetailPage issueId={42} projectId={1} />);
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByText('Latest payload body');
     const items = within(
@@ -669,7 +677,7 @@ describe('IssueDetailPage', () => {
       },
     });
 
-    render(<IssueDetailPage issueId={42} projectId={1} />);
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByText('Second summary');
     expect(screen.queryByText('First summary')).not.toBeInTheDocument();
@@ -696,7 +704,7 @@ describe('IssueDetailPage', () => {
     const onDeleteEvent = vi.fn();
     const { calls } = stubApi({ onDeleteEvent });
 
-    render(<IssueDetailPage issueId={42} projectId={1} />);
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByText('Latest payload body');
 
@@ -729,7 +737,7 @@ describe('IssueDetailPage', () => {
       },
     });
 
-    render(<IssueDetailPage issueId={42} projectId={1} />);
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByText('Latest payload body');
 
@@ -764,7 +772,7 @@ describe('IssueDetailPage', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     const { calls } = stubApi();
 
-    render(<IssueDetailPage issueId={42} projectId={1} />);
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByTestId('issue-detail-header');
 
@@ -782,7 +790,7 @@ describe('IssueDetailPage', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const { calls } = stubApi();
 
-    render(<IssueDetailPage issueId={42} projectId={1} />);
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByTestId('issue-detail-header');
 
@@ -798,7 +806,7 @@ describe('IssueDetailPage', () => {
       firstEvents: { items: [], next_cursor: null },
     });
 
-    render(<IssueDetailPage issueId={42} projectId={1} />);
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
 
     await screen.findByTestId('issue-detail-header');
 
@@ -811,7 +819,7 @@ describe('IssueDetailPage', () => {
   it('renders the no-project state without calling the API', () => {
     const { calls } = stubApi();
 
-    render(<IssueDetailPage issueId={42} projectId={null} />);
+    renderPage(<IssueDetailPage issueId={42} projectId={null} />);
 
     expect(screen.getByTestId('issue-detail-page')).toBeInTheDocument();
     expect(screen.getByText(/No project selected/)).toBeInTheDocument();
@@ -823,14 +831,18 @@ describe('IssueDetailPage', () => {
 
   it('reloads the project labels when the active project changes', async () => {
     const { calls } = stubApi();
-    const { rerender } = render(
+    const { rerender } = renderPage(
       <IssueDetailPage issueId={42} projectId={1} />,
     );
 
     await screen.findByTestId('issue-detail-header');
     expect(callsTo(calls, 'GET', LABELS_PATH)).toHaveLength(1);
 
-    rerender(<IssueDetailPage issueId={42} projectId={2} />);
+    rerender(
+      <I18nProvider>
+        <IssueDetailPage issueId={42} projectId={2} />
+      </I18nProvider>,
+    );
 
     await waitFor(() =>
       expect(
@@ -838,5 +850,84 @@ describe('IssueDetailPage', () => {
       ).toHaveLength(1),
     );
     expect(screen.getByRole('checkbox', { name: 'crash' })).toBeChecked();
+  });
+
+  it('renders the header, actions, labels and event list in Korean', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    stubApi();
+
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
+
+    const header = await screen.findByTestId('issue-detail-header');
+
+    expect(
+      within(header).getByRole('link', { name: '이슈 목록으로' }),
+    ).toHaveAttribute('href', '#/issues');
+    expect(within(header).getByText('레벨')).toBeInTheDocument();
+    expect(within(header).getByText('플랫폼')).toBeInTheDocument();
+    expect(within(header).getByText('상태')).toBeInTheDocument();
+    expect(within(header).getByText('첫 발생')).toBeInTheDocument();
+    expect(within(header).getByText('마지막 발생')).toBeInTheDocument();
+    expect(within(header).getByText('릴리스')).toBeInTheDocument();
+    expect(within(header).getByText('환경')).toBeInTheDocument();
+    expect(within(header).getByText('오류')).toBeInTheDocument();
+    expect(within(header).getByText('미해결')).toBeInTheDocument();
+
+    const actions = screen.getByRole('group', { name: '이슈 작업' });
+    expect(
+      within(actions).getByRole('button', { name: '해결' }),
+    ).toBeEnabled();
+    expect(
+      within(actions).getByRole('button', { name: '미해결로' }),
+    ).toBeEnabled();
+    expect(
+      within(actions).getByRole('button', { name: '무시' }),
+    ).toBeEnabled();
+    expect(
+      within(actions).getByRole('button', { name: '이슈 삭제' }),
+    ).toBeEnabled();
+
+    expect(
+      screen.getByRole('heading', { level: 3, name: '라벨' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('textbox', { name: '새 라벨 이름' }),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('group', { name: '프로젝트 라벨' })).getAllByRole(
+        'checkbox',
+      ),
+    ).toHaveLength(3);
+
+    const list = screen.getByTestId('issue-event-list');
+    expect(
+      within(list).getByRole('heading', { level: 3, name: '이벤트 목록' }),
+    ).toBeInTheDocument();
+    expect(within(list).getByRole('button', { name: '최신' })).toBeDisabled();
+    expect(within(list).getByRole('button', { name: '이전' })).toBeEnabled();
+
+    const panel = screen.getByTestId('issue-event-panel');
+    expect(
+      within(panel).getByRole('heading', { level: 3, name: '선택한 이벤트' }),
+    ).toBeInTheDocument();
+    expect(
+      within(panel).getByRole('button', { name: '이벤트 삭제' }),
+    ).toBeEnabled();
+    expect(within(panel).getByText('플랫폼')).toBeInTheDocument();
+
+    // Raw data (labels, platforms, releases) stays untranslated.
+    expect(screen.getByRole('checkbox', { name: 'crash' })).toBeChecked();
+    expect(within(header).getByText('unreal')).toHaveClass('platform-chip');
+    expect(within(header).getByText('1.2.0')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '이벤트 삭제' }));
+    expect(confirm).toHaveBeenCalledWith('이 이벤트를 삭제할까요?');
+
+    await user.click(screen.getByRole('button', { name: '이슈 삭제' }));
+    expect(confirm).toHaveBeenCalledWith(
+      '이 이슈와 모든 이벤트를 삭제할까요?',
+    );
   });
 });
