@@ -1,6 +1,7 @@
 using GlitchPort.Processor.Projects;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 
 namespace GlitchPort.Processor.Management;
@@ -30,9 +31,11 @@ internal static class ManagementIssueEndpoints
         string? level,
         string? environment,
         string? release,
+        [FromQuery(Name = "first_release")] string? firstRelease,
         string? label,
         string? platform,
         string? q,
+        string? regressed,
         string? sort,
         string? limit,
         string? cursor,
@@ -53,6 +56,11 @@ internal static class ManagementIssueEndpoints
         if (!ManagementValidation.TryNormalizeLevelFilter(level, out var levelFilter))
         {
             return ManagementHttp.BadRequest("level must be one of debug, info, warning, error or fatal.");
+        }
+
+        if (!ManagementValidation.TryParseRegressedFilter(regressed, out var regressedFilter))
+        {
+            return ManagementHttp.BadRequest("regressed must be true.");
         }
 
         if (!ManagementValidation.TryParseSort(sort, out var sortValue))
@@ -82,9 +90,11 @@ internal static class ManagementIssueEndpoints
             levelFilter,
             ManagementValidation.NormalizeFilter(environment),
             ManagementValidation.NormalizeFilter(release),
+            ManagementValidation.NormalizeFilter(firstRelease),
             ManagementValidation.NormalizeFilter(label),
             ManagementValidation.NormalizeFilter(q),
             ManagementValidation.NormalizePlatforms(platform),
+            regressedFilter,
             sortValue,
             pageSize,
             decodedCursor);
@@ -133,6 +143,21 @@ internal static class ManagementIssueEndpoints
             status = normalized;
         }
 
+        var resolveMode = IssueResolveMode.Now;
+        if (body.ResolveIn is not null)
+        {
+            if (status != "resolved")
+            {
+                return ManagementHttp.BadRequest(
+                    "resolve_in is only allowed together with the resolved status.");
+            }
+
+            if (!ManagementValidation.TryParseResolveIn(body.ResolveIn, out resolveMode))
+            {
+                return ManagementHttp.BadRequest("resolve_in must be one of now or next_release.");
+            }
+        }
+
         List<string>? labels = null;
         if (body.Labels is not null)
         {
@@ -144,7 +169,9 @@ internal static class ManagementIssueEndpoints
             labels = names;
         }
 
-        var issue = await store.UpdateAsync(issueId, status, labels, cancellationToken).ConfigureAwait(false);
+        var issue = await store
+            .UpdateAsync(issueId, status, resolveMode, labels, cancellationToken)
+            .ConfigureAwait(false);
 
         return issue is null
             ? ManagementHttp.NotFound($"Issue {issueId} was not found.")

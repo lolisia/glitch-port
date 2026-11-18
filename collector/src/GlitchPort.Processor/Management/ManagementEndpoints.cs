@@ -1,3 +1,7 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
+
 namespace GlitchPort.Processor.Management;
 
 /// <summary>
@@ -11,8 +15,8 @@ namespace GlitchPort.Processor.Management;
 internal static class ManagementEndpoints
 {
     /// <summary>
-    /// Maps the project, key, issue, event, label, statistics and maintenance
-    /// management endpoints.
+    /// Maps the project, key, issue, event, label, statistics, maintenance,
+    /// alert, release and tag management endpoints.
     /// </summary>
     public static IEndpointRouteBuilder MapManagementEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -22,12 +26,23 @@ internal static class ManagementEndpoints
             .MapGroup("/api/manage")
             .AddEndpointFilter<ManagementAuthorizationFilter>();
 
+        // Release and tag reads are the only stores built here: they depend on
+        // nothing but the data source (and the tag sample size), which are both
+        // already in the container.
+        var dataSource = endpoints.ServiceProvider.GetRequiredService<NpgsqlDataSource>();
+        var configuration = endpoints.ServiceProvider.GetRequiredService<IConfiguration>();
+        var tagSampleLimit = configuration.GetValue<int?>(
+            ManagementTagEndpoints.SampleLimitConfigurationKey) ?? ManagementTagStore.DefaultSampleLimit;
+
         group.MapProjectEndpoints();
         group.MapIssueEndpoints();
         group.MapEventEndpoints();
         group.MapLabelEndpoints();
         group.MapStatsEndpoints();
         group.MapMaintenanceEndpoints();
+        group.MapAlertEndpoints();
+        group.MapReleaseEndpoints(new ManagementReleaseStore(dataSource));
+        group.MapTagEndpoints(new ManagementTagStore(dataSource, tagSampleLimit));
 
         return endpoints;
     }

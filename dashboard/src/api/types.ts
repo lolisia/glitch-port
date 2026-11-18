@@ -27,6 +27,12 @@ export interface ProjectListItem {
   issue_count: number;
   /** Active (non-revoked) public keys. */
   key_count: number;
+  /**
+   * Glob filters the Relay applies to the project's events. The Management API
+   * always sends this object; it stays optional here so fixtures and cached
+   * payloads written before the field existed keep type-checking.
+   */
+  inbound_filters?: InboundFilters;
 }
 
 /** `GET /api/manage/projects/{id}`: the list entry plus its active DSN. */
@@ -53,6 +59,11 @@ export interface CreateProjectRequest {
 /** Request body of `PATCH /api/manage/projects/{id}`; omitted fields stay unchanged. */
 export interface UpdateProjectRequest {
   name?: string;
+  /**
+   * Replaces the inbound filters. Every array that is sent replaces the
+   * stored list of that kind; omitted arrays stay unchanged.
+   */
+  inbound_filters?: InboundFilters;
 }
 
 /**
@@ -108,8 +119,18 @@ export interface Issue {
   first_seen: string;
   last_seen: string;
   event_count: number;
+  /** Release of the earliest event; null when no event carried a release. */
+  first_release: string | null;
   last_release: string | null;
   last_environment: string | null;
+  /** Set while the issue is resolved; null after it reopens. */
+  resolved_at: string | null;
+  /** Release the issue was resolved in; null for an immediate resolution. */
+  resolved_in_release: string | null;
+  /** Set while the issue is an unresolved regression, null otherwise. */
+  regressed_at: string | null;
+  /** Number of times a resolved issue reopened after its resolution. */
+  regression_count: number;
   labels: Label[];
 }
 
@@ -228,9 +249,13 @@ export interface IssueListQuery {
   level?: string;
   environment?: string;
   release?: string;
+  /** Exact value of the issue's first_release. */
+  first_release?: string;
   label?: string;
   /** One or more platform names; serialized as a comma-separated value. */
   platform?: string[];
+  /** Only unresolved issues that reopened after being resolved. */
+  regressed?: boolean;
   q?: string;
   sort?: 'last_seen' | 'first_seen' | 'count';
   limit?: number;
@@ -239,11 +264,17 @@ export interface IssueListQuery {
 
 export interface UpdateIssueRequest {
   status?: IssueStatus;
+  /**
+   * Only valid together with `status: 'resolved'`. `next_release` pins the
+   * resolution to the release of the most recent event.
+   */
+  resolve_in?: 'now' | 'next_release';
   labels?: string[];
 }
 
 export type BulkAction =
   | 'resolve'
+  | 'resolve_next_release'
   | 'unresolve'
   | 'ignore'
   | 'delete'
@@ -268,4 +299,172 @@ export interface CreateLabelRequest {
 export interface UpdateLabelRequest {
   name?: string;
   color?: string;
+}
+
+/**
+ * One release aggregated from the stored events of a project.
+ *
+ * `first_seen` and `last_seen` are the event timestamps, not when the release
+ * was deployed; `new_issue_count` counts the issues whose first_release is this
+ * release.
+ */
+export interface Release {
+  release: string;
+  first_seen: string;
+  last_seen: string;
+  event_count: number;
+  issue_count: number;
+  new_issue_count: number;
+  unresolved_issue_count: number;
+}
+
+/** `GET /api/manage/projects/{projectId}/releases` response. */
+export interface ReleaseListResponse {
+  items: Release[];
+  next_cursor: string | null;
+}
+
+/** One value of a tag facet and the number of sampled events carrying it. */
+export interface IssueTagValue {
+  value: string;
+  count: number;
+}
+
+/** Distribution of one tag key over the sampled events of an issue. */
+export interface IssueTagFacet {
+  /** Facet key, for example `release`, `os.name` or `tags.map`. */
+  key: string;
+  /** Number of sampled events with a non-empty value of the key. */
+  total: number;
+  /** Number of distinct non-empty values of the key. */
+  distinct: number;
+  /** Most frequent values, ordered by count descending then value ascending. */
+  top: IssueTagValue[];
+}
+
+/** `GET /api/manage/issues/{issueId}/tags` response. */
+export interface IssueTagsResponse {
+  issue_id: number;
+  /** Number of newest events the distribution was computed from. */
+  sample_size: number;
+  /** Distinct non-null user ids among the sampled events. */
+  user_count: number;
+  /** Fixed facets followed by the most frequent payload tag keys. */
+  tags: IssueTagFacet[];
+}
+
+/**
+ * Glob patterns that make the Relay drop an event before it is stored.
+ *
+ * A `*` inside a pattern matches any string (including an empty one) and the
+ * comparison against the release, environment or message is case-insensitive.
+ */
+export interface InboundFilters {
+  releases: string[];
+  environments: string[];
+  message_patterns: string[];
+}
+
+/** Triggers accepted by an alert rule. */
+export type AlertTrigger = 'new_issue' | 'regression' | 'event_frequency';
+
+/** Delivery channels accepted by an alert rule. */
+export type AlertChannel = 'webhook' | 'discord' | 'slack';
+
+/**
+ * One alert rule of a project.
+ *
+ * `threshold` and `window_minutes` are only set for `event_frequency` rules;
+ * every other trigger stores `null` for both.
+ */
+export interface AlertRule {
+  id: number;
+  project_id: number;
+  name: string;
+  trigger: AlertTrigger;
+  min_level: IssueLevel | null;
+  environment: string | null;
+  threshold: number | null;
+  window_minutes: number | null;
+  cooldown_minutes: number;
+  channel: AlertChannel;
+  target_url: string;
+  is_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** `GET /api/manage/projects/{projectId}/alert-rules` response. */
+export interface AlertRuleListResponse {
+  items: AlertRule[];
+}
+
+/** Request body of `POST /api/manage/projects/{projectId}/alert-rules`. */
+export interface CreateAlertRuleRequest {
+  name: string;
+  trigger: AlertTrigger;
+  min_level?: IssueLevel | null;
+  environment?: string | null;
+  /** Only allowed (and required) for `event_frequency` rules. */
+  threshold?: number | null;
+  /** Only allowed (and required) for `event_frequency` rules. */
+  window_minutes?: number | null;
+  cooldown_minutes?: number;
+  channel: AlertChannel;
+  target_url: string;
+  is_enabled?: boolean;
+}
+
+/**
+ * Request body of `PATCH /api/manage/alert-rules/{ruleId}`; omitted fields stay
+ * unchanged, an explicit `null` clears a nullable field.
+ */
+export interface UpdateAlertRuleRequest {
+  name?: string;
+  trigger?: AlertTrigger;
+  min_level?: IssueLevel | null;
+  environment?: string | null;
+  threshold?: number | null;
+  window_minutes?: number | null;
+  cooldown_minutes?: number;
+  channel?: AlertChannel;
+  target_url?: string;
+  is_enabled?: boolean;
+}
+
+/**
+ * Result of `POST /api/manage/alert-rules/{ruleId}/test`.
+ *
+ * `status_code` is `null` when the target never answered; `error` is `null`
+ * when the notification was delivered.
+ */
+export interface AlertRuleTestResult {
+  delivered: boolean;
+  status_code: number | null;
+  error: string | null;
+}
+
+/**
+ * One queued or delivered notification of an alert rule.
+ *
+ * `status` is one of `pending`, `sending`, `sent` or `failed`; `sent_at` is
+ * only set once the target answered. The API keeps the raw value, so the type
+ * stays a string.
+ */
+export interface AlertNotification {
+  id: number;
+  rule_id: number;
+  rule_name: string;
+  issue_id: number | null;
+  trigger: string;
+  status: string;
+  attempts: number;
+  last_error: string | null;
+  created_at: string;
+  sent_at: string | null;
+}
+
+/** `GET /api/manage/projects/{projectId}/alert-notifications` response. */
+export interface AlertNotificationListResponse {
+  items: AlertNotification[];
 }

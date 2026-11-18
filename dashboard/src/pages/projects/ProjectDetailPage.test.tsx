@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
+  AlertRule,
   ProjectDetail,
   ProjectKey,
   UpdateProjectKeyRequest,
@@ -43,6 +44,29 @@ function noContentResponse(): MockResponse {
 
 const API = 'http://localhost:5090/api/manage';
 
+const inboundFilters = {
+  releases: ['0.0.*'],
+  environments: ['staging'],
+  message_patterns: ['*debug*'],
+};
+
+const alertRule: AlertRule = {
+  id: 11,
+  project_id: 7,
+  name: 'Crash spike',
+  trigger: 'event_frequency',
+  min_level: 'error',
+  environment: 'production',
+  threshold: 10,
+  window_minutes: 5,
+  cooldown_minutes: 30,
+  channel: 'webhook',
+  target_url: 'https://hooks.example.com/alerts',
+  is_enabled: true,
+  created_at: '2026-01-02T03:04:05Z',
+  updated_at: '2026-01-02T03:04:05Z',
+};
+
 const project: ProjectDetail = {
   id: 7,
   name: 'Star Raiders',
@@ -51,6 +75,7 @@ const project: ProjectDetail = {
   created_at: '2026-01-02T03:04:05Z',
   issue_count: 12,
   key_count: 1,
+  inbound_filters: inboundFilters,
   dsn: 'http://a1b2c3d4e5f60718293a4b5c6d7e8f90@localhost:5080/7',
 };
 
@@ -90,6 +115,8 @@ const createdKey: ProjectKey = {
 interface StubOptions {
   project?: () => MockResponse | Promise<MockResponse>;
   keys?: () => MockResponse | Promise<MockResponse>;
+  alertRules?: () => MockResponse | Promise<MockResponse>;
+  notifications?: () => MockResponse | Promise<MockResponse>;
   updateProject?: (body: UpdateProjectRequest) => MockResponse;
   updateKey?: (keyId: number, body: UpdateProjectKeyRequest) => MockResponse;
   createKey?: (body: unknown) => MockResponse;
@@ -125,6 +152,17 @@ function stubApi(options: StubOptions = {}) {
         return (
           options.keys ?? (() => jsonResponse([activeKey, revokedKey]))
         )();
+      }
+
+      if (path === '/api/manage/projects/7/alert-rules' && method === 'GET') {
+        return (options.alertRules ?? (() => jsonResponse({ items: [] })))();
+      }
+
+      if (
+        path === '/api/manage/projects/7/alert-notifications' &&
+        method === 'GET'
+      ) {
+        return (options.notifications ?? (() => jsonResponse({ items: [] })))();
       }
 
       if (path === '/api/manage/projects/7/keys' && method === 'POST') {
@@ -266,10 +304,13 @@ describe('ProjectDetailPage', () => {
       revokedRow.queryByRole('button', { name: 'Revoke' }),
     ).not.toBeInTheDocument();
 
-    // The detail and the key list are independent requests started together.
+    // The detail and the key list are independent requests started together;
+    // the alert sections start their own requests once the project is known.
     expect(getCalls(fetchMock).map(([input]) => String(input))).toEqual([
       `${API}/projects/7`,
       `${API}/projects/7/keys`,
+      `${API}/projects/7/alert-rules`,
+      `${API}/projects/7/alert-notifications?limit=50`,
     ]);
   });
 
@@ -577,6 +618,64 @@ describe('ProjectDetailPage', () => {
     await waitFor(() => expect(window.location.hash).toBe('#/projects'));
   });
 
+  it('saves the inbound filters and shows the alert rules on the same page', async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubApi({
+      alertRules: () => jsonResponse({ items: [alertRule] }),
+    });
+
+    renderPage();
+
+    await screen.findByRole('heading', { level: 2, name: 'Star Raiders' });
+    expect(await screen.findByText('Crash spike')).toBeInTheDocument();
+
+    const filters = await screen.findByTestId('inbound-filters-section');
+    expect(within(filters).getByLabelText('Releases')).toHaveValue('0.0.*');
+
+    await user.clear(within(filters).getByLabelText('Releases'));
+    await user.type(within(filters).getByLabelText('Releases'), '0.0.*\n1.*');
+    await user.click(
+      within(filters).getByRole('button', { name: 'Save filters' }),
+    );
+
+    await waitFor(() => expect(methodCalls(fetchMock, 'PATCH')).toHaveLength(1));
+    expect(callBody(methodCalls(fetchMock, 'PATCH')[0])).toEqual({
+      inbound_filters: {
+        releases: ['0.0.*', '1.*'],
+        environments: ['staging'],
+        message_patterns: ['*debug*'],
+      },
+    });
+    expect(await within(filters).findByRole('status')).toHaveTextContent(
+      'Filters saved',
+    );
+  });
+
+  it('reports a failed filter save without hiding the keys or alert rules', async () => {
+    const user = userEvent.setup();
+    stubApi({
+      alertRules: () => jsonResponse({ items: [alertRule] }),
+      updateProject: () => errorResponse(500, { error: 'boom' }),
+    });
+
+    renderPage();
+
+    await screen.findByRole('heading', { level: 2, name: 'Star Raiders' });
+    expect(await screen.findByText('Crash spike')).toBeInTheDocument();
+
+    const filters = await screen.findByTestId('inbound-filters-section');
+    await user.click(
+      within(filters).getByRole('button', { name: 'Save filters' }),
+    );
+
+    expect(
+      await screen.findByText('Failed to save inbound filters: HTTP 500: boom'),
+    ).toBeInTheDocument();
+    // The key table and the alert list keep rendering their own data.
+    expect(screen.getByText(activeKey.public_key)).toBeInTheDocument();
+    expect(screen.getByText('Crash spike')).toBeInTheDocument();
+  });
+
   it('renders a not-found state with a link back for a 404', async () => {
     stubApi({
       project: () =>
@@ -650,6 +749,26 @@ describe('ProjectDetailPage', () => {
       screen.getByRole('heading', { level: 3, name: '키 만들기' }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText('분당 요청 제한')).toBeInTheDocument();
+
+    expect(
+      screen.getByRole('heading', { level: 3, name: '알림 규칙' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '새 알림 규칙' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 4, name: '최근 알림' }),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole('heading', { level: 3, name: '수신 필터' }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('릴리스')).toHaveValue('0.0.*');
+    expect(screen.getByLabelText('환경')).toHaveValue('staging');
+    expect(screen.getByLabelText('메시지 패턴')).toHaveValue('*debug*');
+    expect(
+      screen.getByRole('button', { name: '필터 저장' }),
+    ).toBeInTheDocument();
 
     expect(
       screen.getByRole('heading', { level: 3, name: '위험 구역' }),

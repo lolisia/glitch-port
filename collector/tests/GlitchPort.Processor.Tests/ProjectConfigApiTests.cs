@@ -203,6 +203,63 @@ public sealed class ProjectConfigApiTests
         Assert.NotEqual(afterRevoke, await GetVersionAsync(client));
     }
 
+    [Fact]
+    public async Task The_config_includes_inbound_filters_and_the_version_changes_when_a_filter_changes()
+    {
+        using var api = new ManagementApiClient(_fixture);
+        using var client = _fixture.CreateClient();
+
+        var created = await CreateProjectAsync(api, "Filter Config Project", UniqueSlug("filter-config"));
+        var projectId = created.GetProperty("id").GetInt64();
+
+        var versionBefore = await GetVersionAsync(client);
+
+        using (var beforeResponse = await GetConfigAsync(
+                   client,
+                   ProcessorApplicationFactory.InternalSharedSecret))
+        {
+            var before = await ManagementApiData.ReadJsonAsync(beforeResponse);
+            var filters = FindProject(before, projectId).GetProperty("inbound_filters");
+            Assert.Empty(FilterStrings(filters, "releases"));
+            Assert.Empty(FilterStrings(filters, "environments"));
+            Assert.Empty(FilterStrings(filters, "message_patterns"));
+        }
+
+        using (var patch = await api.PatchAsync(
+                   $"{ProjectsPath}/{projectId}",
+                   """
+                   {"inbound_filters":{"releases":["1.2.*"],"environments":["prod"],"message_patterns":["*timeout*"]}}
+                   """))
+        {
+            Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+        }
+
+        var versionAfter = await GetVersionAsync(client);
+        Assert.NotEqual(versionBefore, versionAfter);
+
+        using (var afterResponse = await GetConfigAsync(
+                   client,
+                   ProcessorApplicationFactory.InternalSharedSecret))
+        {
+            Assert.Equal($"\"{versionAfter}\"", afterResponse.Headers.GetValues("ETag").Single());
+
+            var after = await ManagementApiData.ReadJsonAsync(afterResponse);
+            var filters = FindProject(after, projectId).GetProperty("inbound_filters");
+            Assert.Equal(["1.2.*"], FilterStrings(filters, "releases"));
+            Assert.Equal(["prod"], FilterStrings(filters, "environments"));
+            Assert.Equal(["*timeout*"], FilterStrings(filters, "message_patterns"));
+        }
+
+        // Nothing changed, so the version stays the same.
+        Assert.Equal(versionAfter, await GetVersionAsync(client));
+    }
+
+    private static List<string> FilterStrings(JsonElement filters, string name) =>
+        filters.GetProperty(name)
+            .EnumerateArray()
+            .Select(value => value.GetString()!)
+            .ToList();
+
     private static async Task<HttpResponseMessage> GetConfigAsync(
         HttpClient client,
         string? secret,

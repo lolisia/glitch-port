@@ -12,12 +12,14 @@
 import { event } from './en/event';
 import { issues } from './en/issues';
 import { projects } from './en/projects';
+import { releases } from './en/releases';
 import type { DeepStringify } from './types';
 
 export const en = {
   nav: {
     sections: 'Sections',
     issues: 'Issues',
+    releases: 'Releases',
     messages: 'Messages',
     projects: 'Projects',
   },
@@ -72,6 +74,7 @@ export const en = {
   issues,
   event,
   projects,
+  releases,
 } as const;
 
 export type Messages = DeepStringify<typeof en>;

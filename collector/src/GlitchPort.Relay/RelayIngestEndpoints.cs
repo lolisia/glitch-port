@@ -10,8 +10,8 @@ namespace GlitchPort.Relay;
 /// Shared ingest pipeline used by both <c>POST /api/{projectId}/events</c> and
 /// the legacy <c>POST /api/{projectId}/messages</c> endpoint: authorize, apply
 /// the project and key rate limits, enforce the decompressed body limit,
-/// decompress, validate, normalize, build a protocol v2 envelope and publish it
-/// to the Processor.
+/// decompress, validate, normalize, apply the project's inbound filters, build
+/// a protocol v2 envelope and publish it to the Processor.
 /// </summary>
 internal static class RelayIngestEndpoints
 {
@@ -146,12 +146,35 @@ internal static class RelayIngestEndpoints
             return RelayResults.BadRequest(normalized.Error!);
         }
 
+        var normalizedEvent = normalized.Event!;
+
+        // Filtering runs after normalization so the filters see the same
+        // trimmed values the Processor will store, and before publishing so a
+        // filtered event never leaves the Relay. The legacy messages endpoint
+        // applies only the message filter.
+        var filter = MatchInboundFilter(
+            projectConfigs,
+            projectId,
+            normalizedEvent,
+            isLegacyMessage);
+
+        if (filter is not null)
+        {
+            logger.LogDebug(
+                "Filtered event {EventId} for project {ProjectId}: the {Filter} filter matched.",
+                normalizedEvent.EventId,
+                projectId,
+                filter);
+
+            return RelayResults.Filtered(httpContext.Response, normalizedEvent.EventId, filter);
+        }
+
         var envelope = BuildEnvelope(
             projectId,
             httpContext,
             receivedAt,
             clientIp,
-            normalized.Event!);
+            normalizedEvent);
 
         try
         {
@@ -172,6 +195,55 @@ internal static class RelayIngestEndpoints
             new IngestResponse { Id = envelope.EventId },
             RelayJsonContext.Default.IngestResponse,
             statusCode: StatusCodes.Status202Accepted);
+    }
+
+    /// <summary>
+    /// Returns the name of the first inbound filter that matches
+    /// <paramref name="normalized"/>, or <see langword="null"/> when the event
+    /// must be published. Release and environment filters are skipped for the
+    /// legacy messages endpoint, which applies only the message filter.
+    /// </summary>
+    private static string? MatchInboundFilter(
+        ProjectConfigProvider projectConfigs,
+        long projectId,
+        NormalizedEvent normalized,
+        bool isLegacyMessage)
+    {
+        if (!projectConfigs.Snapshot.TryGetInboundFilters(projectId, out var filters))
+        {
+            return null;
+        }
+
+        if (!isLegacyMessage)
+        {
+            if (filters.MatchesRelease(normalized.Payload.Release))
+            {
+                return RelayConstants.FilteredRelease;
+            }
+
+            if (filters.MatchesEnvironment(normalized.Payload.Environment))
+            {
+                return RelayConstants.FilteredEnvironment;
+            }
+        }
+
+        if (filters.MatchesMessage(normalized.Payload.Message))
+        {
+            return RelayConstants.FilteredMessage;
+        }
+
+        if (normalized.Payload.Exception is { Length: > 0 } exceptions)
+        {
+            foreach (var exception in exceptions)
+            {
+                if (filters.MatchesException(exception.Type, exception.Value))
+                {
+                    return RelayConstants.FilteredMessage;
+                }
+            }
+        }
+
+        return null;
     }
 
     private static Envelope BuildEnvelope(

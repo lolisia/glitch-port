@@ -25,6 +25,9 @@ describe('parseHash', () => {
 
   it('maps the known routes and rejects everything else', () => {
     expect(parseHash('#/issues').name).toBe('issues');
+    expect(parseHash('#/releases').name).toBe('releases');
+    expect(parseHash('#/releases').projectId).toBeNull();
+    expect(parseHash('#/releases').issueId).toBeNull();
     expect(parseHash('#/messages').name).toBe('messages');
     expect(parseHash('#/projects').name).toBe('projects');
     expect(parseHash('#/projects').projectId).toBeNull();
@@ -46,6 +49,7 @@ describe('parseHash', () => {
     expect(parseHash('#/projects/7/keys').name).toBe('unknown');
     expect(parseHash('#/project/7').name).toBe('unknown');
     expect(parseHash('#/messages/extra').name).toBe('unknown');
+    expect(parseHash('#/releases/extra').name).toBe('unknown');
     expect(parseHash('#/issues/7/events').name).toBe('unknown');
   });
 
@@ -65,6 +69,9 @@ describe('parseHash', () => {
     expect(route.query.get('q')).toBe('null');
 
     expect(parseHash('#/messages?limit=10').query.get('limit')).toBe('10');
+    expect(parseHash('#/releases?environment=production').query.get('environment')).toBe(
+      'production',
+    );
     expect(parseHash('#/unknown?x=1').query.get('x')).toBe('1');
     expect(parseHash('#/issues?').query.toString()).toBe('');
   });

@@ -28,6 +28,9 @@ public sealed class ProjectStore
                p.name as "Name",
                p.slug as "Slug",
                p.created_at as "CreatedAt",
+               p.filter_releases as "FilterReleases",
+               p.filter_environments as "FilterEnvironments",
+               p.filter_message_patterns as "FilterMessagePatterns",
                coalesce(issue_counts.unresolved_issue_count, 0) as "UnresolvedIssueCount",
                coalesce(key_counts.active_key_count, 0) as "ActiveKeyCount",
                coalesce(platform_stats.platforms, array[]::text[]) as "Platforms"
@@ -73,6 +76,9 @@ public sealed class ProjectStore
                p.name as "Name",
                p.slug as "Slug",
                p.created_at as "CreatedAt",
+               p.filter_releases as "FilterReleases",
+               p.filter_environments as "FilterEnvironments",
+               p.filter_message_patterns as "FilterMessagePatterns",
                coalesce(issue_counts.unresolved_issue_count, 0) as "UnresolvedIssueCount",
                coalesce(key_counts.active_key_count, 0) as "ActiveKeyCount",
                coalesce(platform_stats.platforms, array[]::text[]) as "Platforms"
@@ -117,7 +123,10 @@ public sealed class ProjectStore
 
     private const string UpdateProjectSql = """
         update projects
-        set name = coalesce(@Name::text, name)
+        set name = coalesce(@Name::text, name),
+            filter_releases = coalesce(@Releases::text[], filter_releases),
+            filter_environments = coalesce(@Environments::text[], filter_environments),
+            filter_message_patterns = coalesce(@MessagePatterns::text[], filter_message_patterns)
         where id = @ProjectId
         returning id as "Id",
                   name as "Name",
@@ -233,7 +242,10 @@ public sealed class ProjectStore
     private const string ListConfigProjectsSql = """
         select id as "Id",
                name as "Name",
-               slug as "Slug"
+               slug as "Slug",
+               filter_releases as "FilterReleases",
+               filter_environments as "FilterEnvironments",
+               filter_message_patterns as "FilterMessagePatterns"
         from projects
         order by id
         """;
@@ -379,14 +391,27 @@ public sealed class ProjectStore
     }
 
     /// <summary>
-    /// Changes the name of a project.
+    /// Changes the name of a project while keeping its inbound filters.
+    /// </summary>
+    /// <returns>The updated project, or <c>null</c> when it does not exist.</returns>
+    public Task<ProjectRecord?> UpdateAsync(
+        long projectId,
+        string? name,
+        CancellationToken cancellationToken) =>
+        UpdateAsync(projectId, new ProjectUpdate(Name: name, default, default, default), cancellationToken);
+
+    /// <summary>
+    /// Changes the name and/or the inbound filters of a project. Unspecified
+    /// fields keep their stored value; a specified list replaces the stored one.
     /// </summary>
     /// <returns>The updated project, or <c>null</c> when it does not exist.</returns>
     public async Task<ProjectRecord?> UpdateAsync(
         long projectId,
-        string? name,
+        ProjectUpdate update,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(update);
+
         await using var connection = await _dataSource
             .OpenConnectionAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -394,12 +419,24 @@ public sealed class ProjectStore
         var row = await connection
             .QuerySingleOrDefaultAsync<ProjectRow>(new CommandDefinition(
                 UpdateProjectSql,
-                new { ProjectId = projectId, Name = name },
+                new
+                {
+                    ProjectId = projectId,
+                    Name = update.Name,
+                    Releases = ToArray(update.Releases),
+                    Environments = ToArray(update.Environments),
+                    MessagePatterns = ToArray(update.MessagePatterns),
+                },
                 cancellationToken: cancellationToken))
             .ConfigureAwait(false);
 
         return row?.ToRecord();
     }
+
+    private static string[]? ToArray(OptionalField<IReadOnlyList<string>> field) =>
+        field.IsSpecified
+            ? field.Value?.ToArray() ?? []
+            : null;
 
     /// <summary>
     /// Deletes a project. Its keys, issues, events and labels are removed by
@@ -751,6 +788,12 @@ public sealed class ProjectStore
 
         public DateTime CreatedAt { get; init; }
 
+        public string[] FilterReleases { get; init; } = [];
+
+        public string[] FilterEnvironments { get; init; } = [];
+
+        public string[] FilterMessagePatterns { get; init; } = [];
+
         public long UnresolvedIssueCount { get; init; }
 
         public long ActiveKeyCount { get; init; }
@@ -758,7 +801,15 @@ public sealed class ProjectStore
         public string[] Platforms { get; init; } = [];
 
         public ProjectSummary ToSummary() =>
-            new(Id, Name, Slug, AsUtc(CreatedAt), UnresolvedIssueCount, ActiveKeyCount, Platforms);
+            new(
+                Id,
+                Name,
+                Slug,
+                AsUtc(CreatedAt),
+                UnresolvedIssueCount,
+                ActiveKeyCount,
+                Platforms,
+                new ProjectRecords(FilterReleases, FilterEnvironments, FilterMessagePatterns));
     }
 
     private sealed class ProjectKeyRow
@@ -798,8 +849,19 @@ public sealed class ProjectStore
 
         public string Slug { get; init; } = string.Empty;
 
+        public string[] FilterReleases { get; init; } = [];
+
+        public string[] FilterEnvironments { get; init; } = [];
+
+        public string[] FilterMessagePatterns { get; init; } = [];
+
         public ProjectConfig ToConfig(IReadOnlyList<ProjectKeyConfig> keys) =>
-            new(Id, Name, Slug, keys);
+            new(
+                Id,
+                Name,
+                Slug,
+                keys,
+                new ProjectRecords(FilterReleases, FilterEnvironments, FilterMessagePatterns));
     }
 
     private sealed class ProjectKeyConfigRow

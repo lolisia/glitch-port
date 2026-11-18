@@ -21,8 +21,13 @@ internal sealed class ManagementIssueStore
         i.first_seen as "FirstSeen",
         i.last_seen as "LastSeen",
         i.event_count as "EventCount",
+        i.first_release as "FirstRelease",
         i.last_release as "LastRelease",
-        i.last_environment as "LastEnvironment"
+        i.last_environment as "LastEnvironment",
+        i.resolved_at as "ResolvedAt",
+        i.resolved_in_release as "ResolvedInRelease",
+        i.regressed_at as "RegressedAt",
+        i.regression_count as "RegressionCount"
         """;
 
     private readonly NpgsqlDataSource _dataSource;
@@ -92,6 +97,19 @@ internal sealed class ManagementIssueStore
                         where e.issue_id = i.id and e.release = @Release)
                 """);
             parameters.Add("Release", release, DbType.String);
+        }
+
+        // first_release describes the issue itself, so it is matched exactly
+        // instead of through its events.
+        if (query.FirstRelease is { } firstRelease)
+        {
+            conditions.Add("i.first_release = @FirstRelease");
+            parameters.Add("FirstRelease", firstRelease, DbType.String);
+        }
+
+        if (query.Regressed)
+        {
+            conditions.Add("i.regressed_at is not null");
         }
 
         if (query.Label is { } label)
@@ -218,8 +236,13 @@ internal sealed class ManagementIssueStore
             AsUtc(row.FirstSeen),
             AsUtc(row.LastSeen),
             row.EventCount,
+            row.FirstRelease,
             row.LastRelease,
             row.LastEnvironment,
+            AsUtc(row.ResolvedAt),
+            row.ResolvedInRelease,
+            AsUtc(row.RegressedAt),
+            row.RegressionCount,
             LabelsFor(labels, issueId),
             latestEvent);
     }
@@ -228,13 +251,19 @@ internal sealed class ManagementIssueStore
     /// Applies a status change and/or replaces the issue's label set.
     /// </summary>
     /// <remarks>
-    /// Labels that do not exist yet are created for the issue's project. The
-    /// whole update runs in one transaction.
+    /// A manual status change maintains the resolution bookkeeping: resolving
+    /// records <c>resolved_at</c> (and, for
+    /// <see cref="IssueResolveMode.NextRelease"/>, pins the issue's most
+    /// recent release), while unresolved and ignored clear it. Every status
+    /// change also clears <c>regressed_at</c>. Labels that do not exist yet
+    /// are created for the issue's project. The whole update runs in one
+    /// transaction.
     /// </remarks>
     /// <returns>The updated issue, or <see langword="null"/> when it does not exist.</returns>
     public async Task<IssueResponse?> UpdateAsync(
         long issueId,
         string? status,
+        IssueResolveMode resolveMode,
         IReadOnlyList<string>? labels,
         CancellationToken cancellationToken)
     {
@@ -257,11 +286,42 @@ internal sealed class ManagementIssueStore
                 return null;
             }
 
-            if (status is not null)
+            if (status == "resolved")
             {
                 await connection
                     .ExecuteAsync(new CommandDefinition(
-                        "update issues set status = @Status where id = @IssueId",
+                        """
+                        update issues
+                        set status = 'resolved',
+                            resolved_at = now(),
+                            resolved_in_release = case
+                                when @ResolveInNextRelease then last_release
+                                else null
+                            end,
+                            regressed_at = null
+                        where id = @IssueId
+                        """,
+                        new
+                        {
+                            ResolveInNextRelease = resolveMode == IssueResolveMode.NextRelease,
+                            IssueId = issueId,
+                        },
+                        transaction,
+                        cancellationToken: cancellationToken))
+                    .ConfigureAwait(false);
+            }
+            else if (status is not null)
+            {
+                await connection
+                    .ExecuteAsync(new CommandDefinition(
+                        """
+                        update issues
+                        set status = @Status,
+                            resolved_at = null,
+                            resolved_in_release = null,
+                            regressed_at = null
+                        where id = @IssueId
+                        """,
                         new { Status = status, IssueId = issueId },
                         transaction,
                         cancellationToken: cancellationToken))
@@ -334,14 +394,40 @@ internal sealed class ManagementIssueStore
         switch (action.Kind)
         {
             case BulkIssueActionKind.Resolve:
-                return await UpdateStatusAsync(connection, idArray, "resolved", cancellationToken).ConfigureAwait(false);
+                return await UpdateStatusAsync(
+                        connection,
+                        idArray,
+                        "resolved",
+                        resolveInLastRelease: false,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+            case BulkIssueActionKind.ResolveNextRelease:
+                return await UpdateStatusAsync(
+                        connection,
+                        idArray,
+                        "resolved",
+                        resolveInLastRelease: true,
+                        cancellationToken)
+                    .ConfigureAwait(false);
 
             case BulkIssueActionKind.Unresolve:
-                return await UpdateStatusAsync(connection, idArray, "unresolved", cancellationToken)
+                return await UpdateStatusAsync(
+                        connection,
+                        idArray,
+                        "unresolved",
+                        resolveInLastRelease: false,
+                        cancellationToken)
                     .ConfigureAwait(false);
 
             case BulkIssueActionKind.Ignore:
-                return await UpdateStatusAsync(connection, idArray, "ignored", cancellationToken).ConfigureAwait(false);
+                return await UpdateStatusAsync(
+                        connection,
+                        idArray,
+                        "ignored",
+                        resolveInLastRelease: false,
+                        cancellationToken)
+                    .ConfigureAwait(false);
 
             case BulkIssueActionKind.Delete:
                 return await connection
@@ -364,17 +450,53 @@ internal sealed class ManagementIssueStore
         }
     }
 
+    /// <summary>
+    /// Applies a bulk status change while keeping the resolution bookkeeping
+    /// consistent: resolving records the resolution time (and optionally pins
+    /// each issue's own most recent release), the other statuses clear it,
+    /// and every change clears <c>regressed_at</c>.
+    /// </summary>
     private static async Task<long> UpdateStatusAsync(
         NpgsqlConnection connection,
         long[] ids,
         string status,
-        CancellationToken cancellationToken) =>
-        await connection
+        bool resolveInLastRelease,
+        CancellationToken cancellationToken)
+    {
+        if (status == "resolved")
+        {
+            return await connection
+                .ExecuteAsync(new CommandDefinition(
+                    """
+                    update issues
+                    set status = 'resolved',
+                        resolved_at = now(),
+                        resolved_in_release = case
+                            when @ResolveInLastRelease then last_release
+                            else null
+                        end,
+                        regressed_at = null
+                    where id = any(@Ids::bigint[])
+                    """,
+                    new { ResolveInLastRelease = resolveInLastRelease, Ids = ids },
+                    cancellationToken: cancellationToken))
+                .ConfigureAwait(false);
+        }
+
+        return await connection
             .ExecuteAsync(new CommandDefinition(
-                "update issues set status = @Status where id = any(@Ids::bigint[])",
+                """
+                update issues
+                set status = @Status,
+                    resolved_at = null,
+                    resolved_in_release = null,
+                    regressed_at = null
+                where id = any(@Ids::bigint[])
+                """,
                 new { Status = status, Ids = ids },
                 cancellationToken: cancellationToken))
             .ConfigureAwait(false);
+    }
 
     private static async Task<long> AddLabelsAsync(
         NpgsqlConnection connection,
@@ -606,8 +728,13 @@ internal sealed class ManagementIssueStore
         AsUtc(row.FirstSeen),
         AsUtc(row.LastSeen),
         row.EventCount,
+        row.FirstRelease,
         row.LastRelease,
         row.LastEnvironment,
+        AsUtc(row.ResolvedAt),
+        row.ResolvedInRelease,
+        AsUtc(row.RegressedAt),
+        row.RegressionCount,
         labels);
 
     private static DateTimeOffset ParseTimestamp(string value) =>
@@ -620,6 +747,9 @@ internal sealed class ManagementIssueStore
 
     private static DateTimeOffset AsUtc(DateTime value) =>
         new(DateTime.SpecifyKind(value, DateTimeKind.Utc));
+
+    private static DateTimeOffset? AsUtc(DateTime? value) =>
+        value is { } moment ? AsUtc(moment) : null;
 
     private static async Task RollbackAsync(NpgsqlTransaction transaction)
     {
@@ -654,9 +784,19 @@ internal sealed class ManagementIssueStore
 
         public long EventCount { get; init; }
 
+        public string? FirstRelease { get; init; }
+
         public string? LastRelease { get; init; }
 
         public string? LastEnvironment { get; init; }
+
+        public DateTime? ResolvedAt { get; init; }
+
+        public string? ResolvedInRelease { get; init; }
+
+        public DateTime? RegressedAt { get; init; }
+
+        public int RegressionCount { get; init; }
     }
 
     private sealed class IssueLabelRow

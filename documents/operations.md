@@ -136,6 +136,77 @@ docker compose exec -T postgres psql -U glitchport -d glitchport -c \
 See [Management API](management-api.md#retention-status) for the full endpoint
 reference, authentication rules and error responses.
 
+## Alerts
+
+The Processor evaluates per-project alert rules and delivers their
+notifications over HTTP. Rules, the test delivery endpoint and the notification
+history are managed through the
+[Management API](management-api.md#alert-rules); this section covers the
+delivery configuration and the multi-instance guarantees.
+
+### `Processor:Alerts` configuration
+
+| Key | Environment variable | Default | Meaning |
+| --- | --- | --- | --- |
+| `Processor:Alerts:Enabled` | `Processor__Alerts__Enabled` | `true` | Whether the evaluation and dispatch workers run. Notification queueing is not affected: a disabled Processor keeps building the backlog. |
+| `Processor:Alerts:EvaluateIntervalSeconds` | `Processor__Alerts__EvaluateIntervalSeconds` | `60` | Seconds between two `event_frequency` evaluations. The first evaluation happens one full interval after the host starts. A non-positive value falls back to `60`. |
+| `Processor:Alerts:DispatchIntervalSeconds` | `Processor__Alerts__DispatchIntervalSeconds` | `5` | Seconds between two dispatch runs. A non-positive value falls back to `5`. |
+| `Processor:Alerts:MaxAttempts` | `Processor__Alerts__MaxAttempts` | `5` | Delivery attempts per notification before it is marked `failed`. A non-positive value falls back to `5`. |
+| `Processor:Alerts:HttpTimeoutSeconds` | `Processor__Alerts__HttpTimeoutSeconds` | `10` | HTTP timeout of one delivery attempt. A non-positive value falls back to `10`. |
+| `Processor:Alerts:DashboardBaseUrl` | `Processor__Alerts__DashboardBaseUrl` | empty | Base URL used to build `{base}#/issues/{issueId}` links in notifications; trailing slashes are removed. An empty value omits the link. |
+| `Processor:Alerts:RetentionDays` | `Processor__Alerts__RetentionDays` | `30` | Days sent and failed notifications are kept before the evaluator deletes them. `0` disables the cleanup; a negative value falls back to `30`. |
+
+The section is bound from the `Processor:Alerts` configuration key; in
+containers pass it as the environment variables above. The dispatch HTTP client
+uses `HttpTimeoutSeconds` as its timeout.
+
+### Why multiple Processors do not duplicate alerts
+
+Alert delivery is safe with any number of Processor instances against one
+database:
+
+1. **Queueing is part of the event-store transaction.** `new_issue` and
+   `regression` notifications are inserted by the event store with its own
+   connection and transaction, so the events, the issue update and the
+   notification commit or roll back together. The insert is
+   `on conflict (dedupe_key) do nothing` against a unique `dedupe_key`
+   (`new_issue:{rule}:{issue}` or
+   `regression:{rule}:{issue}:{regressionCount}`), so a retried or duplicated
+   event batch inserts the notification once. A rolled-back batch leaves no
+   notification behind.
+2. **Frequency evaluation is single-runner.** Every evaluation opens a
+   dedicated connection and runs
+   `select pg_try_advisory_lock(823653)`. Only one Processor instance can hold
+   the session lock; the others log at debug level and skip that tick. The
+   evaluator releases the lock in a `finally` block with
+   `select pg_advisory_unlock(823653)`, and closing the connection releases it
+   even after a crash. `823653` is reserved for alert evaluation; migrations
+   use `823651` and retention uses `823652`. The frequency dedupe key includes
+   the cooldown bucket, so running the same window twice still queues at most
+   one notification per issue and cooldown window.
+3. **Dispatch claims rows with `for update skip locked`.** Each dispatch run
+   claims up to 20 due notifications in one transaction with
+   `for update skip locked`, marks them `sending` with a two-minute lease and
+   increments `attempts`, then commits before making any HTTP request. A second
+   instance skips those rows and can never send the same notification, and no
+   database lock is held while a target is slow.
+
+A 2xx response marks the notification `sent`. Any other result, including a
+network failure, retries it with exponential backoff
+(`min(2^attempts * 30s, 1h)`) while `attempts` is below `MaxAttempts`; a `429`
+response honours its `Retry-After` value, and the notification is marked
+`failed` once the limit is reached. Failures are logged and stored in
+`alert_notifications.last_error` (truncated to 500 characters).
+
+### Webhook URLs are secrets
+
+`target_url` values are secrets. Slack and Discord webhook URLs embed their
+credentials in the path, and any webhook URL may carry a token. The Management
+API returns the value in rule list and detail responses, so protect the
+`Processor:AdminToken` and the dashboard the same way you protect the database.
+Do not commit target URLs in configuration files or logs; store them in a
+secret manager and rotate a leaked webhook at the provider.
+
 ## Running several Processors
 
 Processors are stateless. All durable state lives in PostgreSQL, so you can run
@@ -156,6 +227,10 @@ more Relays.
 - Retention runs on every instance, but only one run at a time succeeds in
   taking `823652`; the other instances skip that tick and retry after their next
   interval. No scheduler, leader election or shared memory is involved.
+- Alert `event_frequency` evaluation likewise runs on every instance, but only
+  one evaluation at a time succeeds in taking `823653`; the other instances skip
+  that tick. Notification queueing and dispatch do not need the lock (see
+  [Alerts](#alerts)).
 
 ### Sizing the connection pool
 
@@ -422,8 +497,9 @@ stack is not a durable environment and must not be used as a backup target.
 
 ## See also
 
-- [Management API](management-api.md) — projects, keys, issues, events, labels
-  and the retention status endpoint.
-- [Event ingest API](http-api-events.md) — ingest protocol, keys and DSNs.
+- [Management API](management-api.md) — projects, keys, issues, events, labels,
+  releases, tags, alert rules and the retention status endpoint.
+- [Event ingest API](http-api-events.md) — ingest protocol, keys, inbound
+  filters and DSNs.
 - [Lightsail deployment](../deploy/lightsail/README.md) — single-host
   production deployment.

@@ -32,6 +32,7 @@
   --color-chip-bg: #eaeef2;
   --color-row-selected: #f0f6ff;
   --color-frame-in-app-bg: #fff5f5;
+  --color-shadow: #00000040;
 
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   color: var(--color-fg);
@@ -64,6 +65,7 @@
   --color-chip-bg: #21262d;
   --color-row-selected: #12243d;
   --color-frame-in-app-bg: #2a1518;
+  --color-shadow: #00000080;
 }
 
 * {

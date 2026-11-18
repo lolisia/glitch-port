@@ -1,7 +1,12 @@
 import type {
+  AlertNotificationListResponse,
+  AlertRule,
+  AlertRuleListResponse,
+  AlertRuleTestResult,
   BulkIssuesRequest,
   BulkIssuesResponse,
   CreatedProject,
+  CreateAlertRuleRequest,
   CreateLabelRequest,
   CreateProjectKeyRequest,
   CreateProjectRequest,
@@ -11,12 +16,15 @@ import type {
   IssueDetail,
   IssueListQuery,
   IssueListResponse,
+  IssueTagsResponse,
   Label,
   Message,
   ProjectDetail,
   ProjectKey,
   ProjectListItem,
+  ReleaseListResponse,
   StatsResponse,
+  UpdateAlertRuleRequest,
   UpdateIssueRequest,
   UpdateLabelRequest,
   UpdateProjectKeyRequest,
@@ -346,4 +354,100 @@ export function getStats(
   return apiRequest<StatsResponse>(`/projects/${projectId}/stats`, {
     query: { period },
   });
+}
+
+/**
+ * GET /api/manage/projects/{projectId}/releases
+ *
+ * Releases are ordered by last_seen descending; `next_cursor` pages through
+ * them when a project has more than `limit` releases.
+ */
+export function listReleases(
+  projectId: number,
+  query: { environment?: string; limit?: number; cursor?: string } = {},
+): Promise<ReleaseListResponse> {
+  return apiRequest<ReleaseListResponse>(`/projects/${projectId}/releases`, {
+    query,
+  });
+}
+
+/**
+ * GET /api/manage/issues/{issueId}/tags
+ *
+ * `limit` caps the values returned per facet (1-25, 10 by default); the
+ * response describes the newest sampled events of the issue.
+ */
+export function getIssueTags(
+  issueId: number,
+  limit?: number,
+): Promise<IssueTagsResponse> {
+  return apiRequest<IssueTagsResponse>(`/issues/${issueId}/tags`, {
+    query: { limit },
+  });
+}
+
+/** GET /api/manage/projects/{projectId}/alert-rules */
+export function listAlertRules(
+  projectId: number,
+): Promise<AlertRuleListResponse> {
+  return apiRequest<AlertRuleListResponse>(
+    `/projects/${projectId}/alert-rules`,
+  );
+}
+
+/** POST /api/manage/projects/{projectId}/alert-rules — 201 with the rule. */
+export function createAlertRule(
+  projectId: number,
+  input: CreateAlertRuleRequest,
+): Promise<AlertRule> {
+  return apiRequest<AlertRule>(`/projects/${projectId}/alert-rules`, {
+    method: 'POST',
+    body: input,
+  });
+}
+
+/** PATCH /api/manage/alert-rules/{ruleId} — only the sent fields change. */
+export function updateAlertRule(
+  ruleId: number,
+  input: UpdateAlertRuleRequest,
+): Promise<AlertRule> {
+  return apiRequest<AlertRule>(`/alert-rules/${ruleId}`, {
+    method: 'PATCH',
+    body: input,
+  });
+}
+
+/** DELETE /api/manage/alert-rules/{ruleId} — 204 with no body. */
+export function deleteAlertRule(ruleId: number): Promise<void> {
+  return apiRequest<void>(`/alert-rules/${ruleId}`, {
+    method: 'DELETE',
+    parseResponse: false,
+  });
+}
+
+/**
+ * POST /api/manage/alert-rules/{ruleId}/test
+ *
+ * Delivers a sample notification to the rule's target without queueing
+ * anything; the response describes whether the target accepted it.
+ */
+export function testAlertRule(ruleId: number): Promise<AlertRuleTestResult> {
+  return apiRequest<AlertRuleTestResult>(`/alert-rules/${ruleId}/test`, {
+    method: 'POST',
+  });
+}
+
+/**
+ * GET /api/manage/projects/{projectId}/alert-notifications?limit=50
+ *
+ * Newest notifications first; the Management API caps `limit` at 100.
+ */
+export function listAlertNotifications(
+  projectId: number,
+  limit = 50,
+): Promise<AlertNotificationListResponse> {
+  return apiRequest<AlertNotificationListResponse>(
+    `/projects/${projectId}/alert-notifications`,
+    { query: { limit } },
+  );
 }

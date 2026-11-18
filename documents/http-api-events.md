@@ -97,6 +97,95 @@ Retry-After: 2
 Retry the same request after `Retry-After` seconds. Because events are stored
 idempotently by `event_id`, the retry is safe.
 
+## Inbound filters
+
+A project can configure inbound filters that make the Relay drop an event
+before it is published. Filters are managed through the
+[Management API](management-api.md#inbound-filters): `PATCH
+/api/manage/projects/{projectId}` accepts an `inbound_filters` object with
+three glob lists.
+
+| Filter | Applies to | Matched against |
+| --- | --- | --- |
+| `releases` | `POST /api/{projectId}/events` | The event's normalized `release`. |
+| `environments` | `POST /api/{projectId}/events` | The event's normalized `environment`. |
+| `message_patterns` | Both `/events` and the legacy `/messages` | The event's normalized `message`, and each exception as `{type}: {value}`. |
+
+The legacy `POST /api/{projectId}/messages` endpoint applies only
+`message_patterns`; release and environment filters are ignored there. An empty
+array disables that filter.
+
+### Matching rules
+
+- A pattern is a glob matched against the **whole** value: `*` matches any
+  string, including the empty one and strings spanning line breaks, and every
+  other character is literal. For example, `Timeout*` matches
+  `Timeout expired` but not `Request timeout expired`; `*timeout*` matches
+  both.
+- Matching is case-insensitive and culture-invariant. `*staging*` matches
+  `Staging`, `staging` and `pre-staging-eu`.
+- A `null` release, environment or message never matches, even with the
+  pattern `*`. A release or environment filter therefore never drops an event
+  that does not carry the field.
+- For an event with exceptions, every exception is also offered to the message
+  filters as the string `{type}: {value}`. A message filter can therefore drop
+  events that carry no top-level `message`.
+
+### Filter precedence and the response
+
+When several filters match, the Relay reports the first one in this order:
+`release`, then `environment`, then `message`. The event is not published to
+the Processor and is not stored. The Relay answers exactly like an accepted
+ingest, `202 Accepted` with the event id, and adds the
+`X-GlitchPort-Filtered` header naming the filter that matched:
+
+```http
+HTTP/1.1 202 Accepted
+Content-Type: application/json
+X-GlitchPort-Filtered: message
+
+{"id":"9f1c2d3e-4f5a-6b7c-8d9e-0f1a2b3c4d5e"}
+```
+
+| Header value | Matching filter |
+| --- | --- |
+| `release` | `inbound_filters.releases` |
+| `environment` | `inbound_filters.environments` |
+| `message` | `inbound_filters.message_patterns` (including an exception match) |
+
+Clients treat a filtered `202` as a delivered event: the body is identical to
+an accepted ingest, so no retry is needed. The `X-GlitchPort-Filtered` header is
+informational and is not part of the event id contract.
+
+Filters are loaded with the rest of the project configuration and apply after
+the next `Relay:ConfigRefreshSeconds` refresh (default `60` seconds in
+development, `5` in the full compose profile). Configure them with a PATCH:
+
+```bash
+curl -s -X PATCH "http://localhost:5090/api/manage/projects/1" \
+  -H "Authorization: Bearer dev-admin-token" \
+  -H "Content-Type: application/json" \
+  --data-binary '{"inbound_filters":{"releases":["star-raiders@0.*"],"environments":["staging"],"message_patterns":["*Timeout*"]}}'
+```
+
+Then send a matching event. Its `202` carries the header instead of a stored
+event:
+
+```bash
+curl -i -X POST "http://localhost:5080/api/1/events" \
+  -H "X-GlitchPort-Key: dev-public-key" \
+  -H "Content-Type: application/json" \
+  --data-binary '{"platform":"unity","message":"Request timeout"}'
+```
+
+```http
+HTTP/1.1 202 Accepted
+Content-Type: application/json
+X-GlitchPort-Filtered: message
+
+{"id":"0f8e1c2d-3e4f-4a5b-8c9d-0e1f2a3b4c5d"}
+```
+
 ## Request headers and size limit
 
 | Header | Required | Description |
@@ -269,13 +358,18 @@ exception, and the submitted `message`, `event_id`, `timestamp`, `level` and
 `sdk`, then publishes it through the same pipeline as `/events`. Unlike
 over-length values on `/events`, a legacy message longer than 8192 characters
 returns `400`. The successful response is `202` with the same
-`{"id": "<event_id>"}` body.
+`{"id": "<event_id>"}` body. Release and environment inbound filters do not
+apply to this endpoint; only `message_patterns` filters can drop a legacy
+message, and they return the same filtered `202` with
+`X-GlitchPort-Filtered: message` described under
+[Inbound filters](#inbound-filters).
 
 ## Responses
 
 | Status | Meaning | Body / headers |
 | --- | --- | --- |
 | `202 Accepted` | The event was validated, normalized and handed to the Processor. | `{"id": "<event_id>"}` with the event id as a lowercase UUID. |
+| `202 Accepted` (filtered) | An inbound filter matched, so the event was not published or stored. Clients treat it as delivered. | Identical `{"id": "<event_id>"}` body, plus `X-GlitchPort-Filtered: release`, `environment` or `message`. |
 | `400 Bad Request` | The JSON or a field value is invalid. | `{"error": "<reason>"}`. Most format errors use `<field path>: <reason>`, for example `{"error": "exception[0].type: must not be blank"}`; platform errors are exactly `{"error":"platform is required"}` or `{"error":"platform must match [a-z0-9._-]"}`. |
 | `401 Unauthorized` | `X-GlitchPort-Key` is missing, unknown, revoked or does not belong to the project. | `{"error": "A valid X-GlitchPort-Key header is required."}` |
 | `413 Payload Too Large` | The decompressed body exceeds 1 MB. | `{"error": "<reason>"}` |

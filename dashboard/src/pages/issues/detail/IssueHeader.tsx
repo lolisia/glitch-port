@@ -59,14 +59,55 @@ export function IssueHeader({ issue }: { issue: IssueDetail }) {
           <dd>{formatNumber(issue.event_count, locale)}</dd>
         </div>
         <div>
-          <dt>{t('issues.detail.release')}</dt>
+          <dt>{t('issues.detail.firstRelease')}</dt>
+          <dd>{issue.first_release ?? '-'}</dd>
+        </div>
+        <div>
+          <dt>{t('issues.detail.lastRelease')}</dt>
           <dd>{issue.last_release ?? '-'}</dd>
+        </div>
+        <div>
+          <dt>{t('issues.detail.resolvedAt')}</dt>
+          <dd>
+            {issue.resolved_at === null ? (
+              '-'
+            ) : (
+              <RelativeTime value={issue.resolved_at} />
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>{t('issues.detail.resolvedInRelease')}</dt>
+          <dd>{issue.resolved_in_release ?? '-'}</dd>
+        </div>
+        <div>
+          <dt>{t('issues.detail.regressionCount')}</dt>
+          <dd>{formatNumber(issue.regression_count, locale)}</dd>
+        </div>
+        <div>
+          <dt>{t('issues.detail.regressedAt')}</dt>
+          <dd>
+            {issue.regressed_at === null ? (
+              '-'
+            ) : (
+              <RelativeTime value={issue.regressed_at} />
+            )}
+          </dd>
         </div>
         <div>
           <dt>{t('issues.detail.environment')}</dt>
           <dd>{issue.last_environment ?? '-'}</dd>
         </div>
       </dl>
+
+      {issue.resolved_in_release !== null &&
+        issue.resolved_in_release !== '' && (
+          <p className="issue-reopen-note" data-testid="issue-reopen-note">
+            {t('issues.detail.reopenNote', {
+              release: issue.resolved_in_release,
+            })}
+          </p>
+        )}
     </header>
   );
 }

@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using GlitchPort.Relay.Config;
+using GlitchPort.Relay.Filtering;
 
 namespace GlitchPort.Relay.Tests;
 
@@ -60,11 +61,18 @@ internal sealed class FakeProjectConfigHandler : HttpMessageHandler
     public FakeProjectConfigHandler EnqueueStatus(HttpStatusCode statusCode) =>
         Enqueue(_ => new HttpResponseMessage(statusCode));
 
-    /// <summary>Queues a <c>200</c> project config response.</summary>
+    /// <summary>Queues a <c>200</c> project config response without inbound filters.</summary>
     public FakeProjectConfigHandler EnqueueConfig(
         string version,
         params (long ProjectId, string PublicKey, int? RateLimitPerMinute)[] keys) =>
         Enqueue(_ => JsonResponse(ConfigJson(version, keys)));
+
+    /// <summary>Queues a <c>200</c> project config response with inbound filters.</summary>
+    public FakeProjectConfigHandler EnqueueConfig(
+        string version,
+        IReadOnlyDictionary<long, InboundFilterConfig> inboundFilters,
+        params (long ProjectId, string PublicKey, int? RateLimitPerMinute)[] keys) =>
+        Enqueue(_ => JsonResponse(ConfigJson(version, inboundFilters, keys)));
 
     /// <summary>Queues a <c>200</c> response with an arbitrary body.</summary>
     public FakeProjectConfigHandler EnqueueJson(string json) =>
@@ -113,25 +121,52 @@ internal sealed class FakeProjectConfigHandler : HttpMessageHandler
         return WaitWithTimeoutAsync(completion, count, timeout ?? DefaultWaitTimeout);
     }
 
-    /// <summary>Builds a Processor project config payload with snake_case fields.</summary>
+    /// <summary>
+    /// Builds a Processor project config payload with snake_case fields. The
+    /// legacy overload omits <c>inbound_filters</c> so it keeps representing a
+    /// Processor that predates filtering.
+    /// </summary>
     public static string ConfigJson(
         string version,
+        params (long ProjectId, string PublicKey, int? RateLimitPerMinute)[] keys) =>
+        ConfigJson(version, inboundFilters: null, keys);
+
+    /// <summary>Builds a project config payload including inbound filters.</summary>
+    public static string ConfigJson(
+        string version,
+        IReadOnlyDictionary<long, InboundFilterConfig>? inboundFilters,
         params (long ProjectId, string PublicKey, int? RateLimitPerMinute)[] keys)
     {
         ArgumentNullException.ThrowIfNull(keys);
 
         var projects = keys
             .GroupBy(key => key.ProjectId)
-            .Select(group => new
+            .Select(group =>
             {
-                id = group.Key,
-                keys = group
-                    .Select(key => new
+                var project = new Dictionary<string, object?>
+                {
+                    ["id"] = group.Key,
+                    ["keys"] = group
+                        .Select(key => new
+                        {
+                            public_key = key.PublicKey,
+                            rate_limit_per_minute = key.RateLimitPerMinute,
+                        })
+                        .ToArray(),
+                };
+
+                if (inboundFilters is not null
+                    && inboundFilters.TryGetValue(group.Key, out var filters))
+                {
+                    project["inbound_filters"] = new
                     {
-                        public_key = key.PublicKey,
-                        rate_limit_per_minute = key.RateLimitPerMinute,
-                    })
-                    .ToArray(),
+                        releases = filters.Releases,
+                        environments = filters.Environments,
+                        message_patterns = filters.MessagePatterns,
+                    };
+                }
+
+                return project;
             })
             .ToArray();
 
@@ -146,6 +181,16 @@ internal sealed class FakeProjectConfigHandler : HttpMessageHandler
         string version,
         params (long ProjectId, string PublicKey, int? RateLimitPerMinute)[] keys) =>
         new(_ => JsonResponse(ConfigJson(version, keys)));
+
+    /// <summary>
+    /// Creates a handler that answers every request with a project config that
+    /// includes the supplied inbound filters.
+    /// </summary>
+    public static FakeProjectConfigHandler ForConfig(
+        string version,
+        IReadOnlyDictionary<long, InboundFilterConfig> inboundFilters,
+        params (long ProjectId, string PublicKey, int? RateLimitPerMinute)[] keys) =>
+        new(_ => JsonResponse(ConfigJson(version, inboundFilters, keys)));
 
     /// <inheritdoc />
     protected override Task<HttpResponseMessage> SendAsync(

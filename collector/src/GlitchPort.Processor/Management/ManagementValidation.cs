@@ -22,7 +22,7 @@ internal static class ManagementValidation
     private static readonly string[] Levels = ["debug", "info", "warning", "error", "fatal"];
 
     private static readonly string[] BulkActions =
-        ["resolve", "unresolve", "ignore", "delete", "add_labels", "remove_labels"];
+        ["resolve", "resolve_next_release", "unresolve", "ignore", "delete", "add_labels", "remove_labels"];
 
     /// <summary>
     /// Normalizes the <c>status</c> filter. An absent value defaults to
@@ -172,13 +172,69 @@ internal static class ManagementValidation
         kind = normalized switch
         {
             "resolve" => BulkIssueActionKind.Resolve,
+            "resolve_next_release" => BulkIssueActionKind.ResolveNextRelease,
             "unresolve" => BulkIssueActionKind.Unresolve,
             "ignore" => BulkIssueActionKind.Ignore,
             "delete" => BulkIssueActionKind.Delete,
             "add_labels" => BulkIssueActionKind.AddLabels,
-            _ => BulkIssueActionKind.RemoveLabels,
+            "remove_labels" => BulkIssueActionKind.RemoveLabels,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(value),
+                value,
+                "Unhandled bulk action validated above."),
         };
 
+        return true;
+    }
+
+    /// <summary>
+    /// Parses the <c>resolve_in</c> value of an issue status change. An absent
+    /// value defaults to <see cref="IssueResolveMode.Now"/>.
+    /// </summary>
+    /// <param name="value">Raw <c>resolve_in</c> value.</param>
+    /// <param name="mode">Parsed resolution mode.</param>
+    /// <returns><see langword="false"/> when the value is not a known mode.</returns>
+    public static bool TryParseResolveIn(string? value, out IssueResolveMode mode)
+    {
+        mode = IssueResolveMode.Now;
+
+        if (value is null)
+        {
+            return true;
+        }
+
+        switch (value.Trim().ToLowerInvariant())
+        {
+            case "now":
+                mode = IssueResolveMode.Now;
+                return true;
+            case "next_release":
+                mode = IssueResolveMode.NextRelease;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Parses the <c>regressed</c> filter: it is either absent or exactly
+    /// <c>true</c>. Any other value is rejected.
+    /// </summary>
+    public static bool TryParseRegressedFilter(string? value, out bool regressed)
+    {
+        regressed = false;
+
+        if (value is null)
+        {
+            return true;
+        }
+
+        if (!string.Equals(value.Trim(), "true", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        regressed = true;
         return true;
     }
 

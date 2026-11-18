@@ -1,0 +1,47 @@
+.releases-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.releases-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.releases-filter input {
+  flex: 1 1 14rem;
+  min-width: 12rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background-color: var(--color-surface);
+  color: inherit;
+  font: inherit;
+}
+
+.releases-table td,
+.releases-table th {
+  white-space: nowrap;
+}
+
+.releases-name a {
+  color: var(--color-accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.releases-name a:hover {
+  text-decoration: underline;
+}
+
+.releases-number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.releases-load-more {
+  align-self: flex-start;
+}

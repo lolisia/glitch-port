@@ -279,6 +279,85 @@ public sealed class ManagementIssueQueryTests
         Assert.Equal("unity", labeledItem.GetProperty("platform").GetString());
     }
 
+    [Fact]
+    public async Task Issues_can_be_filtered_by_first_release_and_regressed()
+    {
+        var projectId = TestData.NextProjectId();
+        using var api = new ManagementApiClient(_fixture);
+
+        await ManagementApiData.IngestEventAsync(
+            api.Raw,
+            projectId,
+            BaseTime,
+            "first-release-a",
+            release: "star-raiders@1.0.0");
+        await ManagementApiData.IngestEventAsync(
+            api.Raw,
+            projectId,
+            BaseTime.AddMinutes(1),
+            "first-release-b",
+            release: "star-raiders@2.0.0");
+
+        var idsByRelease = (await ManagementApiData.GetIssuesAsync(api, projectId))
+            .GetProperty("items")
+            .EnumerateArray()
+            .ToDictionary(
+                item => item.GetProperty("last_release").GetString()!,
+                item => item.GetProperty("id").GetInt64());
+
+        var regressedId = idsByRelease["star-raiders@1.0.0"];
+        var untouchedId = idsByRelease["star-raiders@2.0.0"];
+
+        using (var resolve = await api.PatchAsync(
+                   $"/api/manage/issues/{regressedId}",
+                   """{"status":"resolved","resolve_in":"next_release"}"""))
+        {
+            Assert.Equal(HttpStatusCode.OK, resolve.StatusCode);
+        }
+
+        // A different release reopens the issue and marks it as regressed.
+        await ManagementApiData.IngestEventAsync(
+            api.Raw,
+            projectId,
+            BaseTime.AddHours(1),
+            "first-release-a",
+            release: "star-raiders@1.1.0");
+
+        var firstReleaseFilter = await ManagementApiData.GetIssuesAsync(
+            api,
+            projectId,
+            $"?status=all&first_release={Uri.EscapeDataString("star-raiders@1.0.0")}");
+        Assert.Equal(regressedId, Assert.Single(Items(firstReleaseFilter).ToList()).GetProperty("id").GetInt64());
+
+        var otherReleaseFilter = await ManagementApiData.GetIssuesAsync(
+            api,
+            projectId,
+            $"?status=all&first_release={Uri.EscapeDataString("star-raiders@2.0.0")}");
+        Assert.Equal(untouchedId, Assert.Single(Items(otherReleaseFilter).ToList()).GetProperty("id").GetInt64());
+
+        Assert.Empty(Items(await ManagementApiData.GetIssuesAsync(
+            api,
+            projectId,
+            "?status=all&first_release=release-that-never-existed")));
+
+        var regressedFilter = await ManagementApiData.GetIssuesAsync(
+            api,
+            projectId,
+            "?status=all&regressed=true");
+        Assert.Equal(regressedId, Assert.Single(Items(regressedFilter).ToList()).GetProperty("id").GetInt64());
+
+        var combined = await ManagementApiData.GetIssuesAsync(
+            api,
+            projectId,
+            $"?status=all&regressed=true&first_release={Uri.EscapeDataString("star-raiders@1.0.0")}");
+        Assert.Equal(regressedId, Assert.Single(Items(combined).ToList()).GetProperty("id").GetInt64());
+
+        Assert.Empty(Items(await ManagementApiData.GetIssuesAsync(
+            api,
+            projectId,
+            $"?status=all&regressed=true&first_release={Uri.EscapeDataString("star-raiders@2.0.0")}")));
+    }
+
     [Theory]
     [InlineData("sort=created")]
     [InlineData("status=done")]
@@ -288,6 +367,10 @@ public sealed class ManagementIssueQueryTests
     [InlineData("limit=not-a-number")]
     [InlineData("cursor=not-a-cursor")]
     [InlineData("cursor=")]
+    [InlineData("regressed=false")]
+    [InlineData("regressed=0")]
+    [InlineData("regressed=yes")]
+    [InlineData("regressed=")]
     public async Task Invalid_issue_query_values_are_rejected(string query)
     {
         using var api = new ManagementApiClient(_fixture);

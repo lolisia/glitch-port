@@ -21,8 +21,13 @@ internal sealed record IssueResponse(
     DateTimeOffset FirstSeen,
     DateTimeOffset LastSeen,
     long EventCount,
+    string? FirstRelease,
     string? LastRelease,
     string? LastEnvironment,
+    DateTimeOffset? ResolvedAt,
+    string? ResolvedInRelease,
+    DateTimeOffset? RegressedAt,
+    int RegressionCount,
     IReadOnlyList<LabelResponse> Labels);
 
 /// <summary>One page of issues plus the cursor of the next page.</summary>
@@ -42,8 +47,13 @@ internal sealed record IssueDetailResponse(
     DateTimeOffset FirstSeen,
     DateTimeOffset LastSeen,
     long EventCount,
+    string? FirstRelease,
     string? LastRelease,
     string? LastEnvironment,
+    DateTimeOffset? ResolvedAt,
+    string? ResolvedInRelease,
+    DateTimeOffset? RegressedAt,
+    int RegressionCount,
     IReadOnlyList<LabelResponse> Labels,
     EventDetailResponse? LatestEvent);
 
@@ -93,7 +103,12 @@ internal sealed record ManagementStatsResponse(
     IReadOnlyList<PlatformStatsResponse> ByPlatform);
 
 /// <summary>Request body of <c>PATCH /api/manage/issues/{id}</c>.</summary>
-internal sealed record UpdateIssueRequest(string? Status, IReadOnlyList<string>? Labels);
+/// <remarks>
+/// <c>resolve_in</c> is only accepted together with <c>status: resolved</c>;
+/// it selects whether the issue is resolved now (<c>now</c>, the default) or
+/// at the release of its most recent event (<c>next_release</c>).
+/// </remarks>
+internal sealed record UpdateIssueRequest(string? Status, IReadOnlyList<string>? Labels, string? ResolveIn);
 
 /// <summary>Request body of <c>POST /api/manage/issues/bulk</c>.</summary>
 internal sealed record BulkIssuesRequest(long[]? Ids, string? Action, IReadOnlyList<string>? Labels);
@@ -132,7 +147,8 @@ internal sealed record ProjectListItemResponse(
     IReadOnlyList<string> Platforms,
     DateTimeOffset CreatedAt,
     long IssueCount,
-    long KeyCount);
+    long KeyCount,
+    InboundFiltersResponse InboundFilters);
 
 /// <summary>The project detail returned by <c>GET/PATCH /api/manage/projects/{id}</c>.</summary>
 internal sealed record ProjectDetailResponse(
@@ -143,7 +159,17 @@ internal sealed record ProjectDetailResponse(
     DateTimeOffset CreatedAt,
     long IssueCount,
     long KeyCount,
+    InboundFiltersResponse InboundFilters,
     string? Dsn);
+
+/// <summary>
+/// The inbound filters of a project: glob patterns that make the Relay drop an
+/// event before it is published.
+/// </summary>
+internal sealed record InboundFiltersResponse(
+    IReadOnlyList<string> Releases,
+    IReadOnlyList<string> Environments,
+    IReadOnlyList<string> MessagePatterns);
 
 /// <summary>
 /// The project created by <c>POST /api/manage/projects</c>, including the DSN
@@ -180,9 +206,14 @@ internal sealed record CreateProjectRequest(string? Name, string? Slug, JsonElem
 /// <remarks>
 /// <c>platform</c> is no longer a project setting, but the request still keeps
 /// the member as a <see cref="JsonElement"/> so that sending it is rejected
-/// instead of silently ignored.
+/// instead of silently ignored. <c>inbound_filters</c> is a
+/// <see cref="JsonElement"/> so an omitted object can be told apart from an
+/// omitted sub-array inside it.
 /// </remarks>
-internal sealed record UpdateProjectRequest(string? Name, JsonElement Platform);
+internal sealed record UpdateProjectRequest(
+    string? Name,
+    JsonElement Platform,
+    JsonElement InboundFilters);
 
 /// <summary>Request body of <c>POST /api/manage/projects/{id}/keys</c>.</summary>
 internal sealed record CreateProjectKeyRequest(string? Label, int? RateLimitPerMinute);
@@ -224,18 +255,33 @@ internal sealed record IssueListQuery(
     string? Level,
     string? Environment,
     string? Release,
+    string? FirstRelease,
     string? Label,
     string? Search,
     IReadOnlyList<string>? Platforms,
+    bool Regressed,
     IssueSort Sort,
     int Limit,
     IssueCursor? Cursor);
+
+/// <summary>Resolution modes accepted by <c>resolve_in</c>.</summary>
+internal enum IssueResolveMode
+{
+    /// <summary>Resolves immediately, without pinning a release.</summary>
+    Now,
+
+    /// <summary>Resolves in the release of the issue's most recent event.</summary>
+    NextRelease,
+}
 
 /// <summary>Bulk actions accepted by <c>POST /api/manage/issues/bulk</c>.</summary>
 internal enum BulkIssueActionKind
 {
     /// <summary>Marks the issues as resolved.</summary>
     Resolve,
+
+    /// <summary>Resolves each issue in its own most recent release.</summary>
+    ResolveNextRelease,
 
     /// <summary>Marks the issues as unresolved.</summary>
     Unresolve,

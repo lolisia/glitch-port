@@ -73,6 +73,11 @@ export function IssueTable({
                 </td>
                 <td className="issues-title">
                   <a href={`#/issues/${issue.id}`}>{issue.title}</a>
+                  {issue.status === 'unresolved' && issue.regressed_at !== null && (
+                    <span className="regressed-badge">
+                      {t('issues.table.regressed')}
+                    </span>
+                  )}
                 </td>
                 <td className="issues-culprit">{issue.culprit ?? ''}</td>
                 <td>

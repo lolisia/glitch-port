@@ -84,14 +84,14 @@ public sealed class ProjectMigrationTests
 
             await InsertRowsWithoutProjectsAsync(database.ConnectionString);
 
-            // The full directory applies 003 to 005 only, because 001 and 002
+            // The full directory applies 003 onwards only, because 001 and 002
             // are already recorded in schema_migrations.
             var projectsMigration = await DatabaseMigrator.ApplyAsync(
                 database.ConnectionString,
                 DatabaseMigrator.DefaultDirectory);
 
             Assert.Equal(
-                ["003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql"],
+                ["003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql", "006_regression_releases.sql", "007_alerts.sql", "008_inbound_filters.sql"],
                 projectsMigration);
 
             // The maintenance bookkeeping table arrives with migration 004.

@@ -4,9 +4,11 @@ import {
   adminToken,
   apiBase,
   bulkUpdateIssues,
+  createAlertRule,
   createLabel,
   createProject,
   createProjectKey,
+  deleteAlertRule,
   deleteEvent,
   deleteIssue,
   deleteLabel,
@@ -14,32 +16,43 @@ import {
   fetchMessages,
   getEvent,
   getIssue,
+  getIssueTags,
   getProject,
   getStats,
+  listAlertNotifications,
+  listAlertRules,
   listIssueEvents,
   listIssues,
   listLabels,
   listProjectKeys,
   listProjects,
+  listReleases,
   parseConfiguredProjectId,
   revokeProjectKey,
+  testAlertRule,
+  updateAlertRule,
   updateIssue,
   updateLabel,
   updateProject,
   updateProjectKey,
 } from './client';
 import type {
+  AlertNotificationListResponse,
+  AlertRule,
+  AlertRuleTestResult,
   BulkIssuesRequest,
   CreatedProject,
   CreateProjectRequest,
   EventDetail,
   Issue,
   IssueDetail,
+  IssueTagsResponse,
   Label,
   Message,
   ProjectDetail,
   ProjectKey,
   ProjectListItem,
+  ReleaseListResponse,
   StatsResponse,
 } from './types';
 
@@ -130,8 +143,13 @@ const issue: Issue = {
   first_seen: '2026-01-01T00:00:00Z',
   last_seen: '2026-01-02T00:00:00Z',
   event_count: 3,
+  first_release: '1.0.0',
   last_release: null,
   last_environment: 'production',
+  resolved_at: null,
+  resolved_in_release: null,
+  regressed_at: null,
+  regression_count: 0,
   labels: [label],
 };
 
@@ -167,6 +185,38 @@ const issueDetail: IssueDetail = { ...issue, latest_event: event };
 const stats: StatsResponse = {
   buckets: [{ bucket: '2026-01-02T00:00:00Z', count: 7 }],
   by_platform: [{ platform: 'unreal', issue_count: 2, event_count: 7 }],
+};
+
+const releaseList: ReleaseListResponse = {
+  items: [
+    {
+      release: '1.0.0',
+      first_seen: '2026-01-01T00:00:00Z',
+      last_seen: '2026-01-02T00:00:00Z',
+      event_count: 12,
+      issue_count: 4,
+      new_issue_count: 3,
+      unresolved_issue_count: 2,
+    },
+  ],
+  next_cursor: 'release-cursor',
+};
+
+const issueTags: IssueTagsResponse = {
+  issue_id: 42,
+  sample_size: 3,
+  user_count: 2,
+  tags: [
+    {
+      key: 'release',
+      total: 3,
+      distinct: 2,
+      top: [
+        { value: '1.0.0', count: 2 },
+        { value: '1.1.0', count: 1 },
+      ],
+    },
+  ],
 };
 
 const projectList: ProjectListItem[] = [
@@ -414,8 +464,10 @@ describe('listIssues', () => {
         level: 'error',
         environment: 'production',
         release: '1.0.0',
+        first_release: '0.9.0',
         label: 'crash',
         platform: ['unity', 'dotnet'],
+        regressed: true,
         q: 'boom',
         sort: 'last_seen',
         limit: 25,
@@ -424,7 +476,7 @@ describe('listIssues', () => {
     ).resolves.toEqual({ items: [issue], next_cursor: 'next' });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `${API}/projects/3/issues?status=unresolved&level=error&environment=production&release=1.0.0&label=crash&platform=unity%2Cdotnet&q=boom&sort=last_seen&limit=25&cursor=next`,
+      `${API}/projects/3/issues?status=unresolved&level=error&environment=production&release=1.0.0&first_release=0.9.0&label=crash&platform=unity%2Cdotnet&regressed=true&q=boom&sort=last_seen&limit=25&cursor=next`,
       { headers: AUTH_HEADERS },
     );
   });
@@ -440,8 +492,10 @@ describe('listIssues', () => {
         level: '',
         environment: undefined,
         release: '',
+        first_release: '',
         label: undefined,
         platform: [],
+        regressed: undefined,
         q: '',
         sort: undefined,
         limit: undefined,
@@ -651,6 +705,179 @@ describe('getStats', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       `${API}/projects/2/stats?period=14d`,
+      { headers: AUTH_HEADERS },
+    );
+  });
+});
+
+describe('listReleases', () => {
+  it('serializes the environment, limit and cursor', async () => {
+    const fetchMock = stubFetch(jsonResponse(releaseList));
+
+    await expect(
+      listReleases(3, {
+        environment: 'production',
+        limit: 50,
+        cursor: 'release-cursor',
+      }),
+    ).resolves.toEqual(releaseList);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${API}/projects/3/releases?environment=production&limit=50&cursor=release-cursor`,
+      { headers: AUTH_HEADERS },
+    );
+  });
+
+  it('omits the query string when no filters are given', async () => {
+    const fetchMock = stubFetch(jsonResponse({ items: [], next_cursor: null }));
+
+    await expect(listReleases(3)).resolves.toEqual({
+      items: [],
+      next_cursor: null,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/projects/3/releases`, {
+      headers: AUTH_HEADERS,
+    });
+  });
+});
+
+describe('getIssueTags', () => {
+  it('fetches the tag distribution with a per-facet limit', async () => {
+    const fetchMock = stubFetch(jsonResponse(issueTags));
+
+    await expect(getIssueTags(42, 10)).resolves.toEqual(issueTags);
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/issues/42/tags?limit=10`, {
+      headers: AUTH_HEADERS,
+    });
+  });
+
+  it('omits the limit so the server default applies', async () => {
+    const fetchMock = stubFetch(jsonResponse(issueTags));
+
+    await getIssueTags(42);
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/issues/42/tags`, {
+      headers: AUTH_HEADERS,
+    });
+  });
+});
+
+describe('alert rule client', () => {
+  const alertRule: AlertRule = {
+    id: 11,
+    project_id: 1,
+    name: 'Crash spike',
+    trigger: 'event_frequency',
+    min_level: 'error',
+    environment: 'production',
+    threshold: 10,
+    window_minutes: 5,
+    cooldown_minutes: 30,
+    channel: 'webhook',
+    target_url: 'https://hooks.example.com/alerts',
+    is_enabled: true,
+    created_at: '2026-01-02T03:04:05Z',
+    updated_at: '2026-01-02T03:04:05Z',
+  };
+
+  const notifications: AlertNotificationListResponse = {
+    items: [
+      {
+        id: 3,
+        rule_id: 11,
+        rule_name: 'Crash spike',
+        issue_id: 42,
+        trigger: 'event_frequency',
+        status: 'failed',
+        attempts: 2,
+        last_error: 'HTTP 500 from target',
+        created_at: '2026-01-02T04:00:00Z',
+        sent_at: null,
+      },
+    ],
+  };
+
+  it('lists the alert rules of a project', async () => {
+    const fetchMock = stubFetch(jsonResponse({ items: [alertRule] }));
+
+    await expect(listAlertRules(1)).resolves.toEqual({ items: [alertRule] });
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/projects/1/alert-rules`, {
+      headers: AUTH_HEADERS,
+    });
+  });
+
+  it('creates a rule with a JSON body', async () => {
+    const fetchMock = stubFetch(jsonResponse(alertRule, 201));
+    const input = {
+      name: 'Crash spike',
+      trigger: 'event_frequency' as const,
+      channel: 'webhook' as const,
+      target_url: 'https://hooks.example.com/alerts',
+      threshold: 10,
+      window_minutes: 5,
+      cooldown_minutes: 30,
+    };
+
+    await expect(createAlertRule(1, input)).resolves.toEqual(alertRule);
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/projects/1/alert-rules`, {
+      method: 'POST',
+      headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+  });
+
+  it('patches only the sent rule fields', async () => {
+    const fetchMock = stubFetch(jsonResponse({ ...alertRule, is_enabled: false }));
+
+    await updateAlertRule(11, { is_enabled: false });
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/alert-rules/11`, {
+      method: 'PATCH',
+      headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_enabled: false }),
+    });
+  });
+
+  it('deletes a rule without parsing a response body', async () => {
+    const { response, json } = noContentResponse();
+    const fetchMock = stubFetch(response);
+
+    await expect(deleteAlertRule(11)).resolves.toBeUndefined();
+
+    expect(json).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/alert-rules/11`, {
+      method: 'DELETE',
+      headers: AUTH_HEADERS,
+    });
+  });
+
+  it('posts the test delivery and resolves its result', async () => {
+    const result: AlertRuleTestResult = {
+      delivered: false,
+      status_code: 500,
+      error: 'boom',
+    };
+    const fetchMock = stubFetch(jsonResponse(result));
+
+    await expect(testAlertRule(11)).resolves.toEqual(result);
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/alert-rules/11/test`, {
+      method: 'POST',
+      headers: AUTH_HEADERS,
+    });
+  });
+
+  it('lists notifications with the default limit of 50', async () => {
+    const fetchMock = stubFetch(jsonResponse(notifications));
+
+    await expect(listAlertNotifications(1)).resolves.toEqual(notifications);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${API}/projects/1/alert-notifications?limit=50`,
       { headers: AUTH_HEADERS },
     );
   });

@@ -2,6 +2,7 @@ import type { Messages } from './en';
 import { event } from './ko/event';
 import { issues } from './ko/issues';
 import { projects } from './ko/projects';
+import { releases } from './ko/releases';
 
 /**
  * Korean messages. Declaring the object as {@link Messages} makes `tsc` fail
@@ -14,6 +15,7 @@ export const ko: Messages = {
   nav: {
     sections: '섹션',
     issues: '이슈',
+    releases: '릴리스',
     messages: '메시지',
     projects: '프로젝트',
   },
@@ -64,4 +66,5 @@ export const ko: Messages = {
   issues,
   event,
   projects,
+  releases,
 };

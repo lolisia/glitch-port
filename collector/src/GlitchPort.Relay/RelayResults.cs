@@ -38,6 +38,24 @@ internal static class RelayResults
         Error(StatusCodes.Status413PayloadTooLarge, message);
 
     /// <summary>
+    /// A <c>202</c> response for an event dropped by an inbound filter. The
+    /// body carries the event id, exactly like an accepted ingest, so the client
+    /// treats the event as delivered, and <c>X-GlitchPort-Filtered</c> names the
+    /// filter that matched.
+    /// </summary>
+    public static IResult Filtered(HttpResponse response, Guid eventId, string filter)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+
+        response.Headers[RelayConstants.FilteredHeader] = filter;
+
+        return Results.Json(
+            new IngestResponse { Id = eventId },
+            RelayJsonContext.Default.IngestResponse,
+            statusCode: StatusCodes.Status202Accepted);
+    }
+
+    /// <summary>
     /// A 503 response returned before the first successful Processor project
     /// configuration load, including the <c>Retry-After</c> header clients should
     /// honour before retrying.

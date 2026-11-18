@@ -103,6 +103,57 @@ public sealed class ManagementProjectApiTests
     }
 
     [Fact]
+    public async Task Project_list_and_detail_include_the_inbound_filters()
+    {
+        using var api = new ManagementApiClient(_fixture);
+
+        var created = await CreateProjectAsync(api, "Filtered Project", UniqueSlug("filtered"));
+        var projectId = created.GetProperty("id").GetInt64();
+
+        using (var patch = await api.PatchAsync(
+                   $"{ProjectsPath}/{projectId}",
+                   """
+                   {"inbound_filters":{"releases":["1.2.*"],"environments":["prod"],"message_patterns":["*timeout*"]}}
+                   """))
+        {
+            Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+            AssertInboundFilters(await ManagementApiData.ReadJsonAsync(patch));
+        }
+
+        using (var detailResponse = await api.GetAsync($"{ProjectsPath}/{projectId}"))
+        {
+            Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
+            AssertInboundFilters(await ManagementApiData.ReadJsonAsync(detailResponse));
+        }
+
+        using (var listResponse = await api.GetAsync(ProjectsPath))
+        {
+            Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+
+            var item = (await ManagementApiData.ReadJsonAsync(listResponse))
+                .EnumerateArray()
+                .Single(project => project.GetProperty("id").GetInt64() == projectId)
+                .Clone();
+
+            AssertInboundFilters(item);
+        }
+    }
+
+    private static void AssertInboundFilters(JsonElement project)
+    {
+        var filters = project.GetProperty("inbound_filters");
+        Assert.Equal(["1.2.*"], FilterStrings(filters, "releases"));
+        Assert.Equal(["prod"], FilterStrings(filters, "environments"));
+        Assert.Equal(["*timeout*"], FilterStrings(filters, "message_patterns"));
+    }
+
+    private static List<string> FilterStrings(JsonElement filters, string name) =>
+        filters.GetProperty(name)
+            .EnumerateArray()
+            .Select(value => value.GetString()!)
+            .ToList();
+
+    [Fact]
     public async Task Project_create_derives_the_slug_and_returns_a_dsn_from_the_configured_relay_url()
     {
         using var api = new ManagementApiClient(_fixture);

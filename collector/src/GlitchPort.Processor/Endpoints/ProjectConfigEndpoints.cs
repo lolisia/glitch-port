@@ -50,7 +50,11 @@ internal static class ProjectConfigEndpoints
                 project.Id,
                 project.Keys
                     .Select(static key => new ProjectConfigKey(key.PublicKey, key.RateLimitPerMinute))
-                    .ToList()))
+                    .ToList(),
+                new ProjectConfigInboundFilters(
+                    project.InboundFilters.Releases,
+                    project.InboundFilters.Environments,
+                    project.InboundFilters.MessagePatterns)))
             .ToList();
 
         var version = ComputeVersion(projects);
@@ -70,9 +74,10 @@ internal static class ProjectConfigEndpoints
 
     /// <summary>
     /// Hashes the canonical JSON of the projects payload. The payload contains
-    /// only stable fields (ids, active keys and limits), so the version stays
-    /// the same while the data is unchanged and changes when a project or key
-    /// is added, removed, rate limited or revoked.
+    /// only stable fields (ids, active keys, limits and inbound filters), so the
+    /// version stays the same while the data is unchanged and changes when a
+    /// project or key is added, removed, rate limited or revoked, or when an
+    /// inbound filter is edited.
     /// </summary>
     private static string ComputeVersion(List<ProjectConfigProject> projects)
     {
@@ -122,7 +127,16 @@ internal sealed record ProjectConfigResponse(
     IReadOnlyList<ProjectConfigProject> Projects);
 
 /// <summary>A project in the Relay configuration, with only its active keys.</summary>
-internal sealed record ProjectConfigProject(long Id, IReadOnlyList<ProjectConfigKey> Keys);
+internal sealed record ProjectConfigProject(
+    long Id,
+    IReadOnlyList<ProjectConfigKey> Keys,
+    ProjectConfigInboundFilters InboundFilters);
 
 /// <summary>An active public key and its optional per-minute limit.</summary>
 internal sealed record ProjectConfigKey(string PublicKey, int? RateLimitPerMinute);
+
+/// <summary>The inbound filters a Relay must apply to a project's events.</summary>
+internal sealed record ProjectConfigInboundFilters(
+    IReadOnlyList<string> Releases,
+    IReadOnlyList<string> Environments,
+    IReadOnlyList<string> MessagePatterns);

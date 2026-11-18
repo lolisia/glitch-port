@@ -6,7 +6,8 @@
 #      (projects under sdk/unity/ are owned by scripts/build-unity-plugins.sh
 #      and scripts/unity-test.sh and are never built here)
 #   2. dotnet test  -c Release --no-build   every *.Tests.csproj under the same roots
-#   3. npm ci (when needed) + npm run build   in dashboard/, when dashboard/package.json exists
+#   3. npm ci (when needed) + npm test + npm run build   in dashboard/, when
+#      dashboard/package.json exists (unit tests run before the production build)
 #   4. bash scripts/build-unity-plugins.sh --check   verify the bundled Core DLL
 #   5. bash scripts/unity-test.sh   Unity EditMode and PlayMode tests when the
 #      editor is installed (skipped otherwise)
@@ -78,6 +79,8 @@ if [ -f dashboard/package.json ]; then
     echo "verify: npm ci (dashboard)"
     (cd dashboard && npm ci)
   fi
+  echo "verify: npm test (dashboard)"
+  (cd dashboard && npm test)
   echo "verify: npm run build (dashboard)"
   (cd dashboard && npm run build)
 else

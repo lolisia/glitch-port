@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Dapper;
 using GlitchPort.Collector.Contracts;
+using GlitchPort.Processor.Alerts;
 using GlitchPort.Processor.Grouping;
 using Npgsql;
 
@@ -43,6 +44,7 @@ public sealed class EventStore
             first_seen,
             last_seen,
             event_count,
+            first_release,
             last_release,
             last_environment)
         values (
@@ -56,9 +58,10 @@ public sealed class EventStore
             @LastSeen,
             0,
             @LastRelease,
+            @LastRelease,
             @LastEnvironment)
         on conflict (project_id, fingerprint) do update set fingerprint = excluded.fingerprint
-        returning id
+        returning id as "Id", (xmax = '0'::xid) as "Created"
         """;
 
     // Every set expression reads the row as it was before the update, so the
@@ -66,11 +69,39 @@ public sealed class EventStore
     // newest event is older than the issue's last_seen is a late arrival and
     // must not overwrite the release/environment of a newer event that was
     // stored earlier.
+    //
+    // A resolved issue reopens either when it carries no resolved_in_release
+    // (any event reopens it) or when the batch has a release different from
+    // resolved_in_release. The pre-update row decides, and that decision is
+    // returned as "Regressed" together with the values the alert pipeline
+    // needs.
     private const string UpdateIssueSql = """
+        with pre as (
+            select id,
+                   status,
+                   resolved_in_release
+            from issues
+            where id = @IssueId
+        ),
+        reopen as (
+            select pre.id,
+                   (pre.status = 'resolved'
+                    and (pre.resolved_in_release is null
+                         or exists (
+                             select 1
+                             from unnest(@Releases::text[]) as r(release)
+                             where r.release <> pre.resolved_in_release))) as regressed
+            from pre
+        )
         update issues
         set event_count = event_count + @EventCount,
             first_seen = least(first_seen, @FirstSeen),
             last_seen = greatest(last_seen, @LastSeen),
+            first_release = case
+                when first_release is null then @FirstRelease
+                when @FirstSeen < first_seen then coalesce(@FirstRelease, first_release)
+                else first_release
+            end,
             last_release = case
                 when @LastSeen >= last_seen then @LastRelease
                 else last_release
@@ -90,8 +121,22 @@ public sealed class EventStore
                 then @Level
                 else level
             end,
-            status = case when status = 'resolved' then 'unresolved' else status end
-        where id = @IssueId
+            status = case when reopen.regressed then 'unresolved' else status end,
+            regressed_at = case when reopen.regressed then @ReceivedAt else regressed_at end,
+            regression_count = case
+                when reopen.regressed then regression_count + 1
+                else regression_count
+            end,
+            resolved_at = case when reopen.regressed then null else resolved_at end,
+            resolved_in_release = case when reopen.regressed then null else resolved_in_release end
+        from reopen
+        where issues.id = reopen.id
+        returning issues.id as "Id",
+                  reopen.regressed as "Regressed",
+                  issues.level as "Level",
+                  issues.last_environment as "Environment",
+                  issues.regressed_at as "RegressedAt",
+                  issues.regression_count as "RegressionCount"
         """;
 
     private const string InsertEventsPrefix = """
@@ -115,14 +160,20 @@ public sealed class EventStore
     private const string InsertEventsSuffix = " on conflict (id) do nothing returning id, issue_id";
 
     private readonly NpgsqlDataSource _dataSource;
+    private readonly AlertEnqueuer _alertEnqueuer;
 
     /// <summary>
-    /// Creates a store that opens connections from <paramref name="dataSource"/>.
+    /// Creates a store that opens connections from <paramref name="dataSource"/>
+    /// and queues alert notifications with <paramref name="alertEnqueuer"/>
+    /// inside the store's transaction.
     /// </summary>
-    public EventStore(NpgsqlDataSource dataSource)
+    public EventStore(NpgsqlDataSource dataSource, AlertEnqueuer alertEnqueuer)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
+        ArgumentNullException.ThrowIfNull(alertEnqueuer);
+
         _dataSource = dataSource;
+        _alertEnqueuer = alertEnqueuer;
     }
 
     /// <summary>
@@ -137,17 +188,31 @@ public sealed class EventStore
         IReadOnlyList<Envelope> envelopes,
         CancellationToken cancellationToken)
     {
+        var result = await StoreWithChangesAsync(envelopes, cancellationToken).ConfigureAwait(false);
+        return result.Inserted;
+    }
+
+    /// <summary>
+    /// Stores every envelope of the batch like <see cref="StoreAsync"/> and
+    /// also returns one <see cref="IssueChange"/> per issue that gained at
+    /// least one event. The changes are built before the batch transaction
+    /// commits, so callers can act on them in the same unit of work.
+    /// </summary>
+    internal async Task<StoreBatchResult> StoreWithChangesAsync(
+        IReadOnlyList<Envelope> envelopes,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(envelopes);
 
         if (envelopes.Count == 0)
         {
-            return 0;
+            return StoreBatchResult.Empty;
         }
 
         var pending = Prepare(envelopes);
         if (pending.Count == 0)
         {
-            return 0;
+            return StoreBatchResult.Empty;
         }
 
         for (var attempt = 1; ; attempt++)
@@ -204,6 +269,12 @@ public sealed class EventStore
             }
 
             comparison = left.Timestamp.CompareTo(right.Timestamp);
+            if (comparison != 0)
+            {
+                return comparison;
+            }
+
+            comparison = left.ReceivedAt.CompareTo(right.ReceivedAt);
             return comparison != 0 ? comparison : left.Id.CompareTo(right.Id);
         });
 
@@ -316,7 +387,7 @@ public sealed class EventStore
         return payload.ToJsonString();
     }
 
-    private static async Task<int> StoreBatchAsync(
+    private async Task<StoreBatchResult> StoreBatchAsync(
         NpgsqlConnection connection,
         IReadOnlyList<PendingEvent> events,
         CancellationToken cancellationToken)
@@ -333,11 +404,18 @@ public sealed class EventStore
             var inserted = await InsertEventsAsync(connection, transaction, queued, cancellationToken)
                 .ConfigureAwait(false);
 
-            await UpdateIssuesAsync(connection, transaction, inserted, cancellationToken)
+            var changes = await UpdateIssuesAsync(connection, transaction, inserted, cancellationToken)
+                .ConfigureAwait(false);
+
+            // Notifications are queued in the same transaction as the events
+            // and the issue update, so a retried batch leaves none behind and
+            // a committed batch always has all of them.
+            await _alertEnqueuer
+                .EnqueueAsync(connection, transaction, changes, cancellationToken)
                 .ConfigureAwait(false);
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            return inserted.Count;
+            return new StoreBatchResult(inserted.Count, changes);
         }
         catch
         {
@@ -360,19 +438,19 @@ public sealed class EventStore
             // Events are sorted by timestamp inside a group, so the first one
             // is the event that seeds a newly created issue.
             var first = group.First();
-            var issueId = await AcquireIssueAsync(connection, transaction, first, cancellationToken)
+            var acquired = await AcquireIssueAsync(connection, transaction, first, cancellationToken)
                 .ConfigureAwait(false);
 
             foreach (var item in group)
             {
-                queued.Add(new QueuedEvent(item, issueId));
+                queued.Add(new QueuedEvent(item, acquired.Id, acquired.Created));
             }
         }
 
         return queued;
     }
 
-    private static async Task<long> AcquireIssueAsync(
+    private static async Task<AcquiredIssue> AcquireIssueAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         PendingEvent first,
@@ -391,7 +469,7 @@ public sealed class EventStore
         parameters.Add("LastEnvironment", first.Environment, DbType.String);
 
         return await connection
-            .QuerySingleAsync<long>(new CommandDefinition(
+            .QuerySingleAsync<AcquiredIssue>(new CommandDefinition(
                 AcquireIssueSql,
                 parameters,
                 transaction,
@@ -481,49 +559,83 @@ public sealed class EventStore
 
     /// <summary>
     /// Updates only the issues that gained rows: count and seen timestamps,
-    /// the release and environment of the most recent event, a severity that
-    /// never decreases, and <c>resolved</c> to <c>unresolved</c> reopening.
+    /// the first and most recent release, the environment of the most recent
+    /// event, a severity that never decreases, and <c>resolved</c> to
+    /// <c>unresolved</c> reopening. The return value holds one
+    /// <see cref="IssueChange"/> per updated issue.
+    /// </summary>
+    /// <remarks>
     /// The release and environment only move forward: a late-arriving event
     /// older than the issue's <c>last_seen</c> leaves the values stored for
-    /// the newer event untouched.
-    /// </summary>
-    private static async Task UpdateIssuesAsync(
+    /// the newer event untouched. <c>first_release</c> follows the earliest
+    /// event instead, and only advances <c>first_seen</c> when that event is
+    /// genuinely older.
+    /// </remarks>
+    private static async Task<List<IssueChange>> UpdateIssuesAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         IReadOnlyList<QueuedEvent> inserted,
         CancellationToken cancellationToken)
     {
+        var changes = new List<IssueChange>();
+
         foreach (var group in inserted
                      .GroupBy(static item => item.IssueId)
                      .OrderBy(static group => group.Key))
         {
-            var mostRecent = group
+            var ordered = group
                 .OrderBy(static item => item.Event.Timestamp)
                 .ThenBy(static item => item.Event.ReceivedAt)
                 .ThenBy(static item => item.Event.Id)
-                .Last();
+                .ToList();
+
+            var earliest = ordered[0];
+            var mostRecent = ordered[^1];
+            var releases = ordered
+                .Select(static item => item.Event.Release)
+                .Where(static release => release is not null)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
 
             var severity = group.Max(static item => Severity(item.Event.Level));
 
             var parameters = new DynamicParameters();
             parameters.Add("IssueId", group.Key, DbType.Int64);
             parameters.Add("EventCount", group.Count(), DbType.Int64);
-            parameters.Add("FirstSeen", group.Min(static item => item.Event.Timestamp), DbType.DateTimeOffset);
-            parameters.Add("LastSeen", group.Max(static item => item.Event.Timestamp), DbType.DateTimeOffset);
+            parameters.Add("FirstSeen", ordered[0].Event.Timestamp, DbType.DateTimeOffset);
+            parameters.Add("LastSeen", mostRecent.Event.Timestamp, DbType.DateTimeOffset);
+            parameters.Add("ReceivedAt", group.Max(static item => item.Event.ReceivedAt), DbType.DateTimeOffset);
+            parameters.Add("FirstRelease", earliest.Event.Release, DbType.String);
             parameters.Add("LastRelease", mostRecent.Event.Release, DbType.String);
             parameters.Add("LastEnvironment", mostRecent.Event.Environment, DbType.String);
+            parameters.Add("Releases", releases);
             parameters.Add("Level", LevelNames[severity], DbType.String);
             parameters.Add("LevelSeverity", severity, DbType.Int32);
 
-            await connection
-                .ExecuteAsync(new CommandDefinition(
+            var row = await connection
+                .QuerySingleAsync<UpdatedIssueRow>(new CommandDefinition(
                     UpdateIssueSql,
                     parameters,
                     transaction,
                     cancellationToken: cancellationToken))
                 .ConfigureAwait(false);
+
+            changes.Add(new IssueChange(
+                row.Id,
+                earliest.Event.ProjectId,
+                earliest.Created,
+                row.Regressed,
+                row.Level,
+                row.Environment,
+                row.RegressedAt is { } regressedAt ? AsUtc(regressedAt) : null,
+                row.RegressionCount));
         }
+
+        return changes;
     }
+
+    private static DateTimeOffset AsUtc(DateTime value) =>
+        new(DateTime.SpecifyKind(value, DateTimeKind.Utc));
 
     private static bool IsRetryable(PostgresException exception) =>
         exception.SqlState is PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.SerializationFailure;
@@ -714,7 +826,14 @@ public sealed class EventStore
         string? Message,
         string PayloadJson);
 
-    private sealed record QueuedEvent(PendingEvent Event, long IssueId);
+    private sealed record QueuedEvent(PendingEvent Event, long IssueId, bool Created);
+
+    private sealed class AcquiredIssue
+    {
+        public long Id { get; init; }
+
+        public bool Created { get; init; }
+    }
 
     private sealed class InsertedEventRow
     {
@@ -722,4 +841,29 @@ public sealed class EventStore
 
         public long IssueId { get; set; }
     }
+
+    private sealed class UpdatedIssueRow
+    {
+        public long Id { get; init; }
+
+        public bool Regressed { get; init; }
+
+        public string Level { get; init; } = string.Empty;
+
+        public string? Environment { get; init; }
+
+        public DateTime? RegressedAt { get; init; }
+
+        public int RegressionCount { get; init; }
+    }
+}
+
+/// <summary>
+/// The outcome of storing one batch: how many events were inserted and which
+/// issues gained them.
+/// </summary>
+internal sealed record StoreBatchResult(int Inserted, IReadOnlyList<IssueChange> Changes)
+{
+    /// <summary>Result of a batch that stored nothing.</summary>
+    public static StoreBatchResult Empty { get; } = new(0, []);
 }

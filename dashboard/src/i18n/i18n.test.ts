@@ -59,7 +59,7 @@ describe('messages', () => {
     expect(createTranslator('ko')('nav.issues')).toBe('이슈');
   });
 
-  it('defines the issue, event and project namespaces in both locales', () => {
+  it('defines the issue, event, project and release namespaces in both locales', () => {
     const enT = createTranslator('en');
     const koT = createTranslator('ko');
 
@@ -69,6 +69,31 @@ describe('messages', () => {
     expect(koT('event.rawJson')).toBe('원본 JSON');
     expect(enT('projects.title')).toBe('Projects');
     expect(koT('projects.title')).toBe('프로젝트');
+    expect(enT('releases.title')).toBe('Releases');
+    expect(koT('releases.title')).toBe('릴리스');
+    expect(enT('nav.releases')).toBe('Releases');
+    expect(koT('nav.releases')).toBe('릴리스');
+  });
+
+  it('defines the regression and tag-distribution messages in both locales', () => {
+    const enT = createTranslator('en');
+    const koT = createTranslator('ko');
+
+    expect(enT('issues.filters.regressed')).toBe('Regressed');
+    expect(koT('issues.filters.regressed')).toBe('재발');
+    expect(enT('issues.detail.resolveNextRelease')).toBe(
+      'Resolve in next release',
+    );
+    expect(koT('issues.detail.resolveNextRelease')).toBe(
+      '다음 릴리스에서 해결',
+    );
+    expect(
+      enT('issues.detail.reopenNote', { release: '1.2.0' }),
+    ).toBe('This issue reopens if it recurs after 1.2.0.');
+    expect(enT('issues.detail.tags.title')).toBe('Tag distribution');
+    expect(koT('issues.detail.tags.title')).toBe('태그 분포');
+    expect(enT('releases.table.newIssues')).toBe('New issues');
+    expect(koT('releases.table.newIssues')).toBe('신규 이슈');
   });
 
   it('keeps the screen counters in plural keys', () => {
