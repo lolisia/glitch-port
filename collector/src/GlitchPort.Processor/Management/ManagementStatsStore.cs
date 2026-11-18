@@ -4,7 +4,8 @@ using Npgsql;
 namespace GlitchPort.Processor.Management;
 
 /// <summary>
-/// Counts events per time bucket for the project statistics chart.
+/// Counts events per time bucket and issues and events per platform for the
+/// project statistics endpoint.
 /// </summary>
 internal sealed class ManagementStatsStore
 {
@@ -73,6 +74,39 @@ internal sealed class ManagementStatsStore
         return buckets;
     }
 
+    /// <summary>
+    /// Returns the number of issues and the total number of their events per
+    /// platform for the whole project, ordered by event count descending and
+    /// platform name ascending.
+    /// </summary>
+    public async Task<List<PlatformStatsResponse>> GetPlatformStatsAsync(
+        long projectId,
+        CancellationToken cancellationToken)
+    {
+        const string sql = """
+            select platform as "Platform",
+                   count(*) as "IssueCount",
+                   coalesce(sum(event_count), 0)::bigint as "EventCount"
+            from issues
+            where project_id = @ProjectId
+            group by platform
+            order by sum(event_count) desc, platform asc
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        var rows = await connection
+            .QueryAsync<PlatformStatsRow>(new CommandDefinition(
+                sql,
+                new { ProjectId = projectId },
+                cancellationToken: cancellationToken))
+            .ConfigureAwait(false);
+
+        return rows
+            .Select(static row => new PlatformStatsResponse(row.Platform, row.IssueCount, row.EventCount))
+            .ToList();
+    }
+
     private static (DateTimeOffset First, DateTimeOffset End, int BucketCount, string TruncateUnit) ResolveWindow(
         string period)
     {
@@ -95,5 +129,14 @@ internal sealed class ManagementStatsStore
         public long Bucket { get; init; }
 
         public long Count { get; init; }
+    }
+
+    private sealed class PlatformStatsRow
+    {
+        public string Platform { get; init; } = string.Empty;
+
+        public long IssueCount { get; init; }
+
+        public long EventCount { get; init; }
     }
 }

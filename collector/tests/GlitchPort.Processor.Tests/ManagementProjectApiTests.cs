@@ -28,8 +28,8 @@ public sealed class ManagementProjectApiTests
     {
         using var api = new ManagementApiClient(_fixture);
 
-        var first = await CreateProjectAsync(api, "List Alpha", UniqueSlug("list-alpha"), "unity");
-        var second = await CreateProjectAsync(api, "List Beta", UniqueSlug("list-beta"), "godot");
+        var first = await CreateProjectAsync(api, "List Alpha", UniqueSlug("list-alpha"));
+        var second = await CreateProjectAsync(api, "List Beta", UniqueSlug("list-beta"));
 
         var firstId = first.GetProperty("id").GetInt64();
         var secondId = second.GetProperty("id").GetInt64();
@@ -37,16 +37,36 @@ public sealed class ManagementProjectApiTests
         await ManagementApiData.InsertIssueAsync(
             _fixture.ConnectionString,
             firstId,
-            "resolved issue",
-            DateTimeOffset.UtcNow.AddMinutes(-2),
-            DateTimeOffset.UtcNow.AddMinutes(-2),
-            status: "resolved");
+            "resolved unity issue",
+            DateTimeOffset.UtcNow.AddMinutes(-4),
+            DateTimeOffset.UtcNow.AddMinutes(-4),
+            status: "resolved",
+            eventCount: 5,
+            platform: "unity");
         await ManagementApiData.InsertIssueAsync(
             _fixture.ConnectionString,
             firstId,
-            "unresolved issue",
+            "unresolved unity issue",
+            DateTimeOffset.UtcNow.AddMinutes(-3),
+            DateTimeOffset.UtcNow.AddMinutes(-3),
+            eventCount: 2,
+            platform: "unity");
+        await ManagementApiData.InsertIssueAsync(
+            _fixture.ConnectionString,
+            firstId,
+            "dotnet issue",
+            DateTimeOffset.UtcNow.AddMinutes(-2),
+            DateTimeOffset.UtcNow.AddMinutes(-2),
+            eventCount: 4,
+            platform: "dotnet");
+        await ManagementApiData.InsertIssueAsync(
+            _fixture.ConnectionString,
+            firstId,
+            "godot issue",
             DateTimeOffset.UtcNow.AddMinutes(-1),
-            DateTimeOffset.UtcNow.AddMinutes(-1));
+            DateTimeOffset.UtcNow.AddMinutes(-1),
+            eventCount: 2,
+            platform: "godot");
 
         var temporaryKey = await CreateKeyAsync(api, firstId, "temporary", rateLimit: null);
         using (var revoke = await api.DeleteAsync($"/api/manage/keys/{temporaryKey.GetProperty("id").GetInt64()}"))
@@ -67,12 +87,17 @@ public sealed class ManagementProjectApiTests
 
         var firstItem = list.Single(item => item.GetProperty("id").GetInt64() == firstId);
         Assert.Equal("List Alpha", firstItem.GetProperty("name").GetString());
-        Assert.Equal("unity", firstItem.GetProperty("platform").GetString());
-        Assert.Equal(1, firstItem.GetProperty("issue_count").GetInt64());
+        Assert.False(firstItem.TryGetProperty("platform", out _));
+        Assert.Equal(
+            ["unity", "dotnet", "godot"],
+            Platforms(firstItem));
+        Assert.Equal(3, firstItem.GetProperty("issue_count").GetInt64());
         Assert.Equal(1, firstItem.GetProperty("key_count").GetInt64());
         Assert.False(string.IsNullOrWhiteSpace(firstItem.GetProperty("created_at").GetString()));
 
         var secondItem = list.Single(item => item.GetProperty("id").GetInt64() == secondId);
+        Assert.False(secondItem.TryGetProperty("platform", out _));
+        Assert.Empty(Platforms(secondItem));
         Assert.Equal(0, secondItem.GetProperty("issue_count").GetInt64());
         Assert.Equal(1, secondItem.GetProperty("key_count").GetInt64());
     }
@@ -84,7 +109,7 @@ public sealed class ManagementProjectApiTests
 
         using var response = await api.PostAsync(
             ProjectsPath,
-            """{"name":"Nightly Build!! v2","platform":"unity"}""");
+            """{"name":"Nightly Build!! v2"}""");
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 
@@ -94,7 +119,8 @@ public sealed class ManagementProjectApiTests
 
         Assert.Equal("Nightly Build!! v2", created.GetProperty("name").GetString());
         Assert.Equal("nightly-build-v2", slug);
-        Assert.Equal("unity", created.GetProperty("platform").GetString());
+        Assert.False(created.TryGetProperty("platform", out _));
+        Assert.Empty(Platforms(created));
         Assert.True(DateTimeOffset.TryParse(created.GetProperty("created_at").GetString(), out _));
 
         var keys = await GetKeysAsync(api, id);
@@ -115,6 +141,8 @@ public sealed class ManagementProjectApiTests
         Assert.Equal(0, detail.GetProperty("issue_count").GetInt64());
         Assert.Equal(1, detail.GetProperty("key_count").GetInt64());
         Assert.Equal(created.GetProperty("dsn").GetString(), detail.GetProperty("dsn").GetString());
+        Assert.False(detail.TryGetProperty("platform", out _));
+        Assert.Empty(Platforms(detail));
     }
 
     [Fact]
@@ -123,7 +151,7 @@ public sealed class ManagementProjectApiTests
         using var api = new ManagementApiClient(_fixture);
 
         var slug = UniqueSlug("star-raiders");
-        var first = await CreateProjectAsync(api, "Star Raiders", slug, platform: null);
+        var first = await CreateProjectAsync(api, "Star Raiders", slug);
         Assert.Equal(slug, first.GetProperty("slug").GetString());
 
         using var duplicate = await api.PostAsync(
@@ -140,7 +168,7 @@ public sealed class ManagementProjectApiTests
     {
         using var api = new ManagementApiClient(_fixture);
 
-        var created = await CreateProjectAsync(api, "!!!", slug: null, platform: null);
+        var created = await CreateProjectAsync(api, "!!!", slug: null);
 
         Assert.Equal("!!!", created.GetProperty("name").GetString());
         Assert.Equal("project", created.GetProperty("slug").GetString());
@@ -155,9 +183,8 @@ public sealed class ManagementProjectApiTests
     [InlineData("""{"name":"Valid","slug":"-leading"}""")]
     [InlineData("""{"name":"Valid","slug":"trailing-"}""")]
     [InlineData("""{"name":"Valid","slug":"double--hyphen"}""")]
-    [InlineData("""{"name":"Valid","platform":"   "}""")]
     [InlineData("not-json")]
-    public async Task Project_create_rejects_invalid_names_slugs_and_platforms(string json)
+    public async Task Project_create_rejects_invalid_names_and_slugs(string json)
     {
         using var api = new ManagementApiClient(_fixture);
         using var response = await api.PostAsync(ProjectsPath, json);
@@ -168,37 +195,70 @@ public sealed class ManagementProjectApiTests
         Assert.False(string.IsNullOrWhiteSpace(body.GetProperty("error").GetString()));
     }
 
+    [Theory]
+    [InlineData("""{"name":"Valid","platform":"unity"}""")]
+    [InlineData("""{"platform":null}""")]
+    [InlineData("""{"name":"Valid","platform":null}""")]
+    [InlineData("""{"name":"Valid","platform":123}""")]
+    [InlineData("""{"name":"Valid","platform":["unity"]}""")]
+    public async Task Project_create_rejects_a_platform_member(string json)
+    {
+        using var api = new ManagementApiClient(_fixture);
+        using var response = await api.PostAsync(ProjectsPath, json);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var body = await ManagementApiData.ReadJsonAsync(response);
+        Assert.Equal(
+            "platform is no longer a project setting; events carry their own platform",
+            body.GetProperty("error").GetString());
+    }
+
+    [Theory]
+    [InlineData("""{"name":"Renamed","platform":"unity"}""")]
+    [InlineData("""{"platform":null}""")]
+    [InlineData("""{"name":"Renamed","platform":false}""")]
+    public async Task Project_update_rejects_a_platform_member(string json)
+    {
+        using var api = new ManagementApiClient(_fixture);
+        var created = await CreateProjectAsync(api, "Platform Patch", UniqueSlug("platform-patch"));
+        var projectId = created.GetProperty("id").GetInt64();
+
+        using var response = await api.PatchAsync($"{ProjectsPath}/{projectId}", json);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var body = await ManagementApiData.ReadJsonAsync(response);
+        Assert.Equal(
+            "platform is no longer a project setting; events carry their own platform",
+            body.GetProperty("error").GetString());
+    }
+
     [Fact]
     public async Task Project_detail_patch_and_delete_follow_the_management_contract()
     {
         using var api = new ManagementApiClient(_fixture);
 
-        var created = await CreateProjectAsync(api, "Contract Project", UniqueSlug("contract"), "unity");
+        var created = await CreateProjectAsync(api, "Contract Project", UniqueSlug("contract"));
         var projectId = created.GetProperty("id").GetInt64();
 
         using (var patch = await api.PatchAsync(
                    $"{ProjectsPath}/{projectId}",
-                   """{"name":"Renamed Project","platform":"godot"}"""))
+                   """{"name":"Renamed Project"}"""))
         {
             Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
 
             var updated = await ManagementApiData.ReadJsonAsync(patch);
             Assert.Equal("Renamed Project", updated.GetProperty("name").GetString());
-            Assert.Equal("godot", updated.GetProperty("platform").GetString());
+            Assert.False(updated.TryGetProperty("platform", out _));
             Assert.Equal(created.GetProperty("slug").GetString(), updated.GetProperty("slug").GetString());
             Assert.Equal(created.GetProperty("dsn").GetString(), updated.GetProperty("dsn").GetString());
+            Assert.Empty(Platforms(updated));
         }
 
         using (var invalidPatch = await api.PatchAsync($"{ProjectsPath}/{projectId}", """{"name":"  "}"""))
         {
             Assert.Equal(HttpStatusCode.BadRequest, invalidPatch.StatusCode);
-        }
-
-        using (var invalidPlatform = await api.PatchAsync(
-                   $"{ProjectsPath}/{projectId}",
-                   """{"platform":"  "}"""))
-        {
-            Assert.Equal(HttpStatusCode.BadRequest, invalidPlatform.StatusCode);
         }
 
         using (var missing = await api.GetAsync($"{ProjectsPath}/{MissingId}"))
@@ -224,7 +284,7 @@ public sealed class ManagementProjectApiTests
     {
         using var api = new ManagementApiClient(_fixture);
 
-        var created = await CreateProjectAsync(api, "Cascade Project", UniqueSlug("cascade"), "unity");
+        var created = await CreateProjectAsync(api, "Cascade Project", UniqueSlug("cascade"));
         var projectId = created.GetProperty("id").GetInt64();
 
         await ManagementApiData.IngestMessageEventAsync(
@@ -288,7 +348,7 @@ public sealed class ManagementProjectApiTests
     {
         using var api = new ManagementApiClient(_fixture);
 
-        var created = await CreateProjectAsync(api, "Key Project", UniqueSlug("keys"), "unity");
+        var created = await CreateProjectAsync(api, "Key Project", UniqueSlug("keys"));
         var projectId = created.GetProperty("id").GetInt64();
 
         var initialKeys = await GetKeysAsync(api, projectId);
@@ -402,7 +462,7 @@ public sealed class ManagementProjectApiTests
     {
         using var api = new ManagementApiClient(_fixture);
 
-        var created = await CreateProjectAsync(api, "Invalid Key Project", UniqueSlug("invalid-keys"), null);
+        var created = await CreateProjectAsync(api, "Invalid Key Project", UniqueSlug("invalid-keys"));
         var projectId = created.GetProperty("id").GetInt64();
         var keyId = (await GetKeysAsync(api, projectId))[0].GetProperty("id").GetInt64();
 
@@ -525,8 +585,7 @@ public sealed class ManagementProjectApiTests
     private static async Task<JsonElement> CreateProjectAsync(
         ManagementApiClient api,
         string name,
-        string? slug,
-        string? platform)
+        string? slug)
     {
         var body = new JsonObject { ["name"] = name };
         if (slug is not null)
@@ -534,16 +593,17 @@ public sealed class ManagementProjectApiTests
             body["slug"] = slug;
         }
 
-        if (platform is not null)
-        {
-            body["platform"] = platform;
-        }
-
         using var response = await api.PostAsync(ProjectsPath, body.ToJsonString());
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 
         return await ManagementApiData.ReadJsonAsync(response);
     }
+
+    private static List<string> Platforms(JsonElement project) =>
+        project.GetProperty("platforms")
+            .EnumerateArray()
+            .Select(platform => platform.GetString()!)
+            .ToList();
 
     private static async Task<JsonElement> CreateKeyAsync(
         ManagementApiClient api,

@@ -106,6 +106,27 @@ internal static class ManagementValidation
     public static string? NormalizeFilter(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
+    /// <summary>
+    /// Parses the comma-separated <c>platform</c> filter into distinct,
+    /// trimmed, lowercase platform names. Blank entries are dropped, and a
+    /// value without any platform yields <see langword="null"/> (no filter).
+    /// </summary>
+    public static IReadOnlyList<string>? NormalizePlatforms(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var platforms = value
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(static platform => platform.ToLowerInvariant())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        return platforms.Length == 0 ? null : platforms;
+    }
+
     /// <summary>Validates a <c>limit</c> query value, applying the default.</summary>
     public static bool TryResolveLimit(string? value, out int pageSize)
     {

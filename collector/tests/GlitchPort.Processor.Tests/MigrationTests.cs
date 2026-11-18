@@ -37,7 +37,7 @@ public sealed class MigrationTests
             "select version from schema_migrations order by version");
 
         Assert.Equal(
-            ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql"],
+            ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql"],
             versions);
     }
 
@@ -89,7 +89,7 @@ public sealed class MigrationTests
             await ColumnsAsync("issue_labels"));
 
         Assert.Equal(
-            ["id", "name", "slug", "platform", "created_at"],
+            ["id", "name", "slug", "created_at"],
             await ColumnsAsync("projects"));
 
         Assert.Equal(
@@ -178,6 +178,7 @@ public sealed class MigrationTests
                 "ix_events_issue_timestamp",
                 "ix_events_project_received",
                 "ix_events_received_at",
+                "ix_issues_project_platform",
                 "ix_issues_project_status_last_seen",
                 "ix_issues_title_trgm",
                 "ix_maintenance_runs_kind_finished_at",
@@ -331,7 +332,7 @@ public sealed class MigrationTests
             "select version from schema_migrations order by version");
 
         Assert.Equal(
-            ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql"],
+            ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql"],
             versions);
     }
 
@@ -363,7 +364,7 @@ public sealed class MigrationTests
                 .ToArray();
 
             Assert.Equal(
-                ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql"],
+                ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql"],
                 appliedByThisRun);
 
             var recordedVersions = await TestDatabase.QueryStringsAsync(
@@ -371,7 +372,7 @@ public sealed class MigrationTests
                 "select version from schema_migrations order by version");
 
             Assert.Equal(
-                ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql"],
+                ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql"],
                 recordedVersions);
         }
         finally

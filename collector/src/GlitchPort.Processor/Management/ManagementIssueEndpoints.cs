@@ -31,6 +31,7 @@ internal static class ManagementIssueEndpoints
         string? environment,
         string? release,
         string? label,
+        string? platform,
         string? q,
         string? sort,
         string? limit,
@@ -83,6 +84,7 @@ internal static class ManagementIssueEndpoints
             ManagementValidation.NormalizeFilter(release),
             ManagementValidation.NormalizeFilter(label),
             ManagementValidation.NormalizeFilter(q),
+            ManagementValidation.NormalizePlatforms(platform),
             sortValue,
             pageSize,
             decodedCursor);

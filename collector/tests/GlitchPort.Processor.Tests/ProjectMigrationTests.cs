@@ -84,13 +84,15 @@ public sealed class ProjectMigrationTests
 
             await InsertRowsWithoutProjectsAsync(database.ConnectionString);
 
-            // The full directory applies 003 and 004 only, because 001 and 002
+            // The full directory applies 003 to 005 only, because 001 and 002
             // are already recorded in schema_migrations.
             var projectsMigration = await DatabaseMigrator.ApplyAsync(
                 database.ConnectionString,
                 DatabaseMigrator.DefaultDirectory);
 
-            Assert.Equal(["003_projects_keys.sql", "004_maintenance_runs.sql"], projectsMigration);
+            Assert.Equal(
+                ["003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql"],
+                projectsMigration);
 
             // The maintenance bookkeeping table arrives with migration 004.
             Assert.Equal(
@@ -101,6 +103,31 @@ public sealed class ProjectMigrationTests
                     select count(*)
                     from information_schema.tables
                     where table_schema = 'public' and table_name = 'maintenance_runs'
+                    """));
+
+            // Migration 005 removes the project platform; platforms now live
+            // on issues, which are indexed for the platform filter.
+            Assert.Equal(
+                0,
+                await TestDatabase.QuerySingleLongAsync(
+                    database.ConnectionString,
+                    """
+                    select count(*)
+                    from information_schema.columns
+                    where table_schema = 'public'
+                      and table_name = 'projects'
+                      and column_name = 'platform'
+                    """));
+            Assert.Equal(
+                1,
+                await TestDatabase.QuerySingleLongAsync(
+                    database.ConnectionString,
+                    """
+                    select count(*)
+                    from pg_indexes
+                    where schemaname = 'public'
+                      and tablename = 'issues'
+                      and indexname = 'ix_issues_project_platform'
                     """));
 
             // Every referenced id became a project of its own...

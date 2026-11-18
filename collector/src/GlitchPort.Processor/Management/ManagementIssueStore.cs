@@ -66,6 +66,12 @@ internal sealed class ManagementIssueStore
             parameters.Add("Level", level, DbType.String);
         }
 
+        if (query.Platforms is { Count: > 0 } platforms)
+        {
+            conditions.Add("i.platform = any(@Platforms::text[])");
+            parameters.Add("Platforms", platforms.ToArray());
+        }
+
         // Environment and release describe events, so an issue matches when
         // at least one of its events carries the value.
         if (query.Environment is { } environment)

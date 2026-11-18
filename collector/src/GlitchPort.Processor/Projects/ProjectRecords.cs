@@ -5,21 +5,20 @@ public sealed record ProjectRecord(
     long Id,
     string Name,
     string Slug,
-    string? Platform,
     DateTimeOffset CreatedAt);
 
 /// <summary>
 /// A project together with the counters shown by the project list:
-/// unresolved issues and active keys.
+/// unresolved issues, active keys and the platforms of its issues.
 /// </summary>
 public sealed record ProjectSummary(
     long Id,
     string Name,
     string Slug,
-    string? Platform,
     DateTimeOffset CreatedAt,
     long UnresolvedIssueCount,
-    long ActiveKeyCount);
+    long ActiveKeyCount,
+    IReadOnlyList<string> Platforms);
 
 /// <summary>A public key of a project, including revoked keys.</summary>
 public sealed record ProjectKeyRecord(
@@ -59,7 +58,6 @@ public sealed record ProjectConfig(
     long Id,
     string Name,
     string Slug,
-    string? Platform,
     IReadOnlyList<ProjectKeyConfig> Keys);
 
 /// <summary>An active public key as exposed by the relay configuration.</summary>

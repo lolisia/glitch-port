@@ -22,6 +22,9 @@ internal static class ManagementProjectEndpoints
 {
     private const string DefaultSlug = "project";
 
+    private const string PlatformIsNotAProjectSetting =
+        "platform is no longer a project setting; events carry their own platform";
+
     private static readonly Regex SlugPattern = new(
         "^[a-z0-9]+(?:-[a-z0-9]+)*$",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -55,7 +58,7 @@ internal static class ManagementProjectEndpoints
                 project.Id,
                 project.Name,
                 project.Slug,
-                project.Platform,
+                project.Platforms,
                 project.CreatedAt,
                 project.UnresolvedIssueCount,
                 project.ActiveKeyCount))
@@ -77,6 +80,11 @@ internal static class ManagementProjectEndpoints
         if (body is null)
         {
             return ManagementHttp.BadRequest("A JSON body with a name is required.");
+        }
+
+        if (body.Platform.ValueKind != JsonValueKind.Undefined)
+        {
+            return ManagementHttp.BadRequest(PlatformIsNotAProjectSetting);
         }
 
         if (string.IsNullOrWhiteSpace(body.Name))
@@ -106,18 +114,8 @@ internal static class ManagementProjectEndpoints
             }
         }
 
-        string? platform = null;
-        if (body.Platform is not null)
-        {
-            platform = body.Platform.Trim();
-            if (platform.Length == 0)
-            {
-                return ManagementHttp.BadRequest("platform must not be blank.");
-            }
-        }
-
         var created = await store
-            .CreateAsync(name, slug, platform, cancellationToken)
+            .CreateAsync(name, slug, cancellationToken)
             .ConfigureAwait(false);
 
         if (created is null)
@@ -130,7 +128,7 @@ internal static class ManagementProjectEndpoints
             created.Project.Id,
             created.Project.Name,
             created.Project.Slug,
-            created.Project.Platform,
+            [],
             created.Project.CreatedAt,
             dsn);
 
@@ -167,7 +165,12 @@ internal static class ManagementProjectEndpoints
 
         if (body is null)
         {
-            return ManagementHttp.BadRequest("A JSON body with a name and/or platform is required.");
+            return ManagementHttp.BadRequest("A JSON body with a name is required.");
+        }
+
+        if (body.Platform.ValueKind != JsonValueKind.Undefined)
+        {
+            return ManagementHttp.BadRequest(PlatformIsNotAProjectSetting);
         }
 
         string? name = null;
@@ -180,18 +183,8 @@ internal static class ManagementProjectEndpoints
             }
         }
 
-        string? platform = null;
-        if (body.Platform is not null)
-        {
-            platform = body.Platform.Trim();
-            if (platform.Length == 0)
-            {
-                return ManagementHttp.BadRequest("platform must not be blank.");
-            }
-        }
-
         var updated = await store
-            .UpdateAsync(projectId, name, platform, cancellationToken)
+            .UpdateAsync(projectId, name, cancellationToken)
             .ConfigureAwait(false);
 
         if (updated is null)
@@ -391,7 +384,7 @@ internal static class ManagementProjectEndpoints
             project.Id,
             project.Name,
             project.Slug,
-            project.Platform,
+            project.Platforms,
             project.CreatedAt,
             project.UnresolvedIssueCount,
             project.ActiveKeyCount,

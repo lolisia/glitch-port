@@ -27,10 +27,10 @@ public sealed class ProjectStore
         select p.id as "Id",
                p.name as "Name",
                p.slug as "Slug",
-               p.platform as "Platform",
                p.created_at as "CreatedAt",
                coalesce(issue_counts.unresolved_issue_count, 0) as "UnresolvedIssueCount",
-               coalesce(key_counts.active_key_count, 0) as "ActiveKeyCount"
+               coalesce(key_counts.active_key_count, 0) as "ActiveKeyCount",
+               coalesce(platform_stats.platforms, array[]::text[]) as "Platforms"
         from projects p
         left join (
             select project_id, count(*) as unresolved_issue_count
@@ -44,6 +44,18 @@ public sealed class ProjectStore
             where is_active
             group by project_id
         ) as key_counts on key_counts.project_id = p.id
+        left join lateral (
+            select array_agg(
+                       platform_rollup.platform
+                       order by platform_rollup.event_count desc, platform_rollup.platform)
+                   as platforms
+            from (
+                select i.platform, sum(i.event_count) as event_count
+                from issues i
+                where i.project_id = p.id
+                group by i.platform
+            ) as platform_rollup
+        ) as platform_stats on true
         order by p.id
         """;
 
@@ -51,7 +63,6 @@ public sealed class ProjectStore
         select id as "Id",
                name as "Name",
                slug as "Slug",
-               platform as "Platform",
                created_at as "CreatedAt"
         from projects
         where id = @ProjectId
@@ -61,10 +72,10 @@ public sealed class ProjectStore
         select p.id as "Id",
                p.name as "Name",
                p.slug as "Slug",
-               p.platform as "Platform",
                p.created_at as "CreatedAt",
                coalesce(issue_counts.unresolved_issue_count, 0) as "UnresolvedIssueCount",
-               coalesce(key_counts.active_key_count, 0) as "ActiveKeyCount"
+               coalesce(key_counts.active_key_count, 0) as "ActiveKeyCount",
+               coalesce(platform_stats.platforms, array[]::text[]) as "Platforms"
         from projects p
         left join (
             select project_id, count(*) as unresolved_issue_count
@@ -78,30 +89,39 @@ public sealed class ProjectStore
             where is_active
             group by project_id
         ) as key_counts on key_counts.project_id = p.id
+        left join lateral (
+            select array_agg(
+                       platform_rollup.platform
+                       order by platform_rollup.event_count desc, platform_rollup.platform)
+                   as platforms
+            from (
+                select i.platform, sum(i.event_count) as event_count
+                from issues i
+                where i.project_id = p.id
+                group by i.platform
+            ) as platform_rollup
+        ) as platform_stats on true
         where p.id = @ProjectId
         """;
 
     private const string ProjectExistsSql = "select exists (select 1 from projects where id = @ProjectId)";
 
     private const string InsertProjectSql = """
-        insert into projects (name, slug, platform)
-        values (@Name, @Slug, @Platform)
+        insert into projects (name, slug)
+        values (@Name, @Slug)
         returning id as "Id",
                   name as "Name",
                   slug as "Slug",
-                  platform as "Platform",
                   created_at as "CreatedAt"
         """;
 
     private const string UpdateProjectSql = """
         update projects
-        set name = coalesce(@Name::text, name),
-            platform = coalesce(@Platform::text, platform)
+        set name = coalesce(@Name::text, name)
         where id = @ProjectId
         returning id as "Id",
                   name as "Name",
                   slug as "Slug",
-                  platform as "Platform",
                   created_at as "CreatedAt"
         """;
 
@@ -213,8 +233,7 @@ public sealed class ProjectStore
     private const string ListConfigProjectsSql = """
         select id as "Id",
                name as "Name",
-               slug as "Slug",
-               platform as "Platform"
+               slug as "Slug"
         from projects
         order by id
         """;
@@ -248,7 +267,7 @@ public sealed class ProjectStore
 
     /// <summary>
     /// Lists all projects ordered by id with their unresolved issue and active
-    /// key counts.
+    /// key counts and the platforms of their issues.
     /// </summary>
     public async Task<List<ProjectSummary>> ListAsync(CancellationToken cancellationToken)
     {
@@ -334,7 +353,6 @@ public sealed class ProjectStore
     public async Task<CreatedProject?> CreateAsync(
         string name,
         string slug,
-        string? platform,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -346,7 +364,7 @@ public sealed class ProjectStore
         {
             try
             {
-                return await CreateWithKeyAsync(name, slug, platform, cancellationToken)
+                return await CreateWithKeyAsync(name, slug, cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (PostgresException exception) when (IsPublicKeyCollision(exception))
@@ -361,13 +379,12 @@ public sealed class ProjectStore
     }
 
     /// <summary>
-    /// Changes the name and/or platform of a project.
+    /// Changes the name of a project.
     /// </summary>
     /// <returns>The updated project, or <c>null</c> when it does not exist.</returns>
     public async Task<ProjectRecord?> UpdateAsync(
         long projectId,
         string? name,
-        string? platform,
         CancellationToken cancellationToken)
     {
         await using var connection = await _dataSource
@@ -377,7 +394,7 @@ public sealed class ProjectStore
         var row = await connection
             .QuerySingleOrDefaultAsync<ProjectRow>(new CommandDefinition(
                 UpdateProjectSql,
-                new { ProjectId = projectId, Name = name, Platform = platform },
+                new { ProjectId = projectId, Name = name },
                 cancellationToken: cancellationToken))
             .ConfigureAwait(false);
 
@@ -637,7 +654,6 @@ public sealed class ProjectStore
     private async Task<CreatedProject?> CreateWithKeyAsync(
         string name,
         string slug,
-        string? platform,
         CancellationToken cancellationToken)
     {
         var publicKey = _publicKeyGenerator.Generate();
@@ -654,7 +670,7 @@ public sealed class ProjectStore
             var project = await connection
                 .QuerySingleAsync<ProjectRow>(new CommandDefinition(
                     InsertProjectSql,
-                    new { Name = name, Slug = slug, Platform = platform },
+                    new { Name = name, Slug = slug },
                     transaction,
                     cancellationToken: cancellationToken))
                 .ConfigureAwait(false);
@@ -720,11 +736,9 @@ public sealed class ProjectStore
 
         public string Slug { get; init; } = string.Empty;
 
-        public string? Platform { get; init; }
-
         public DateTime CreatedAt { get; init; }
 
-        public ProjectRecord ToRecord() => new(Id, Name, Slug, Platform, AsUtc(CreatedAt));
+        public ProjectRecord ToRecord() => new(Id, Name, Slug, AsUtc(CreatedAt));
     }
 
     private sealed class ProjectSummaryRow
@@ -735,16 +749,16 @@ public sealed class ProjectStore
 
         public string Slug { get; init; } = string.Empty;
 
-        public string? Platform { get; init; }
-
         public DateTime CreatedAt { get; init; }
 
         public long UnresolvedIssueCount { get; init; }
 
         public long ActiveKeyCount { get; init; }
 
+        public string[] Platforms { get; init; } = [];
+
         public ProjectSummary ToSummary() =>
-            new(Id, Name, Slug, Platform, AsUtc(CreatedAt), UnresolvedIssueCount, ActiveKeyCount);
+            new(Id, Name, Slug, AsUtc(CreatedAt), UnresolvedIssueCount, ActiveKeyCount, Platforms);
     }
 
     private sealed class ProjectKeyRow
@@ -784,10 +798,8 @@ public sealed class ProjectStore
 
         public string Slug { get; init; } = string.Empty;
 
-        public string? Platform { get; init; }
-
         public ProjectConfig ToConfig(IReadOnlyList<ProjectKeyConfig> keys) =>
-            new(Id, Name, Slug, Platform, keys);
+            new(Id, Name, Slug, keys);
     }
 
     private sealed class ProjectKeyConfigRow

@@ -64,11 +64,76 @@ public sealed class ManagementStatsApiTests
     {
         using var api = new ManagementApiClient(_fixture);
 
-        var buckets = await GetBucketsAsync(api, TestData.NextProjectId(), query: string.Empty);
+        var stats = await GetStatsAsync(api, TestData.NextProjectId(), query: string.Empty);
+        var buckets = Buckets(stats);
 
         Assert.Equal(24, buckets.Count);
         Assert.All(buckets, bucket => Assert.Equal(0, bucket.GetProperty("count").GetInt64()));
         AssertConsecutive(buckets, TimeSpan.FromHours(1));
+        Assert.Empty(stats.GetProperty("by_platform").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Stats_aggregate_issue_and_event_totals_per_platform()
+    {
+        var projectId = TestData.NextProjectId();
+        using var api = new ManagementApiClient(_fixture);
+
+        // Two unity issues with 4 + 2 events, one dotnet issue with 6 events
+        // and one godot issue with 1 event. Unity and dotnet tie on the total,
+        // so the platform name breaks the tie.
+        await ManagementApiData.InsertIssueAsync(
+            _fixture.ConnectionString,
+            projectId,
+            "unity issue one",
+            DateTimeOffset.UtcNow.AddDays(-2),
+            DateTimeOffset.UtcNow.AddDays(-2),
+            eventCount: 4,
+            platform: "unity");
+        await ManagementApiData.InsertIssueAsync(
+            _fixture.ConnectionString,
+            projectId,
+            "unity issue two",
+            DateTimeOffset.UtcNow.AddDays(-1),
+            DateTimeOffset.UtcNow.AddDays(-1),
+            eventCount: 2,
+            platform: "unity");
+        await ManagementApiData.InsertIssueAsync(
+            _fixture.ConnectionString,
+            projectId,
+            "dotnet issue",
+            DateTimeOffset.UtcNow.AddDays(-1),
+            DateTimeOffset.UtcNow.AddDays(-1),
+            eventCount: 6,
+            platform: "dotnet");
+        await ManagementApiData.InsertIssueAsync(
+            _fixture.ConnectionString,
+            projectId,
+            "godot issue",
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow,
+            eventCount: 1,
+            platform: "godot");
+
+        var stats = await GetStatsAsync(api, projectId, "?period=14d");
+        var byPlatform = stats.GetProperty("by_platform").EnumerateArray().Select(item => item.Clone()).ToList();
+
+        Assert.Equal(
+            ["dotnet", "unity", "godot"],
+            byPlatform.Select(item => item.GetProperty("platform").GetString()));
+        Assert.Equal(
+            [1L, 2L, 1L],
+            byPlatform.Select(item => item.GetProperty("issue_count").GetInt64()));
+        Assert.Equal(
+            [6L, 6L, 1L],
+            byPlatform.Select(item => item.GetProperty("event_count").GetInt64()));
+
+        // by_platform does not depend on the period of the buckets.
+        var hourly = await GetStatsAsync(api, projectId, "?period=24h");
+        Assert.Equal(
+            ["dotnet", "unity", "godot"],
+            hourly.GetProperty("by_platform").EnumerateArray()
+                .Select(item => item.GetProperty("platform").GetString()));
     }
 
     [Theory]
@@ -87,7 +152,7 @@ public sealed class ManagementStatsApiTests
         Assert.False(string.IsNullOrWhiteSpace(body.GetProperty("error").GetString()));
     }
 
-    private static async Task<List<JsonElement>> GetBucketsAsync(
+    private static async Task<JsonElement> GetStatsAsync(
         ManagementApiClient api,
         long projectId,
         string query)
@@ -95,9 +160,17 @@ public sealed class ManagementStatsApiTests
         using var response = await api.GetAsync($"/api/manage/projects/{projectId}/stats{query}");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var body = await ManagementApiData.ReadJsonAsync(response);
-        return body.EnumerateArray().Select(bucket => bucket.Clone()).ToList();
+        return await ManagementApiData.ReadJsonAsync(response);
     }
+
+    private static async Task<List<JsonElement>> GetBucketsAsync(
+        ManagementApiClient api,
+        long projectId,
+        string query) =>
+        Buckets(await GetStatsAsync(api, projectId, query));
+
+    private static List<JsonElement> Buckets(JsonElement stats) =>
+        stats.GetProperty("buckets").EnumerateArray().Select(bucket => bucket.Clone()).ToList();
 
     private static void AssertConsecutive(List<JsonElement> buckets, TimeSpan step)
     {
