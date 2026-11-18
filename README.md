@@ -24,8 +24,19 @@ The repository contains the complete MVP:
   Management API;
 - **projects, public ingest keys and per-key rate limits**, created and managed
   through the Management API;
-- the **dashboard** for browsing and triaging issues, events, projects, keys
-  and the legacy message list;
+- **alert rules** for new issues, regressions and event frequency, delivered to
+  webhook, Discord or Slack targets with a notification history;
+- **regression detection**: a resolved issue reopens automatically when it
+  recurs, keeping a regression count and a "resolve in next release" workflow;
+- **release views**: the dashboard (`#/releases`) aggregates events, issues,
+  new issues and unresolved issues per release;
+- **tag distribution** facets per issue over release, environment, platform,
+  engine contexts and SDK tags;
+- **inbound filters** per project: release, environment and message glob
+  patterns that make the Relay drop matching events with
+  `X-GlitchPort-Filtered`;
+- the **dashboard** for browsing and triaging issues, events, projects, keys,
+  releases, alert rules and inbound filters, plus the legacy message list;
 - the **.NET SDK** (`GlitchPort.Core`), which captures events and sends them to
   the collector or to local terminal/file relays, plus the
   **ASP.NET Core integration** (`GlitchPort.AspNetCore`) with request
@@ -487,10 +498,11 @@ npm run dev
 
 The dashboard is served at <http://localhost:5173>. It needs a running
 Processor (and PostgreSQL); with the development Processor on port `5090` it
-lists issues, projects, keys and the legacy message list from
-`http://localhost:5090/api/manage` using the development admin token
-(`dev-admin-token`). Send an event with the sample to see data. The screens
-are `#/issues`, `#/issues/<id>`, `#/projects`, `#/projects/<id>` and
+lists issues, projects, keys, releases, alert rules and inbound filters, plus
+the legacy message list, from `http://localhost:5090/api/manage` using the
+development admin token (`dev-admin-token`). Send an event with the sample to
+see data. The screens are `#/issues`, `#/issues/<id>`, `#/releases`,
+`#/projects`, `#/projects/<id>` (keys, alert rules and inbound filters) and
 `#/messages`.
 
 The API base and token can be overridden at build/dev time:
@@ -656,9 +668,10 @@ docker-compose.yml          Full local stack (profile full) and PostgreSQL
 - [Event ingest API (protocol v1)](documents/http-api-events.md) — public
   ingest endpoints, authentication, rate limits, event bodies and responses.
 - [Management API](documents/management-api.md) — projects, keys, issues,
-  events, labels, statistics, retention status and pagination.
-- [Operations](documents/operations.md) — retention, multiple Processors, the
-  full local stack and backup/restore.
+  events, labels, releases, tags, alert rules, notifications and inbound
+  filters.
+- [Operations](documents/operations.md) — retention, alert delivery, multiple
+  Processors, the full local stack and backup/restore.
 - [.NET SDK](documents/sdk-dotnet.md) — `GlitchPortClient`, events, scopes,
   sampling, ASP.NET Core integration and `ILogger` forwarding.
 - [.NET SDK relays](documents/sdk-dotnet-relays.md) — HTTP, terminal and file
