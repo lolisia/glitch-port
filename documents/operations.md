@@ -213,6 +213,13 @@ first configuration load succeeds, ingest requests return `503` with
 `Retry-After: 5` and `{"error":"project configuration not loaded"}`, so clients
 retry or queue instead of losing events.
 
+Before the first successful project-config load, the Relay retries the Processor
+with exponential backoff starting at 1s (1s, 2s, 4s, 8s, ...), capped at
+`Relay:ConfigRefreshSeconds` (default 60 seconds), so a Relay started before its
+Processor recovers within seconds instead of waiting a full refresh interval.
+After the first success only the `Relay:ConfigRefreshSeconds` cadence applies,
+and a failed refresh keeps the last snapshot and the processor health source.
+
 ## Full local stack
 
 The root `docker-compose.yml` defines a `full` Docker Compose profile with the
