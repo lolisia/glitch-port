@@ -16,6 +16,7 @@ namespace GlitchPort.Processor.Data;
 /// <param name="Level">Issue level after the update.</param>
 /// <param name="Environment">Environment of the issue's most recent event after the update.</param>
 /// <param name="RegressedAt">Regression time after the update, if the issue ever regressed.</param>
+/// <param name="RegressionCount">Regression counter after the update, used by alert dedupe keys.</param>
 public sealed record IssueChange(
     long IssueId,
     long ProjectId,
@@ -23,4 +24,5 @@ public sealed record IssueChange(
     bool Regressed,
     string Level,
     string? Environment,
-    DateTimeOffset? RegressedAt);
+    DateTimeOffset? RegressedAt,
+    int RegressionCount);

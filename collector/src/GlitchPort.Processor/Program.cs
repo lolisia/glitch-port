@@ -1,4 +1,5 @@
 using GlitchPort.Processor;
+using GlitchPort.Processor.Alerts;
 using GlitchPort.Processor.Data;
 using GlitchPort.Processor.Endpoints;
 using GlitchPort.Processor.Management;
@@ -16,6 +17,18 @@ const string CorsPolicyName = "dashboard";
 builder.Services.Configure<ProcessorOptions>(builder.Configuration.GetSection(ProcessorOptions.SectionName));
 builder.Services.Configure<RetentionOptions>(
     builder.Configuration.GetSection($"{ProcessorOptions.SectionName}:{RetentionOptions.SectionName}"));
+builder.Services.Configure<AlertOptions>(
+    builder.Configuration.GetSection($"{ProcessorOptions.SectionName}:{AlertOptions.SectionName}"));
+
+// Deliveries and the management test endpoint share one named client so the
+// timeout comes from Processor:Alerts:HttpTimeoutSeconds and tests can replace
+// its primary handler.
+builder.Services.AddHttpClient(AlertDispatcher.HttpClientName)
+    .ConfigureHttpClient((services, client) =>
+    {
+        var options = services.GetRequiredService<IOptions<AlertOptions>>().Value;
+        client.Timeout = TimeSpan.FromSeconds(options.HttpTimeoutSeconds);
+    });
 
 // The policy is built from options so that the origins are read once the
 // configuration (including test and environment overrides) is final.
@@ -48,9 +61,24 @@ builder.Services.AddSingleton<ManagementIssueStore>();
 builder.Services.AddSingleton<ManagementLabelStore>();
 builder.Services.AddSingleton<ManagementStatsStore>();
 builder.Services.AddSingleton<ManagementMaintenanceStore>();
+builder.Services.AddSingleton<ManagementAlertStore>();
 builder.Services.AddSingleton<PublicKeyGenerator>();
 builder.Services.AddSingleton<ProjectStore>();
 builder.Services.AddSingleton<RetentionRunner>();
+builder.Services.AddSingleton<AlertEnqueuer>();
+builder.Services.AddSingleton<AlertEvaluator>();
+builder.Services.AddSingleton<AlertDispatcher>();
+
+// The alert workers are optional; queueing (AlertEnqueuer) is registered above
+// either way so notifications keep accumulating while they are disabled.
+if (builder.Configuration
+    .GetSection($"{ProcessorOptions.SectionName}:{AlertOptions.SectionName}")
+    .GetValue(nameof(AlertOptions.Enabled), true))
+{
+    builder.Services.AddHostedService<AlertEvaluationWorker>();
+    builder.Services.AddHostedService<AlertDispatchWorker>();
+}
+
 builder.Services.AddHostedService<RetentionWorker>();
 
 var app = builder.Build();

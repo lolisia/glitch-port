@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Dapper;
 using GlitchPort.Collector.Contracts;
+using GlitchPort.Processor.Alerts;
 using GlitchPort.Processor.Grouping;
 using Npgsql;
 
@@ -134,7 +135,8 @@ public sealed class EventStore
                   reopen.regressed as "Regressed",
                   issues.level as "Level",
                   issues.last_environment as "Environment",
-                  issues.regressed_at as "RegressedAt"
+                  issues.regressed_at as "RegressedAt",
+                  issues.regression_count as "RegressionCount"
         """;
 
     private const string InsertEventsPrefix = """
@@ -158,14 +160,20 @@ public sealed class EventStore
     private const string InsertEventsSuffix = " on conflict (id) do nothing returning id, issue_id";
 
     private readonly NpgsqlDataSource _dataSource;
+    private readonly AlertEnqueuer _alertEnqueuer;
 
     /// <summary>
-    /// Creates a store that opens connections from <paramref name="dataSource"/>.
+    /// Creates a store that opens connections from <paramref name="dataSource"/>
+    /// and queues alert notifications with <paramref name="alertEnqueuer"/>
+    /// inside the store's transaction.
     /// </summary>
-    public EventStore(NpgsqlDataSource dataSource)
+    public EventStore(NpgsqlDataSource dataSource, AlertEnqueuer alertEnqueuer)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
+        ArgumentNullException.ThrowIfNull(alertEnqueuer);
+
         _dataSource = dataSource;
+        _alertEnqueuer = alertEnqueuer;
     }
 
     /// <summary>
@@ -379,7 +387,7 @@ public sealed class EventStore
         return payload.ToJsonString();
     }
 
-    private static async Task<StoreBatchResult> StoreBatchAsync(
+    private async Task<StoreBatchResult> StoreBatchAsync(
         NpgsqlConnection connection,
         IReadOnlyList<PendingEvent> events,
         CancellationToken cancellationToken)
@@ -397,6 +405,13 @@ public sealed class EventStore
                 .ConfigureAwait(false);
 
             var changes = await UpdateIssuesAsync(connection, transaction, inserted, cancellationToken)
+                .ConfigureAwait(false);
+
+            // Notifications are queued in the same transaction as the events
+            // and the issue update, so a retried batch leaves none behind and
+            // a committed batch always has all of them.
+            await _alertEnqueuer
+                .EnqueueAsync(connection, transaction, changes, cancellationToken)
                 .ConfigureAwait(false);
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -612,7 +627,8 @@ public sealed class EventStore
                 row.Regressed,
                 row.Level,
                 row.Environment,
-                row.RegressedAt is { } regressedAt ? AsUtc(regressedAt) : null));
+                row.RegressedAt is { } regressedAt ? AsUtc(regressedAt) : null,
+                row.RegressionCount));
         }
 
         return changes;
@@ -837,6 +853,8 @@ public sealed class EventStore
         public string? Environment { get; init; }
 
         public DateTime? RegressedAt { get; init; }
+
+        public int RegressionCount { get; init; }
     }
 }
 

@@ -11,8 +11,8 @@ namespace GlitchPort.Processor.Management;
 internal static class ManagementEndpoints
 {
     /// <summary>
-    /// Maps the project, key, issue, event, label, statistics and maintenance
-    /// management endpoints.
+    /// Maps the project, key, issue, event, label, statistics, maintenance and
+    /// alert management endpoints.
     /// </summary>
     public static IEndpointRouteBuilder MapManagementEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -28,6 +28,7 @@ internal static class ManagementEndpoints
         group.MapLabelEndpoints();
         group.MapStatsEndpoints();
         group.MapMaintenanceEndpoints();
+        group.MapAlertEndpoints();
 
         return endpoints;
     }

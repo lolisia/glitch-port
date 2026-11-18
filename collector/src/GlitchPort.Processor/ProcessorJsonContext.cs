@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using GlitchPort.Processor.Alerts;
 using GlitchPort.Processor.Data;
 using GlitchPort.Processor.Endpoints;
 using GlitchPort.Processor.Management;
@@ -45,6 +46,16 @@ namespace GlitchPort.Processor;
 [JsonSerializable(typeof(ProjectConfigResponse))]
 [JsonSerializable(typeof(ProjectConfigProject))]
 [JsonSerializable(typeof(List<ProjectConfigProject>))]
+[JsonSerializable(typeof(AlertPayload))]
+[JsonSerializable(typeof(AlertRuleResponse))]
+[JsonSerializable(typeof(List<AlertRuleResponse>))]
+[JsonSerializable(typeof(AlertRuleListResponse))]
+[JsonSerializable(typeof(CreateAlertRuleRequest))]
+[JsonSerializable(typeof(UpdateAlertRuleRequest))]
+[JsonSerializable(typeof(AlertTestResponse))]
+[JsonSerializable(typeof(AlertNotificationResponse))]
+[JsonSerializable(typeof(List<AlertNotificationResponse>))]
+[JsonSerializable(typeof(AlertNotificationListResponse))]
 internal sealed partial class ProcessorJsonContext : JsonSerializerContext
 {
 }
