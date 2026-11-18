@@ -91,7 +91,7 @@ public sealed class ProjectMigrationTests
                 DatabaseMigrator.DefaultDirectory);
 
             Assert.Equal(
-                ["003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql"],
+                ["003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql", "006_regression_releases.sql"],
                 projectsMigration);
 
             // The maintenance bookkeeping table arrives with migration 004.

@@ -213,6 +213,293 @@ public sealed class ManagementIssueMutationTests
     }
 
     [Fact]
+    public async Task Resolving_now_records_the_time_without_pinning_a_release()
+    {
+        var projectId = TestData.NextProjectId();
+        using var api = new ManagementApiClient(_fixture);
+
+        await ManagementApiData.IngestEventAsync(
+            api.Raw,
+            projectId,
+            BaseTime,
+            "resolve-now",
+            release: "star-raiders@1.0.0");
+        var issueId = await IssueIdAsync(api, projectId);
+
+        // resolve_in defaults to now.
+        using (var response = await api.PatchAsync($"/api/manage/issues/{issueId}", """{"status":"resolved"}"""))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var body = await ManagementApiData.ReadJsonAsync(response);
+
+            Assert.Equal("resolved", body.GetProperty("status").GetString());
+            Assert.Equal(JsonValueKind.String, body.GetProperty("resolved_at").ValueKind);
+            Assert.Equal(JsonValueKind.Null, body.GetProperty("resolved_in_release").ValueKind);
+            Assert.Equal(JsonValueKind.Null, body.GetProperty("regressed_at").ValueKind);
+        }
+
+        using (var response = await api.PatchAsync(
+                   $"/api/manage/issues/{issueId}",
+                   """{"status":"resolved","resolve_in":"now"}"""))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var body = await ManagementApiData.ReadJsonAsync(response);
+
+            Assert.Equal(JsonValueKind.String, body.GetProperty("resolved_at").ValueKind);
+            Assert.Equal(JsonValueKind.Null, body.GetProperty("resolved_in_release").ValueKind);
+        }
+
+        // Unresolving clears the resolution bookkeeping.
+        using (var response = await api.PatchAsync($"/api/manage/issues/{issueId}", """{"status":"unresolved"}"""))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var body = await ManagementApiData.ReadJsonAsync(response);
+
+            Assert.Equal("unresolved", body.GetProperty("status").GetString());
+            Assert.Equal(JsonValueKind.Null, body.GetProperty("resolved_at").ValueKind);
+            Assert.Equal(JsonValueKind.Null, body.GetProperty("resolved_in_release").ValueKind);
+        }
+    }
+
+    [Fact]
+    public async Task Resolving_in_the_next_release_pins_the_last_release()
+    {
+        var projectId = TestData.NextProjectId();
+        using var api = new ManagementApiClient(_fixture);
+
+        await ManagementApiData.IngestEventAsync(
+            api.Raw,
+            projectId,
+            BaseTime,
+            "resolve-next-release",
+            release: "star-raiders@1.0.0");
+        var issueId = await IssueIdAsync(api, projectId);
+
+        using (var response = await api.PatchAsync(
+                   $"/api/manage/issues/{issueId}",
+                   """{"status":"resolved","resolve_in":"next_release"}"""))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var body = await ManagementApiData.ReadJsonAsync(response);
+
+            Assert.Equal("resolved", body.GetProperty("status").GetString());
+            Assert.Equal("star-raiders@1.0.0", body.GetProperty("resolved_in_release").GetString());
+            Assert.Equal(JsonValueKind.String, body.GetProperty("resolved_at").ValueKind);
+        }
+
+        // The pinned release survives a reload of the issue.
+        using var detail = await api.GetAsync($"/api/manage/issues/{issueId}");
+        var issue = await ManagementApiData.ReadJsonAsync(detail);
+
+        Assert.Equal("star-raiders@1.0.0", issue.GetProperty("resolved_in_release").GetString());
+        Assert.Equal("star-raiders@1.0.0", issue.GetProperty("first_release").GetString());
+    }
+
+    [Theory]
+    [InlineData("""{"resolve_in":"now"}""")]
+    [InlineData("""{"resolve_in":"next_release"}""")]
+    [InlineData("""{"status":"unresolved","resolve_in":"now"}""")]
+    [InlineData("""{"status":"ignored","resolve_in":"next_release"}""")]
+    [InlineData("""{"status":"resolved","resolve_in":"later"}""")]
+    [InlineData("""{"status":"resolved","resolve_in":""}""")]
+    public async Task Invalid_resolve_in_combinations_are_rejected(string body)
+    {
+        var projectId = TestData.NextProjectId();
+        using var api = new ManagementApiClient(_fixture);
+
+        await ManagementApiData.IngestEventAsync(api.Raw, projectId, BaseTime, "invalid-resolve-in");
+        var issueId = await IssueIdAsync(api, projectId);
+
+        using var response = await api.PatchAsync($"/api/manage/issues/{issueId}", body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var parsed = await ManagementApiData.ReadJsonAsync(response);
+        Assert.False(string.IsNullOrWhiteSpace(parsed.GetProperty("error").GetString()));
+    }
+
+    [Fact]
+    public async Task Issue_and_detail_responses_expose_release_and_regression_fields()
+    {
+        var projectId = TestData.NextProjectId();
+        using var api = new ManagementApiClient(_fixture);
+
+        await ManagementApiData.IngestEventAsync(
+            api.Raw,
+            projectId,
+            BaseTime,
+            "expose-fields",
+            release: "star-raiders@1.0.0");
+        var issueId = await IssueIdAsync(api, projectId);
+
+        using (var resolve = await api.PatchAsync(
+                   $"/api/manage/issues/{issueId}",
+                   """{"status":"resolved","resolve_in":"next_release"}"""))
+        {
+            Assert.Equal(HttpStatusCode.OK, resolve.StatusCode);
+        }
+
+        // A different release reopens the issue and marks the regression.
+        await ManagementApiData.IngestEventAsync(
+            api.Raw,
+            projectId,
+            BaseTime.AddHours(1),
+            "expose-fields",
+            release: "star-raiders@1.1.0");
+
+        using var detailResponse = await api.GetAsync($"/api/manage/issues/{issueId}");
+        Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
+
+        var detail = await ManagementApiData.ReadJsonAsync(detailResponse);
+
+        Assert.Equal("star-raiders@1.0.0", detail.GetProperty("first_release").GetString());
+        Assert.Equal(JsonValueKind.Null, detail.GetProperty("resolved_at").ValueKind);
+        Assert.Equal(JsonValueKind.Null, detail.GetProperty("resolved_in_release").ValueKind);
+        Assert.Equal(JsonValueKind.String, detail.GetProperty("regressed_at").ValueKind);
+        Assert.Equal(1, detail.GetProperty("regression_count").GetInt32());
+
+        var list = await ManagementApiData.GetIssuesAsync(api, projectId);
+        var item = Assert.Single(list.GetProperty("items").EnumerateArray().ToList());
+
+        Assert.Equal("star-raiders@1.0.0", item.GetProperty("first_release").GetString());
+        Assert.Equal(JsonValueKind.Null, item.GetProperty("resolved_at").ValueKind);
+        Assert.Equal(JsonValueKind.Null, item.GetProperty("resolved_in_release").ValueKind);
+        Assert.Equal(JsonValueKind.String, item.GetProperty("regressed_at").ValueKind);
+        Assert.Equal(1, item.GetProperty("regression_count").GetInt32());
+    }
+
+    [Fact]
+    public async Task Bulk_resolve_next_release_uses_each_issues_last_release()
+    {
+        var projectId = TestData.NextProjectId();
+        using var api = new ManagementApiClient(_fixture);
+
+        await ManagementApiData.IngestEventAsync(
+            api.Raw,
+            projectId,
+            BaseTime,
+            "bulk-next-release-a",
+            release: "release-a");
+        await ManagementApiData.IngestEventAsync(
+            api.Raw,
+            projectId,
+            BaseTime.AddMinutes(1),
+            "bulk-next-release-b",
+            release: null);
+
+        var ids = (await ManagementApiData.GetIssuesAsync(api, projectId))
+            .GetProperty("items")
+            .EnumerateArray()
+            .Select(item => item.GetProperty("id").GetInt64())
+            .ToArray();
+
+        Assert.Equal(2, ids.Length);
+        Assert.Equal(2, await BulkAsync(api, ids, "\"action\":\"resolve_next_release\""));
+
+        var resolved = (await ManagementApiData.GetIssuesAsync(api, projectId, "?status=resolved"))
+            .GetProperty("items")
+            .EnumerateArray()
+            .ToList();
+
+        Assert.Equal(2, resolved.Count);
+        Assert.All(
+            resolved,
+            item =>
+            {
+                Assert.Equal("resolved", item.GetProperty("status").GetString());
+                Assert.Equal(JsonValueKind.String, item.GetProperty("resolved_at").ValueKind);
+                Assert.Equal(JsonValueKind.Null, item.GetProperty("regressed_at").ValueKind);
+            });
+
+        var withRelease = Assert.Single(
+            resolved,
+            item => item.GetProperty("last_release").ValueKind == JsonValueKind.String);
+        Assert.Equal("release-a", withRelease.GetProperty("resolved_in_release").GetString());
+
+        // An issue without a release behaves like a resolve now.
+        var withoutRelease = Assert.Single(
+            resolved,
+            item => item.GetProperty("last_release").ValueKind == JsonValueKind.Null);
+        Assert.Equal(JsonValueKind.Null, withoutRelease.GetProperty("resolved_in_release").ValueKind);
+    }
+
+    [Fact]
+    public async Task Bulk_status_actions_maintain_the_resolution_bookkeeping()
+    {
+        var projectId = TestData.NextProjectId();
+        using var api = new ManagementApiClient(_fixture);
+
+        await ManagementApiData.IngestEventAsync(
+            api.Raw,
+            projectId,
+            BaseTime,
+            "bulk-bookkeeping",
+            release: "release-a");
+        var issueId = await IssueIdAsync(api, projectId);
+
+        Assert.Equal(1, await BulkAsync(api, [issueId], "\"action\":\"resolve\""));
+
+        using (var resolved = await api.GetAsync($"/api/manage/issues/{issueId}"))
+        {
+            var issue = await ManagementApiData.ReadJsonAsync(resolved);
+            Assert.Equal(JsonValueKind.String, issue.GetProperty("resolved_at").ValueKind);
+            Assert.Equal(JsonValueKind.Null, issue.GetProperty("resolved_in_release").ValueKind);
+        }
+
+        Assert.Equal(1, await BulkAsync(api, [issueId], "\"action\":\"unresolve\""));
+
+        using (var unresolved = await api.GetAsync($"/api/manage/issues/{issueId}"))
+        {
+            var issue = await ManagementApiData.ReadJsonAsync(unresolved);
+            Assert.Equal(JsonValueKind.Null, issue.GetProperty("resolved_at").ValueKind);
+            Assert.Equal(JsonValueKind.Null, issue.GetProperty("resolved_in_release").ValueKind);
+        }
+
+        Assert.Equal(1, await BulkAsync(api, [issueId], "\"action\":\"ignore\""));
+
+        using var ignored = await api.GetAsync($"/api/manage/issues/{issueId}");
+        var ignoredIssue = await ManagementApiData.ReadJsonAsync(ignored);
+        Assert.Equal("ignored", ignoredIssue.GetProperty("status").GetString());
+        Assert.Equal(JsonValueKind.Null, ignoredIssue.GetProperty("resolved_at").ValueKind);
+        Assert.Equal(JsonValueKind.Null, ignoredIssue.GetProperty("resolved_in_release").ValueKind);
+    }
+
+    [Fact]
+    public async Task Manual_status_changes_clear_the_regression_marker()
+    {
+        var projectId = TestData.NextProjectId();
+        using var api = new ManagementApiClient(_fixture);
+
+        await ManagementApiData.IngestEventAsync(api.Raw, projectId, BaseTime, "clear-regressed");
+        var issueId = await IssueIdAsync(api, projectId);
+
+        using (var resolve = await api.PatchAsync($"/api/manage/issues/{issueId}", """{"status":"resolved"}"""))
+        {
+            Assert.Equal(HttpStatusCode.OK, resolve.StatusCode);
+        }
+
+        await ManagementApiData.IngestEventAsync(
+            api.Raw,
+            projectId,
+            BaseTime.AddHours(1),
+            "clear-regressed");
+
+        using (var regressed = await api.GetAsync($"/api/manage/issues/{issueId}"))
+        {
+            var issue = await ManagementApiData.ReadJsonAsync(regressed);
+            Assert.Equal(JsonValueKind.String, issue.GetProperty("regressed_at").ValueKind);
+            Assert.Equal(1, issue.GetProperty("regression_count").GetInt32());
+        }
+
+        using (var ignored = await api.PatchAsync($"/api/manage/issues/{issueId}", """{"status":"ignored"}"""))
+        {
+            var issue = await ManagementApiData.ReadJsonAsync(ignored);
+            Assert.Equal(JsonValueKind.Null, issue.GetProperty("regressed_at").ValueKind);
+            Assert.Equal(1, issue.GetProperty("regression_count").GetInt32());
+        }
+    }
+
+    [Fact]
     public async Task Deleting_an_issue_cascades_to_its_events_and_label_assignments()
     {
         var projectId = TestData.NextProjectId();

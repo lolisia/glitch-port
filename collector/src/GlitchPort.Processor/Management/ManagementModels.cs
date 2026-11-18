@@ -21,8 +21,13 @@ internal sealed record IssueResponse(
     DateTimeOffset FirstSeen,
     DateTimeOffset LastSeen,
     long EventCount,
+    string? FirstRelease,
     string? LastRelease,
     string? LastEnvironment,
+    DateTimeOffset? ResolvedAt,
+    string? ResolvedInRelease,
+    DateTimeOffset? RegressedAt,
+    int RegressionCount,
     IReadOnlyList<LabelResponse> Labels);
 
 /// <summary>One page of issues plus the cursor of the next page.</summary>
@@ -42,8 +47,13 @@ internal sealed record IssueDetailResponse(
     DateTimeOffset FirstSeen,
     DateTimeOffset LastSeen,
     long EventCount,
+    string? FirstRelease,
     string? LastRelease,
     string? LastEnvironment,
+    DateTimeOffset? ResolvedAt,
+    string? ResolvedInRelease,
+    DateTimeOffset? RegressedAt,
+    int RegressionCount,
     IReadOnlyList<LabelResponse> Labels,
     EventDetailResponse? LatestEvent);
 
@@ -93,7 +103,12 @@ internal sealed record ManagementStatsResponse(
     IReadOnlyList<PlatformStatsResponse> ByPlatform);
 
 /// <summary>Request body of <c>PATCH /api/manage/issues/{id}</c>.</summary>
-internal sealed record UpdateIssueRequest(string? Status, IReadOnlyList<string>? Labels);
+/// <remarks>
+/// <c>resolve_in</c> is only accepted together with <c>status: resolved</c>;
+/// it selects whether the issue is resolved now (<c>now</c>, the default) or
+/// at the release of its most recent event (<c>next_release</c>).
+/// </remarks>
+internal sealed record UpdateIssueRequest(string? Status, IReadOnlyList<string>? Labels, string? ResolveIn);
 
 /// <summary>Request body of <c>POST /api/manage/issues/bulk</c>.</summary>
 internal sealed record BulkIssuesRequest(long[]? Ids, string? Action, IReadOnlyList<string>? Labels);
@@ -224,18 +239,33 @@ internal sealed record IssueListQuery(
     string? Level,
     string? Environment,
     string? Release,
+    string? FirstRelease,
     string? Label,
     string? Search,
     IReadOnlyList<string>? Platforms,
+    bool Regressed,
     IssueSort Sort,
     int Limit,
     IssueCursor? Cursor);
+
+/// <summary>Resolution modes accepted by <c>resolve_in</c>.</summary>
+internal enum IssueResolveMode
+{
+    /// <summary>Resolves immediately, without pinning a release.</summary>
+    Now,
+
+    /// <summary>Resolves in the release of the issue's most recent event.</summary>
+    NextRelease,
+}
 
 /// <summary>Bulk actions accepted by <c>POST /api/manage/issues/bulk</c>.</summary>
 internal enum BulkIssueActionKind
 {
     /// <summary>Marks the issues as resolved.</summary>
     Resolve,
+
+    /// <summary>Resolves each issue in its own most recent release.</summary>
+    ResolveNextRelease,
 
     /// <summary>Marks the issues as unresolved.</summary>
     Unresolve,

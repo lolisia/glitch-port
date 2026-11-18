@@ -37,7 +37,7 @@ public sealed class MigrationTests
             "select version from schema_migrations order by version");
 
         Assert.Equal(
-            ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql"],
+            ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql", "006_regression_releases.sql"],
             versions);
     }
 
@@ -59,6 +59,11 @@ public sealed class MigrationTests
                 "event_count",
                 "last_release",
                 "last_environment",
+                "first_release",
+                "resolved_at",
+                "resolved_in_release",
+                "regressed_at",
+                "regression_count",
             ],
             await ColumnsAsync("issues"));
 
@@ -177,7 +182,9 @@ public sealed class MigrationTests
             [
                 "ix_events_issue_timestamp",
                 "ix_events_project_received",
+                "ix_events_project_release",
                 "ix_events_received_at",
+                "ix_issues_project_first_release",
                 "ix_issues_project_platform",
                 "ix_issues_project_status_last_seen",
                 "ix_issues_title_trgm",
@@ -332,7 +339,7 @@ public sealed class MigrationTests
             "select version from schema_migrations order by version");
 
         Assert.Equal(
-            ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql"],
+            ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql", "006_regression_releases.sql"],
             versions);
     }
 
@@ -364,7 +371,7 @@ public sealed class MigrationTests
                 .ToArray();
 
             Assert.Equal(
-                ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql"],
+                ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql", "006_regression_releases.sql"],
                 appliedByThisRun);
 
             var recordedVersions = await TestDatabase.QueryStringsAsync(
@@ -372,7 +379,7 @@ public sealed class MigrationTests
                 "select version from schema_migrations order by version");
 
             Assert.Equal(
-                ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql"],
+                ["001_create_messages.sql", "002_events_issues.sql", "003_projects_keys.sql", "004_maintenance_runs.sql", "005_drop_project_platform.sql", "006_regression_releases.sql"],
                 recordedVersions);
         }
         finally
@@ -380,6 +387,137 @@ public sealed class MigrationTests
             await TestDatabase.ExecuteAsync(
                 _fixture.ConnectionString,
                 $"drop database if exists \"{databaseName}\" with (force)");
+        }
+    }
+
+    [Fact]
+    public async Task Regression_release_migration_backfills_first_release_from_the_earliest_event()
+    {
+        await using var database = await ScratchDatabase.CreateAsync(_fixture.ConnectionString);
+        var earlyMigrations = Directory.CreateTempSubdirectory("glitchport-migrations-");
+
+        try
+        {
+            CopyMigrations(earlyMigrations.FullName, "001_create_messages.sql", "002_events_issues.sql");
+            await DatabaseMigrator.ApplyAsync(database.ConnectionString, earlyMigrations.FullName);
+
+            await TestDatabase.ExecuteAsync(
+                database.ConnectionString,
+                """
+                insert into issues (project_id, fingerprint, title, level, platform, first_seen, last_seen, last_release)
+                values (1, 'fp-earliest', 'earliest', 'error', 'unity',
+                        '2026-01-01T12:00:00+00:00', '2026-01-01T13:00:00+00:00', '2.0'),
+                       (2, 'fp-releaseless-earliest', 'releaseless earliest', 'error', 'unity',
+                        '2026-01-01T12:00:00+00:00', '2026-01-01T13:00:00+00:00', '2.0'),
+                       (3, 'fp-last-release-only', 'last release only', 'error', 'unity',
+                        '2026-01-01T12:00:00+00:00', '2026-01-01T12:00:00+00:00', '3.0'),
+                       (4, 'fp-no-release', 'no release', 'error', 'unity',
+                        '2026-01-01T12:00:00+00:00', '2026-01-01T12:00:00+00:00', null),
+                       (5, 'fp-received-tie', 'received tie', 'error', 'unity',
+                        '2026-01-01T12:00:00+00:00', '2026-01-01T12:00:00+00:00', 'late');
+
+                insert into events (id, project_id, issue_id, timestamp, received_at, level, platform, release, endpoint, payload)
+                select gen_random_uuid(), 1, id, '2026-01-01T13:00:00+00:00', '2026-01-01T13:00:00+00:00',
+                       'error', 'unity', '2.0', 'POST /api/1/events', '{}'::jsonb
+                from issues where fingerprint = 'fp-earliest';
+
+                insert into events (id, project_id, issue_id, timestamp, received_at, level, platform, release, endpoint, payload)
+                select gen_random_uuid(), 1, id, '2026-01-01T12:00:00+00:00', '2026-01-01T12:00:00+00:00',
+                       'error', 'unity', '1.0', 'POST /api/1/events', '{}'::jsonb
+                from issues where fingerprint = 'fp-earliest';
+
+                insert into events (id, project_id, issue_id, timestamp, received_at, level, platform, release, endpoint, payload)
+                select gen_random_uuid(), 2, id, '2026-01-01T12:00:00+00:00', '2026-01-01T12:00:00+00:00',
+                       'error', 'unity', null, 'POST /api/1/events', '{}'::jsonb
+                from issues where fingerprint = 'fp-releaseless-earliest';
+
+                insert into events (id, project_id, issue_id, timestamp, received_at, level, platform, release, endpoint, payload)
+                select gen_random_uuid(), 2, id, '2026-01-01T13:00:00+00:00', '2026-01-01T13:00:00+00:00',
+                       'error', 'unity', '2.0', 'POST /api/1/events', '{}'::jsonb
+                from issues where fingerprint = 'fp-releaseless-earliest';
+
+                insert into events (id, project_id, issue_id, timestamp, received_at, level, platform, release, endpoint, payload)
+                select gen_random_uuid(), 5, id, '2026-01-01T12:00:00+00:00', '2026-01-01T12:05:00+00:00',
+                       'error', 'unity', 'late', 'POST /api/1/events', '{}'::jsonb
+                from issues where fingerprint = 'fp-received-tie';
+
+                insert into events (id, project_id, issue_id, timestamp, received_at, level, platform, release, endpoint, payload)
+                select gen_random_uuid(), 5, id, '2026-01-01T12:00:00+00:00', '2026-01-01T12:01:00+00:00',
+                       'error', 'unity', 'early', 'POST /api/1/events', '{}'::jsonb
+                from issues where fingerprint = 'fp-received-tie';
+                """);
+
+            var applied = await DatabaseMigrator.ApplyAsync(
+                database.ConnectionString,
+                DatabaseMigrator.DefaultDirectory);
+
+            Assert.Contains("006_regression_releases.sql", applied);
+
+            var issues = await TestDatabase.QueryStringsAsync(
+                database.ConnectionString,
+                """
+                select fingerprint || '|' || coalesce(first_release, '<null>') || '|' || regression_count
+                from issues
+                order by id
+                """);
+
+            Assert.Equal(
+                [
+                    "fp-earliest|1.0|0",
+                    "fp-releaseless-earliest|2.0|0",
+                    "fp-last-release-only|3.0|0",
+                    "fp-no-release|<null>|0",
+                    "fp-received-tie|early|0",
+                ],
+                issues);
+
+            // The new columns start empty; only the backfill touches them.
+            Assert.Equal(
+                0,
+                await TestDatabase.QuerySingleLongAsync(
+                    database.ConnectionString,
+                    """
+                    select count(*)
+                    from issues
+                    where resolved_at is not null
+                       or resolved_in_release is not null
+                       or regressed_at is not null
+                    """));
+        }
+        finally
+        {
+            earlyMigrations.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Regression_release_migration_adds_the_release_indexes()
+    {
+        var indexes = await TestDatabase.QueryStringsAsync(
+            _fixture.ConnectionString,
+            """
+            select indexdef
+            from pg_indexes
+            where schemaname = 'public'
+              and indexname in ('ix_events_project_release', 'ix_issues_project_first_release')
+            order by indexname
+            """);
+
+        Assert.Equal(
+            [
+                "CREATE INDEX ix_events_project_release ON public.events USING btree (project_id, release) WHERE (release IS NOT NULL)",
+                "CREATE INDEX ix_issues_project_first_release ON public.issues USING btree (project_id, first_release)",
+            ],
+            indexes);
+    }
+
+    private static void CopyMigrations(string targetDirectory, params string[] versions)
+    {
+        foreach (var version in versions)
+        {
+            File.Copy(
+                Path.Combine(DatabaseMigrator.DefaultDirectory, version),
+                Path.Combine(targetDirectory, version));
         }
     }
 
