@@ -31,6 +31,7 @@ services:
       ConnectionStrings__Postgres: Host=postgres;Database=glitchport;Username=glitchport;Password=${POSTGRES_PASSWORD};Maximum Pool Size=10
       Processor__InternalSharedSecret: ${INTERNAL_SHARED_SECRET:?required}
       Processor__AdminToken: ${PROCESSOR_ADMIN_TOKEN:?required}
+      Processor__PublicRelayUrl: https://${GLITCHPORT_HOST:?required}:8443
       Processor__Bootstrap__Projects__0__Id: 1
       Processor__Bootstrap__Projects__0__Name: Default
       Processor__Bootstrap__Projects__0__Slug: default

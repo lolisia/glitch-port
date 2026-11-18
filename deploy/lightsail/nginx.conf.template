@@ -24,8 +24,10 @@ server {
         proxy_set_header X-Forwarded-Proto https;
         proxy_pass http://relay:8080;
     }
-    location = /api/manage/messages {
-        limit_except GET { deny all; }
+    # The whole Management API (messages, projects, keys, issues, events, labels,
+    # stats) sits behind the dashboard Basic login; the gateway injects the
+    # management bearer token so it never reaches the browser.
+    location /api/manage/ {
         proxy_set_header Authorization "Bearer ${PROCESSOR_ADMIN_TOKEN}";
         proxy_set_header X-Forwarded-Proto https;
         proxy_pass http://processor:8080;

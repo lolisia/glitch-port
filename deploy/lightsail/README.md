@@ -42,12 +42,12 @@ Projects and public ingest keys now live in PostgreSQL in the Processor. Create
 them through the Management API with
 `Authorization: Bearer $PROCESSOR_ADMIN_TOKEN`, for example
 `POST /api/manage/projects` (the response contains the project DSN) or
-`POST /api/manage/projects/{id}/keys` to add a key to an existing project. Call
-it at `http://processor:8080/api/manage` from inside the compose network; the
-public gateway does not expose the project endpoints. Set
-`Processor__PublicRelayUrl` in the processor environment to the public Relay
-URL, for example `https://<GLITCHPORT_HOST>:8443`, so generated DSNs of the
-form `https://<public-key>@<host>:<port>/<project-id>` point at the public
+`POST /api/manage/projects/{id}/keys` to add a key to an existing project. The
+dashboard calls it through the gateway at `https://<GLITCHPORT_HOST>:8443/api/manage/`
+behind the same Basic login (the gateway injects the bearer token); scripts can
+also call `http://processor:8080/api/manage` from inside the compose network.
+The compose file sets `Processor__PublicRelayUrl` to
+`https://<GLITCHPORT_HOST>:8443`, so generated DSNs of the form `https://<public-key>@<host>:<port>/<project-id>` point at the public
 Relay.
 
 `INGEST_PUBLIC_KEY` is used only to seed project `1` and its key on first start
