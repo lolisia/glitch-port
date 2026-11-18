@@ -4,9 +4,11 @@ import {
   adminToken,
   apiBase,
   bulkUpdateIssues,
+  createAlertRule,
   createLabel,
   createProject,
   createProjectKey,
+  deleteAlertRule,
   deleteEvent,
   deleteIssue,
   deleteLabel,
@@ -17,6 +19,8 @@ import {
   getIssueTags,
   getProject,
   getStats,
+  listAlertNotifications,
+  listAlertRules,
   listIssueEvents,
   listIssues,
   listLabels,
@@ -25,12 +29,17 @@ import {
   listReleases,
   parseConfiguredProjectId,
   revokeProjectKey,
+  testAlertRule,
+  updateAlertRule,
   updateIssue,
   updateLabel,
   updateProject,
   updateProjectKey,
 } from './client';
 import type {
+  AlertNotificationListResponse,
+  AlertRule,
+  AlertRuleTestResult,
   BulkIssuesRequest,
   CreatedProject,
   CreateProjectRequest,
@@ -752,6 +761,125 @@ describe('getIssueTags', () => {
     expect(fetchMock).toHaveBeenCalledWith(`${API}/issues/42/tags`, {
       headers: AUTH_HEADERS,
     });
+  });
+});
+
+describe('alert rule client', () => {
+  const alertRule: AlertRule = {
+    id: 11,
+    project_id: 1,
+    name: 'Crash spike',
+    trigger: 'event_frequency',
+    min_level: 'error',
+    environment: 'production',
+    threshold: 10,
+    window_minutes: 5,
+    cooldown_minutes: 30,
+    channel: 'webhook',
+    target_url: 'https://hooks.example.com/alerts',
+    is_enabled: true,
+    created_at: '2026-01-02T03:04:05Z',
+    updated_at: '2026-01-02T03:04:05Z',
+  };
+
+  const notifications: AlertNotificationListResponse = {
+    items: [
+      {
+        id: 3,
+        rule_id: 11,
+        rule_name: 'Crash spike',
+        issue_id: 42,
+        trigger: 'event_frequency',
+        status: 'failed',
+        attempts: 2,
+        last_error: 'HTTP 500 from target',
+        created_at: '2026-01-02T04:00:00Z',
+        sent_at: null,
+      },
+    ],
+  };
+
+  it('lists the alert rules of a project', async () => {
+    const fetchMock = stubFetch(jsonResponse({ items: [alertRule] }));
+
+    await expect(listAlertRules(1)).resolves.toEqual({ items: [alertRule] });
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/projects/1/alert-rules`, {
+      headers: AUTH_HEADERS,
+    });
+  });
+
+  it('creates a rule with a JSON body', async () => {
+    const fetchMock = stubFetch(jsonResponse(alertRule, 201));
+    const input = {
+      name: 'Crash spike',
+      trigger: 'event_frequency' as const,
+      channel: 'webhook' as const,
+      target_url: 'https://hooks.example.com/alerts',
+      threshold: 10,
+      window_minutes: 5,
+      cooldown_minutes: 30,
+    };
+
+    await expect(createAlertRule(1, input)).resolves.toEqual(alertRule);
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/projects/1/alert-rules`, {
+      method: 'POST',
+      headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+  });
+
+  it('patches only the sent rule fields', async () => {
+    const fetchMock = stubFetch(jsonResponse({ ...alertRule, is_enabled: false }));
+
+    await updateAlertRule(11, { is_enabled: false });
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/alert-rules/11`, {
+      method: 'PATCH',
+      headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_enabled: false }),
+    });
+  });
+
+  it('deletes a rule without parsing a response body', async () => {
+    const { response, json } = noContentResponse();
+    const fetchMock = stubFetch(response);
+
+    await expect(deleteAlertRule(11)).resolves.toBeUndefined();
+
+    expect(json).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/alert-rules/11`, {
+      method: 'DELETE',
+      headers: AUTH_HEADERS,
+    });
+  });
+
+  it('posts the test delivery and resolves its result', async () => {
+    const result: AlertRuleTestResult = {
+      delivered: false,
+      status_code: 500,
+      error: 'boom',
+    };
+    const fetchMock = stubFetch(jsonResponse(result));
+
+    await expect(testAlertRule(11)).resolves.toEqual(result);
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/alert-rules/11/test`, {
+      method: 'POST',
+      headers: AUTH_HEADERS,
+    });
+  });
+
+  it('lists notifications with the default limit of 50', async () => {
+    const fetchMock = stubFetch(jsonResponse(notifications));
+
+    await expect(listAlertNotifications(1)).resolves.toEqual(notifications);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${API}/projects/1/alert-notifications?limit=50`,
+      { headers: AUTH_HEADERS },
+    );
   });
 });
 

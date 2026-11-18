@@ -1,0 +1,531 @@
+import { useEffect, useState } from 'react';
+import {
+  deleteAlertRule,
+  listAlertNotifications,
+  listAlertRules,
+  testAlertRule,
+  updateAlertRule,
+} from '../../../api/client';
+import type {
+  AlertNotification,
+  AlertRule,
+  AlertRuleTestResult,
+  AlertTrigger,
+} from '../../../api/types';
+import { formatNumber, useI18n } from '../../../i18n';
+import type { Translate } from '../../../i18n';
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  RelativeTime,
+} from '../../../ui';
+import { translatedLabel } from '../../../ui/labels';
+import { AlertRuleForm } from './AlertRuleForm';
+import './alerts.css';
+
+type Loadable<T> =
+  | { status: 'loading' }
+  | { status: 'error'; error: unknown }
+  | { status: 'ready'; data: T };
+
+const KNOWN_TRIGGERS: AlertTrigger[] = [
+  'new_issue',
+  'regression',
+  'event_frequency',
+];
+
+function isAlertTrigger(value: string): value is AlertTrigger {
+  return (KNOWN_TRIGGERS as string[]).includes(value);
+}
+
+function triggerLabel(t: Translate, trigger: string): string {
+  return isAlertTrigger(trigger)
+    ? t(`projects.detail.alerts.triggers.${trigger}`)
+    : trigger;
+}
+
+function conditionSummary(t: Translate, rule: AlertRule): string {
+  if (rule.trigger !== 'event_frequency') {
+    return t(`projects.detail.alerts.triggerSummary.${rule.trigger}`);
+  }
+
+  return t('projects.detail.alerts.triggerSummary.event_frequency', {
+    threshold: rule.threshold ?? 0,
+    window: rule.window_minutes ?? 0,
+  });
+}
+
+/** Renders the outcome of a test delivery, including a missing status code. */
+function testResultText(
+  t: Translate,
+  result: AlertRuleTestResult,
+): string {
+  if (result.delivered) {
+    return result.status_code === null
+      ? t('projects.detail.alerts.testDeliveredNoStatus')
+      : t('projects.detail.alerts.testDelivered', {
+          status: result.status_code,
+        });
+  }
+
+  if (result.error === null) {
+    return result.status_code === null
+      ? t('projects.detail.alerts.testFailedUnknown')
+      : t('projects.detail.alerts.testFailedNoError', {
+          status: result.status_code,
+        });
+  }
+
+  return result.status_code === null
+    ? t('projects.detail.alerts.testFailed', { error: result.error })
+    : t('projects.detail.alerts.testFailedStatus', {
+        status: result.status_code,
+        error: result.error,
+      });
+}
+
+function NotificationStatus({ status }: { status: string }) {
+  const { t } = useI18n();
+  const normalised = status.toLowerCase();
+  // Keep the API's mixed-case spelling when the label is not translated.
+  const fallback =
+    status === '' ? status : status.charAt(0).toUpperCase() + status.slice(1);
+  const label = translatedLabel(
+    t,
+    `projects.detail.alerts.notifications.statuses.${normalised}`,
+    fallback,
+  );
+
+  return (
+    <span
+      className={`alert-notification-status alert-notification-status-${normalised}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+/**
+ * Alert rule management of one project.
+ *
+ * The rule list and the recent notifications are two independent requests: a
+ * failure of one never hides the other. Rule mutations and test deliveries
+ * report their own errors next to the table so a failed action does not clear
+ * the list.
+ */
+export function AlertRulesSection({ projectId }: { projectId: number }) {
+  const { locale, t } = useI18n();
+  const [rulesState, setRulesState] = useState<Loadable<AlertRule[]>>({
+    status: 'loading',
+  });
+  const [notificationsState, setNotificationsState] = useState<
+    Loadable<AlertNotification[]>
+  >({ status: 'loading' });
+  const [creating, setCreating] = useState(false);
+  const [editingRule, setEditingRule] = useState<AlertRule | null>(null);
+  const [confirmingId, setConfirmingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [testingId, setTestingId] = useState<number | null>(null);
+  const [testResults, setTestResults] = useState<
+    Record<number, AlertRuleTestResult>
+  >({});
+  const [testErrors, setTestErrors] = useState<Record<number, unknown>>({});
+  const [mutationError, setMutationError] = useState<{
+    prefix: string;
+    error: unknown;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setRulesState({ status: 'loading' });
+    setNotificationsState({ status: 'loading' });
+    setCreating(false);
+    setEditingRule(null);
+    setConfirmingId(null);
+    setMutationError(null);
+    setTestResults({});
+    setTestErrors({});
+
+    listAlertRules(projectId)
+      .then((response) => {
+        if (!cancelled) {
+          setRulesState({
+            status: 'ready',
+            data: Array.isArray(response.items) ? response.items : [],
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setRulesState({ status: 'error', error });
+        }
+      });
+
+    listAlertNotifications(projectId, 50)
+      .then((response) => {
+        if (!cancelled) {
+          setNotificationsState({
+            status: 'ready',
+            data: Array.isArray(response.items) ? response.items : [],
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setNotificationsState({ status: 'error', error });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  const replaceRule = (updated: AlertRule) => {
+    setRulesState((previous) =>
+      previous.status === 'ready'
+        ? {
+            status: 'ready',
+            data: previous.data.map((rule) =>
+              rule.id === updated.id ? updated : rule,
+            ),
+          }
+        : previous,
+    );
+  };
+
+  const handleCreated = (created: AlertRule) => {
+    setRulesState((previous) =>
+      previous.status === 'ready'
+        ? { status: 'ready', data: [...previous.data, created] }
+        : previous,
+    );
+    setCreating(false);
+  };
+
+  const handleEdited = (updated: AlertRule) => {
+    replaceRule(updated);
+    setEditingRule(null);
+  };
+
+  const handleToggle = async (rule: AlertRule) => {
+    setMutationError(null);
+
+    try {
+      const updated = await updateAlertRule(rule.id, {
+        is_enabled: !rule.is_enabled,
+      });
+      replaceRule(updated);
+    } catch (error) {
+      setMutationError({
+        prefix: t('projects.detail.alerts.toggleError'),
+        error,
+      });
+    }
+  };
+
+  const handleDelete = async (rule: AlertRule) => {
+    setDeletingId(rule.id);
+    setMutationError(null);
+
+    try {
+      await deleteAlertRule(rule.id);
+      setRulesState((previous) =>
+        previous.status === 'ready'
+          ? {
+              status: 'ready',
+              data: previous.data.filter((item) => item.id !== rule.id),
+            }
+          : previous,
+      );
+      setConfirmingId(null);
+
+      if (editingRule !== null && editingRule.id === rule.id) {
+        setEditingRule(null);
+      }
+    } catch (error) {
+      setMutationError({
+        prefix: t('projects.detail.alerts.deleteError'),
+        error,
+      });
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleTest = async (rule: AlertRule) => {
+    setTestingId(rule.id);
+    setTestErrors((previous) => {
+      const next = { ...previous };
+      delete next[rule.id];
+      return next;
+    });
+
+    try {
+      const result = await testAlertRule(rule.id);
+      setTestResults((previous) => ({ ...previous, [rule.id]: result }));
+    } catch (error) {
+      setTestErrors((previous) => ({ ...previous, [rule.id]: error }));
+    } finally {
+      setTestingId(null);
+    }
+  };
+
+  const formOpen = creating || editingRule !== null;
+
+  return (
+    <section
+      className="project-detail-section alert-rules-section"
+      aria-labelledby="project-alert-rules-heading"
+      data-testid="alert-rules-section"
+    >
+      <div className="alert-rules-header">
+        <h3 id="project-alert-rules-heading">
+          {t('projects.detail.alerts.heading')}
+        </h3>
+        <button
+          type="button"
+          onClick={() => {
+            setEditingRule(null);
+            setCreating(true);
+            setMutationError(null);
+          }}
+        >
+          {t('projects.detail.alerts.create')}
+        </button>
+      </div>
+
+      {formOpen && (
+        <AlertRuleForm
+          key={editingRule === null ? 'create' : editingRule.id}
+          projectId={projectId}
+          rule={editingRule}
+          onSaved={editingRule === null ? handleCreated : handleEdited}
+          onCancel={() => {
+            setCreating(false);
+            setEditingRule(null);
+          }}
+        />
+      )}
+
+      {rulesState.status === 'loading' && <LoadingState />}
+
+      {rulesState.status === 'error' && (
+        <ErrorState
+          error={rulesState.error}
+          prefix={t('projects.detail.alerts.loadError')}
+        />
+      )}
+
+      {rulesState.status === 'ready' && rulesState.data.length === 0 && (
+        <EmptyState>{t('projects.detail.alerts.empty')}</EmptyState>
+      )}
+
+      {rulesState.status === 'ready' && rulesState.data.length > 0 && (
+        <table className="alert-rules-table">
+          <thead>
+            <tr>
+              <th scope="col">{t('projects.detail.alerts.name')}</th>
+              <th scope="col">{t('projects.detail.alerts.trigger')}</th>
+              <th scope="col">{t('projects.detail.alerts.condition')}</th>
+              <th scope="col">{t('projects.detail.alerts.channel')}</th>
+              <th scope="col">{t('projects.detail.alerts.enabled')}</th>
+              <th scope="col">{t('projects.detail.alerts.actions')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rulesState.data.map((rule) => {
+              const testResult = testResults[rule.id];
+              const testError = testErrors[rule.id];
+
+              return (
+                <tr key={rule.id} className="alert-rule-row">
+                  <td>{rule.name}</td>
+                  <td>{triggerLabel(t, rule.trigger)}</td>
+                  <td>{conditionSummary(t, rule)}</td>
+                  <td>
+                    {t(`projects.detail.alerts.channels.${rule.channel}`)}
+                  </td>
+                  <td>
+                    <input
+                      type="checkbox"
+                      aria-label={t('projects.detail.alerts.enabledFor', {
+                        name: rule.name,
+                      })}
+                      checked={rule.is_enabled}
+                      onChange={() => void handleToggle(rule)}
+                    />
+                  </td>
+                  <td>
+                    <div className="alert-rule-actions">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCreating(false);
+                          setEditingRule(rule);
+                          setMutationError(null);
+                        }}
+                      >
+                        {t('projects.detail.alerts.edit')}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={testingId === rule.id}
+                        onClick={() => void handleTest(rule)}
+                      >
+                        {t('projects.detail.alerts.test')}
+                      </button>
+
+                      {confirmingId === rule.id ? (
+                        <span className="alert-rule-confirm">
+                          <span>
+                            {t('projects.detail.alerts.deleteConfirm', {
+                              name: rule.name,
+                            })}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={deletingId === rule.id}
+                            onClick={() => void handleDelete(rule)}
+                          >
+                            {t('projects.detail.alerts.confirmDelete')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmingId(null)}
+                          >
+                            {t('projects.detail.alerts.cancel')}
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmingId(rule.id)}
+                        >
+                          {t('projects.detail.alerts.delete')}
+                        </button>
+                      )}
+                    </div>
+
+                    {testResult !== undefined && (
+                      <p
+                        className={`alert-rule-test-result ${
+                          testResult.delivered
+                            ? 'alert-rule-test-result-success'
+                            : 'alert-rule-test-result-failure'
+                        }`}
+                        role="status"
+                      >
+                        {testResultText(t, testResult)}
+                      </p>
+                    )}
+
+                    {testError !== undefined && (
+                      <ErrorState
+                        error={testError}
+                        prefix={t('projects.detail.alerts.testError')}
+                      />
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+
+      {mutationError !== null && (
+        <ErrorState
+          error={mutationError.error}
+          prefix={mutationError.prefix}
+        />
+      )}
+
+      <div className="alert-notifications">
+        <h4>{t('projects.detail.alerts.notifications.heading')}</h4>
+
+        {notificationsState.status === 'loading' && <LoadingState />}
+
+        {notificationsState.status === 'error' && (
+          <ErrorState
+            error={notificationsState.error}
+            prefix={t('projects.detail.alerts.notifications.loadError')}
+          />
+        )}
+
+        {notificationsState.status === 'ready' &&
+          notificationsState.data.length === 0 && (
+            <EmptyState>
+              {t('projects.detail.alerts.notifications.empty')}
+            </EmptyState>
+          )}
+
+        {notificationsState.status === 'ready' &&
+          notificationsState.data.length > 0 && (
+            <table className="alert-notifications-table">
+              <thead>
+                <tr>
+                  <th scope="col">
+                    {t('projects.detail.alerts.notifications.createdAt')}
+                  </th>
+                  <th scope="col">
+                    {t('projects.detail.alerts.notifications.rule')}
+                  </th>
+                  <th scope="col">
+                    {t('projects.detail.alerts.notifications.trigger')}
+                  </th>
+                  <th scope="col">
+                    {t('projects.detail.alerts.notifications.status')}
+                  </th>
+                  <th scope="col">
+                    {t('projects.detail.alerts.notifications.attempts')}
+                  </th>
+                  <th scope="col">
+                    {t('projects.detail.alerts.notifications.sentAt')}
+                  </th>
+                  <th scope="col">
+                    {t('projects.detail.alerts.notifications.lastError')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {notificationsState.data.map((notification) => (
+                  <tr key={notification.id}>
+                    <td>
+                      <RelativeTime value={notification.created_at} />
+                    </td>
+                    <td>{notification.rule_name}</td>
+                    <td>{triggerLabel(t, notification.trigger)}</td>
+                    <td>
+                      <NotificationStatus status={notification.status} />
+                    </td>
+                    <td className="alert-notification-attempts">
+                      {formatNumber(notification.attempts, locale)}
+                    </td>
+                    <td>
+                      {notification.sent_at === null ? (
+                        <span className="project-detail-muted">—</span>
+                      ) : (
+                        <RelativeTime value={notification.sent_at} />
+                      )}
+                    </td>
+                    <td>
+                      {notification.last_error === null ? (
+                        <span className="project-detail-muted">—</span>
+                      ) : (
+                        <span className="alert-notification-error">
+                          {notification.last_error}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+      </div>
+    </section>
+  );
+}

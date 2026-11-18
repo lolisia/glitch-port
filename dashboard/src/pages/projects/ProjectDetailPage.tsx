@@ -12,6 +12,7 @@ import {
 } from '../../api/client';
 import type {
   CreateProjectKeyRequest,
+  InboundFilters,
   ProjectDetail,
   ProjectKey,
   UpdateProjectRequest,
@@ -20,8 +21,17 @@ import { navigate } from '../../router';
 import { formatNumber, useI18n } from '../../i18n';
 import { ErrorState, LoadingState, formatAbsoluteTime } from '../../ui';
 import { PlatformChips } from '../platform/PlatformChip';
+import { AlertRulesSection } from './alerts/AlertRulesSection';
 import { copyToClipboard } from './copy';
+import { InboundFiltersSection } from './filters/InboundFiltersSection';
 import './project-detail.css';
+
+/** Used when a project payload predates the inbound filter field. */
+const EMPTY_INBOUND_FILTERS: InboundFilters = {
+  releases: [],
+  environments: [],
+  message_patterns: [],
+};
 
 type Loadable<T> =
   | { status: 'loading' }
@@ -76,12 +86,14 @@ interface ProjectDetailPageProps {
 }
 
 /**
- * `#/projects/<id>`: one project with its edit form, public keys and danger
- * zone.
+ * `#/projects/<id>`: one project with its edit form, public keys, alert rules,
+ * inbound filters and danger zone.
  *
  * The project detail and its keys load in parallel. A 404 on the project turns
  * the screen into a "not found" state with a link back to the project list,
- * while a key-list failure only disables the key section.
+ * while a key-list failure only disables the key section. The alert rules and
+ * their notifications load from the alert section itself, so its errors stay
+ * inside that section too.
  */
 export function ProjectDetailPage({
   projectId,
@@ -174,6 +186,14 @@ export function ProjectDetailPage({
   const handleProjectSaved = (updated: ProjectDetail) => {
     setProjectState({ status: 'ready', data: updated });
     onProjectsChanged();
+  };
+
+  /**
+   * Adopts a project returned by a settings-only PATCH (inbound filters). The
+   * selector does not show filters, so there is nothing to reload.
+   */
+  const handleProjectUpdated = (updated: ProjectDetail) => {
+    setProjectState({ status: 'ready', data: updated });
   };
 
   const handleKeyUpdated = (updated: ProjectKey) => {
@@ -401,6 +421,14 @@ export function ProjectDetailPage({
           </div>
         </div>
       )}
+
+      <AlertRulesSection projectId={projectId} />
+
+      <InboundFiltersSection
+        projectId={projectId}
+        filters={project.inbound_filters ?? EMPTY_INBOUND_FILTERS}
+        onSaved={handleProjectUpdated}
+      />
 
       <section
         className="project-detail-danger"

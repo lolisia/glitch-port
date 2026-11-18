@@ -27,6 +27,12 @@ export interface ProjectListItem {
   issue_count: number;
   /** Active (non-revoked) public keys. */
   key_count: number;
+  /**
+   * Glob filters the Relay applies to the project's events. The Management API
+   * always sends this object; it stays optional here so fixtures and cached
+   * payloads written before the field existed keep type-checking.
+   */
+  inbound_filters?: InboundFilters;
 }
 
 /** `GET /api/manage/projects/{id}`: the list entry plus its active DSN. */
@@ -53,6 +59,11 @@ export interface CreateProjectRequest {
 /** Request body of `PATCH /api/manage/projects/{id}`; omitted fields stay unchanged. */
 export interface UpdateProjectRequest {
   name?: string;
+  /**
+   * Replaces the inbound filters. Every array that is sent replaces the
+   * stored list of that kind; omitted arrays stay unchanged.
+   */
+  inbound_filters?: InboundFilters;
 }
 
 /**
@@ -340,4 +351,120 @@ export interface IssueTagsResponse {
   user_count: number;
   /** Fixed facets followed by the most frequent payload tag keys. */
   tags: IssueTagFacet[];
+}
+
+/**
+ * Glob patterns that make the Relay drop an event before it is stored.
+ *
+ * A `*` inside a pattern matches any string (including an empty one) and the
+ * comparison against the release, environment or message is case-insensitive.
+ */
+export interface InboundFilters {
+  releases: string[];
+  environments: string[];
+  message_patterns: string[];
+}
+
+/** Triggers accepted by an alert rule. */
+export type AlertTrigger = 'new_issue' | 'regression' | 'event_frequency';
+
+/** Delivery channels accepted by an alert rule. */
+export type AlertChannel = 'webhook' | 'discord' | 'slack';
+
+/**
+ * One alert rule of a project.
+ *
+ * `threshold` and `window_minutes` are only set for `event_frequency` rules;
+ * every other trigger stores `null` for both.
+ */
+export interface AlertRule {
+  id: number;
+  project_id: number;
+  name: string;
+  trigger: AlertTrigger;
+  min_level: IssueLevel | null;
+  environment: string | null;
+  threshold: number | null;
+  window_minutes: number | null;
+  cooldown_minutes: number;
+  channel: AlertChannel;
+  target_url: string;
+  is_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** `GET /api/manage/projects/{projectId}/alert-rules` response. */
+export interface AlertRuleListResponse {
+  items: AlertRule[];
+}
+
+/** Request body of `POST /api/manage/projects/{projectId}/alert-rules`. */
+export interface CreateAlertRuleRequest {
+  name: string;
+  trigger: AlertTrigger;
+  min_level?: IssueLevel | null;
+  environment?: string | null;
+  /** Only allowed (and required) for `event_frequency` rules. */
+  threshold?: number | null;
+  /** Only allowed (and required) for `event_frequency` rules. */
+  window_minutes?: number | null;
+  cooldown_minutes?: number;
+  channel: AlertChannel;
+  target_url: string;
+  is_enabled?: boolean;
+}
+
+/**
+ * Request body of `PATCH /api/manage/alert-rules/{ruleId}`; omitted fields stay
+ * unchanged, an explicit `null` clears a nullable field.
+ */
+export interface UpdateAlertRuleRequest {
+  name?: string;
+  trigger?: AlertTrigger;
+  min_level?: IssueLevel | null;
+  environment?: string | null;
+  threshold?: number | null;
+  window_minutes?: number | null;
+  cooldown_minutes?: number;
+  channel?: AlertChannel;
+  target_url?: string;
+  is_enabled?: boolean;
+}
+
+/**
+ * Result of `POST /api/manage/alert-rules/{ruleId}/test`.
+ *
+ * `status_code` is `null` when the target never answered; `error` is `null`
+ * when the notification was delivered.
+ */
+export interface AlertRuleTestResult {
+  delivered: boolean;
+  status_code: number | null;
+  error: string | null;
+}
+
+/**
+ * One queued or delivered notification of an alert rule.
+ *
+ * `status` is one of `pending`, `sending`, `sent` or `failed`; `sent_at` is
+ * only set once the target answered. The API keeps the raw value, so the type
+ * stays a string.
+ */
+export interface AlertNotification {
+  id: number;
+  rule_id: number;
+  rule_name: string;
+  issue_id: number | null;
+  trigger: string;
+  status: string;
+  attempts: number;
+  last_error: string | null;
+  created_at: string;
+  sent_at: string | null;
+}
+
+/** `GET /api/manage/projects/{projectId}/alert-notifications` response. */
+export interface AlertNotificationListResponse {
+  items: AlertNotification[];
 }
