@@ -3,13 +3,9 @@ import type { FormEvent } from 'react';
 import { createProject, listProjects } from '../../api/client';
 import type { CreatedProject, ProjectListItem } from '../../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../../ui';
+import { PlatformChips } from '../platform/PlatformChip';
 import { copyToClipboard } from './copy';
 import './projects.css';
-
-/** Platforms offered by the create form's datalist. */
-const PLATFORMS = ['unity', 'unreal', 'godot'];
-
-const PLATFORM_LIST_ID = 'project-platform-options';
 
 type ListState =
   | { status: 'loading' }
@@ -33,7 +29,6 @@ interface ProjectsPageProps {
 export function ProjectsPage({ onProjectsChanged }: ProjectsPageProps) {
   const [state, setState] = useState<ListState>({ status: 'loading' });
   const [name, setName] = useState('');
-  const [platform, setPlatform] = useState('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<unknown>(null);
   const [created, setCreated] = useState<CreatedProject | null>(null);
@@ -65,23 +60,16 @@ export function ProjectsPage({ onProjectsChanged }: ProjectsPageProps) {
       return;
     }
 
-    const trimmedPlatform = platform.trim();
-
     setCreating(true);
     setCreateError(null);
     setCreated(null);
     setCopyState('idle');
 
     try {
-      const project = await createProject(
-        trimmedPlatform === ''
-          ? { name: trimmedName }
-          : { name: trimmedName, platform: trimmedPlatform },
-      );
+      const project = await createProject({ name: trimmedName });
 
       setCreated(project);
       setName('');
-      setPlatform('');
       onProjectsChanged();
       void load();
     } catch (error) {
@@ -126,6 +114,7 @@ export function ProjectsPage({ onProjectsChanged }: ProjectsPageProps) {
             <tr>
               <th scope="col">Name</th>
               <th scope="col">Slug</th>
+              <th scope="col">Platforms</th>
               <th scope="col">Unresolved issues</th>
               <th scope="col">Active keys</th>
             </tr>
@@ -137,6 +126,9 @@ export function ProjectsPage({ onProjectsChanged }: ProjectsPageProps) {
                   <a href={`#/projects/${project.id}`}>{project.name}</a>
                 </td>
                 <td className="projects-slug">{project.slug}</td>
+                <td>
+                  <PlatformChips platforms={project.platforms} />
+                </td>
                 <td className="projects-number">{project.issue_count}</td>
                 <td className="projects-number">{project.key_count}</td>
               </tr>
@@ -160,23 +152,6 @@ export function ProjectsPage({ onProjectsChanged }: ProjectsPageProps) {
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
-        </div>
-
-        <div className="project-field">
-          <label htmlFor="project-platform">Platform</label>
-          <input
-            id="project-platform"
-            name="platform"
-            list={PLATFORM_LIST_ID}
-            placeholder="unity, unreal or godot"
-            value={platform}
-            onChange={(event) => setPlatform(event.target.value)}
-          />
-          <datalist id={PLATFORM_LIST_ID}>
-            {PLATFORMS.map((value) => (
-              <option key={value} value={value} />
-            ))}
-          </datalist>
         </div>
 
         <button type="submit" disabled={creating || name.trim() === ''}>

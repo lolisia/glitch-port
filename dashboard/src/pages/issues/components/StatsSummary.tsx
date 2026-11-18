@@ -1,10 +1,13 @@
-import type { StatsBucket } from '../../../api/types';
+import type { StatsResponse } from '../../../api/types';
+import { PlatformChip } from '../../platform/PlatformChip';
 
 /**
  * A lightweight bar chart of the 24h event buckets. Bar height is relative to
- * the busiest bucket so the whole window stays visible.
+ * the busiest bucket so the whole window stays visible. The platform breakdown
+ * shows the all-time issue count per observed platform.
  */
-export function StatsSummary({ buckets }: { buckets: StatsBucket[] }) {
+export function StatsSummary({ stats }: { stats: StatsResponse }) {
+  const { buckets, by_platform: byPlatform } = stats;
   const total = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
   const maxCount = buckets.reduce(
     (maximum, bucket) => Math.max(maximum, bucket.count),
@@ -28,6 +31,23 @@ export function StatsSummary({ buckets }: { buckets: StatsBucket[] }) {
         ))}
       </div>
       <p className="stats-total">{total} events</p>
+
+      {byPlatform.length > 0 && (
+        <div className="stats-platforms" data-testid="stats-platforms">
+          <h4>Issues by platform</h4>
+          <ul className="stats-platform-list">
+            {byPlatform.map((entry) => (
+              <li key={entry.platform} className="stats-platform-row">
+                <PlatformChip platform={entry.platform} />
+                <span className="stats-platform-count">
+                  {entry.issue_count}{' '}
+                  {entry.issue_count === 1 ? 'issue' : 'issues'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }

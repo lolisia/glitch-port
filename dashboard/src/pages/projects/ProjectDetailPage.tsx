@@ -18,6 +18,7 @@ import type {
 } from '../../api/types';
 import { navigate } from '../../router';
 import { ErrorState, LoadingState, formatAbsoluteTime } from '../../ui';
+import { PlatformChips } from '../platform/PlatformChip';
 import { copyToClipboard } from './copy';
 import './project-detail.css';
 
@@ -278,8 +279,10 @@ export function ProjectDetailPage({
           <dd className="project-detail-mono">{project.slug}</dd>
         </div>
         <div className="project-detail-fact">
-          <dt>Platform</dt>
-          <dd>{project.platform ?? 'Not set'}</dd>
+          <dt>Platforms seen</dt>
+          <dd>
+            <PlatformChips platforms={project.platforms} />
+          </dd>
         </div>
         <div className="project-detail-fact">
           <dt>Created</dt>
@@ -438,7 +441,6 @@ function ProjectEditForm({
   onSaved: (project: ProjectDetail) => void;
 }) {
   const [name, setName] = useState(project.name);
-  const [platform, setPlatform] = useState(project.platform ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [message, setMessage] = useState('');
@@ -451,14 +453,10 @@ function ProjectEditForm({
       return;
     }
 
-    const trimmedPlatform = platform.trim();
     const patch: UpdateProjectRequest = {};
 
     if (trimmedName !== project.name) {
       patch.name = trimmedName;
-    }
-    if (trimmedPlatform !== (project.platform ?? '')) {
-      patch.platform = trimmedPlatform;
     }
 
     if (Object.keys(patch).length === 0) {
@@ -474,7 +472,6 @@ function ProjectEditForm({
     try {
       const updated = await updateProject(project.id, patch);
       setName(updated.name);
-      setPlatform(updated.platform ?? '');
       onSaved(updated);
       setMessage('Saved');
     } catch (saveError) {
@@ -499,15 +496,6 @@ function ProjectEditForm({
             required
             value={name}
             onChange={(event) => setName(event.target.value)}
-          />
-        </div>
-
-        <div className="project-detail-field">
-          <label htmlFor="project-detail-platform">Platform</label>
-          <input
-            id="project-detail-platform"
-            value={platform}
-            onChange={(event) => setPlatform(event.target.value)}
           />
         </div>
 

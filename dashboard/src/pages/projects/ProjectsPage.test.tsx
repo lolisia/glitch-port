@@ -35,7 +35,7 @@ const projects: ProjectListItem[] = [
     id: 1,
     name: 'Starter',
     slug: 'starter-project',
-    platform: 'unreal',
+    platforms: ['unreal'],
     created_at: '2026-01-01T00:00:00Z',
     issue_count: 4,
     key_count: 2,
@@ -44,7 +44,7 @@ const projects: ProjectListItem[] = [
     id: 2,
     name: 'Space game',
     slug: 'space-game',
-    platform: 'unity',
+    platforms: ['unity', 'dotnet'],
     created_at: '2026-01-02T00:00:00Z',
     issue_count: 0,
     key_count: 1,
@@ -55,7 +55,7 @@ const created: CreatedProject = {
   id: 7,
   name: 'New game',
   slug: 'new-game',
-  platform: 'godot',
+  platforms: [],
   created_at: '2026-01-03T00:00:00Z',
   dsn: 'http://public-key@localhost:5080/7',
 };
@@ -64,7 +64,7 @@ const createdListItem: ProjectListItem = {
   id: 7,
   name: 'New game',
   slug: 'new-game',
-  platform: 'godot',
+  platforms: [],
   created_at: '2026-01-03T00:00:00Z',
   issue_count: 0,
   key_count: 1,
@@ -139,7 +139,7 @@ describe('ProjectsPage', () => {
       within(table)
         .getAllByRole('columnheader')
         .map((header) => header.textContent),
-    ).toEqual(['Name', 'Slug', 'Unresolved issues', 'Active keys']);
+    ).toEqual(['Name', 'Slug', 'Platforms', 'Unresolved issues', 'Active keys']);
 
     const rows = within(table).getAllByRole('row');
     expect(rows).toHaveLength(3);
@@ -150,6 +150,7 @@ describe('ProjectsPage', () => {
       '#/projects/1',
     );
     expect(first.getByText('starter-project')).toBeInTheDocument();
+    expect(first.getByText('unreal')).toHaveClass('platform-chip');
     expect(first.getByText('4')).toBeInTheDocument();
     expect(first.getByText('2')).toBeInTheDocument();
 
@@ -159,6 +160,8 @@ describe('ProjectsPage', () => {
       '#/projects/2',
     );
     expect(second.getByText('space-game')).toBeInTheDocument();
+    expect(second.getByText('unity')).toHaveClass('platform-chip');
+    expect(second.getByText('dotnet')).toHaveClass('platform-chip');
     expect(second.getByText('0')).toBeInTheDocument();
     expect(second.getByText('1')).toBeInTheDocument();
 
@@ -202,22 +205,28 @@ describe('ProjectsPage', () => {
     expect(listCalls(fetchMock)).toHaveLength(2);
   });
 
-  it('offers unity, unreal and godot through the platform datalist', async () => {
-    stubApi();
+  it('has no platform input and shows an em dash for a project without platforms', async () => {
+    stubApi({
+      lists: [
+        jsonResponse([
+          {
+            ...projects[0],
+            id: 3,
+            name: 'Fresh project',
+            slug: 'fresh-project',
+            platforms: [],
+          },
+        ]),
+      ],
+    });
     render(<ProjectsPage onProjectsChanged={vi.fn()} />);
 
-    await screen.findByRole('table');
+    const table = await screen.findByRole('table');
+    expect(screen.queryByLabelText('Platform')).not.toBeInTheDocument();
+    expect(document.getElementById('project-platform-options')).toBeNull();
 
-    const platform = screen.getByLabelText('Platform');
-    expect(platform).toHaveAttribute('list', 'project-platform-options');
-
-    const datalist = document.getElementById('project-platform-options');
-    expect(datalist).not.toBeNull();
-    expect(
-      Array.from(datalist?.querySelectorAll('option') ?? []).map(
-        (option) => option.value,
-      ),
-    ).toEqual(['unity', 'unreal', 'godot']);
+    const row = within(table).getAllByRole('row')[1];
+    expect(within(row).getByText('—')).toBeInTheDocument();
   });
 
   it('creates a project and shows the returned DSN in a read-only copyable field', async () => {
@@ -236,7 +245,6 @@ describe('ProjectsPage', () => {
     ).toBeDisabled();
 
     await user.type(screen.getByLabelText('Name'), '  New game  ');
-    await user.type(screen.getByLabelText('Platform'), 'godot');
     await user.click(screen.getByRole('button', { name: 'Create project' }));
 
     const dsn = await screen.findByLabelText('DSN');
@@ -254,7 +262,7 @@ describe('ProjectsPage', () => {
     expect(posts[0][1]).toEqual({
       method: 'POST',
       headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'New game', platform: 'godot' }),
+      body: JSON.stringify({ name: 'New game' }),
     });
 
     // The page reloads its own list so the created project is selectable.
@@ -264,7 +272,7 @@ describe('ProjectsPage', () => {
     expect(listCalls(fetchMock)).toHaveLength(2);
   });
 
-  it('omits the platform when the field is left blank', async () => {
+  it('creates a project with only the name', async () => {
     const user = userEvent.setup();
     const fetchMock = stubApi({ lists: [jsonResponse([])] });
 

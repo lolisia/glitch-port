@@ -46,7 +46,7 @@ const projects: ProjectListItem[] = [
     id: 1,
     name: 'Starter',
     slug: 'starter',
-    platform: 'unreal',
+    platforms: ['unreal'],
     created_at: '2026-01-01T00:00:00Z',
     issue_count: 3,
     key_count: 1,
@@ -55,7 +55,7 @@ const projects: ProjectListItem[] = [
     id: 2,
     name: 'Second project',
     slug: 'second-project',
-    platform: 'unity',
+    platforms: ['unity'],
     created_at: '2026-01-02T00:00:00Z',
     issue_count: 0,
     key_count: 2,
@@ -165,7 +165,7 @@ function stubFetch(options: StubOptions = {}) {
             id: 9,
             name: 'Created',
             slug: 'created',
-            platform: null,
+            platforms: [],
             created_at: '2026-01-03T00:00:00Z',
             dsn: 'http://public-key@localhost:5080/9',
           },
@@ -221,7 +221,7 @@ function stubFetch(options: StubOptions = {}) {
         return jsonResponse({ items: [], next_cursor: null });
       }
       if (/^\/api\/manage\/projects\/\d+\/stats$/.test(path)) {
-        return jsonResponse([]);
+        return jsonResponse({ buckets: [], by_platform: [] });
       }
       if (/^\/api\/manage\/projects\/\d+\/labels$/.test(path)) {
         return jsonResponse([]);
@@ -579,7 +579,7 @@ describe('App', () => {
       id: 9,
       name: 'Created',
       slug: 'created',
-      platform: null,
+      platforms: [],
       created_at: '2026-01-03T00:00:00Z',
       issue_count: 0,
       key_count: 1,

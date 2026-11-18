@@ -16,7 +16,7 @@ import type {
   ProjectDetail,
   ProjectKey,
   ProjectListItem,
-  StatsBucket,
+  StatsResponse,
   UpdateIssueRequest,
   UpdateLabelRequest,
   UpdateProjectKeyRequest,
@@ -72,6 +72,14 @@ function buildQuery(query: object | undefined): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
     if (value === undefined || value === null || value === '') {
+      continue;
+    }
+    if (Array.isArray(value)) {
+      // Multi-value filters travel as one comma-separated parameter; an empty
+      // selection means "no filter" and is omitted entirely.
+      if (value.length > 0) {
+        params.append(key, value.join(','));
+      }
       continue;
     }
     params.append(key, String(value));
@@ -334,8 +342,8 @@ export function deleteLabel(id: number): Promise<void> {
 export function getStats(
   projectId: number,
   period: '24h' | '14d' = '24h',
-): Promise<StatsBucket[]> {
-  return apiRequest<StatsBucket[]>(`/projects/${projectId}/stats`, {
+): Promise<StatsResponse> {
+  return apiRequest<StatsResponse>(`/projects/${projectId}/stats`, {
     query: { period },
   });
 }

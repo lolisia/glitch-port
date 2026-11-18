@@ -26,6 +26,8 @@ export interface IssueFilters {
   environment: string;
   release: string;
   label: string;
+  /** Selected platforms; an empty list means "all platforms". */
+  platform: string[];
   q: string;
   sort: IssueSortFilter;
 }
@@ -36,6 +38,7 @@ export const DEFAULT_ISSUE_FILTERS: IssueFilters = {
   environment: '',
   release: '',
   label: '',
+  platform: [],
   q: '',
   sort: 'last_seen',
 };
@@ -60,6 +63,28 @@ function readTrimmed(query: URLSearchParams, key: string): string {
   return query.get(key)?.trim() ?? '';
 }
 
+/**
+ * Reads the comma-separated `platform` filter into distinct, trimmed values.
+ * Blank entries are dropped, so `platform=` (or only commas) means no filter.
+ */
+export function parsePlatformFilter(value: string | null): string[] {
+  if (value === null) {
+    return [];
+  }
+
+  const platforms: string[] = [];
+
+  for (const entry of value.split(',')) {
+    const platform = entry.trim();
+
+    if (platform !== '' && !platforms.includes(platform)) {
+      platforms.push(platform);
+    }
+  }
+
+  return platforms;
+}
+
 /** Reads the known filter keys, falling back for missing or invalid values. */
 export function readIssueFilters(query: URLSearchParams): IssueFilters {
   return {
@@ -68,6 +93,7 @@ export function readIssueFilters(query: URLSearchParams): IssueFilters {
     environment: readTrimmed(query, 'environment'),
     release: readTrimmed(query, 'release'),
     label: readTrimmed(query, 'label'),
+    platform: parsePlatformFilter(query.get('platform')),
     q: readTrimmed(query, 'q'),
     sort: parseIssueSortFilter(query.get('sort')),
   };
@@ -95,6 +121,8 @@ export function buildIssueFilterParams(
   append('environment', filters.environment);
   append('release', filters.release);
   append('label', filters.label);
+  // One comma-separated value keeps shared links compact and matches the API.
+  append('platform', filters.platform.join(','));
   if (filters.sort !== DEFAULT_ISSUE_FILTERS.sort) {
     append('sort', filters.sort);
   }
@@ -113,6 +141,7 @@ export function buildIssueListQuery(
     environment: filters.environment,
     release: filters.release,
     label: filters.label,
+    platform: filters.platform,
     q: filters.q,
     sort: filters.sort,
     limit: ISSUE_PAGE_SIZE,

@@ -46,7 +46,7 @@ const project: ProjectDetail = {
   id: 7,
   name: 'Star Raiders',
   slug: 'star-raiders',
-  platform: 'unity',
+  platforms: ['unity', 'dotnet'],
   created_at: '2026-01-02T03:04:05Z',
   issue_count: 12,
   key_count: 1,
@@ -221,12 +221,15 @@ describe('ProjectDetailPage', () => {
     expect(within(facts).getByText('star-raiders')).toHaveClass(
       'project-detail-mono',
     );
-    expect(within(facts).getByText('unity')).toBeInTheDocument();
+    expect(within(facts).getByText('Platforms seen')).toBeInTheDocument();
+    expect(within(facts).getByText('unity')).toHaveClass('platform-chip');
+    expect(within(facts).getByText('dotnet')).toHaveClass('platform-chip');
     expect(
       within(facts).getByText(formatAbsoluteTime(project.created_at)),
     ).toBeInTheDocument();
     expect(within(facts).getByText('12')).toBeInTheDocument();
     expect(within(facts).getByText('1')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Platform')).not.toBeInTheDocument();
 
     const rows = await findKeyRows();
     expect(rows).toHaveLength(3);
@@ -266,7 +269,7 @@ describe('ProjectDetailPage', () => {
     ]);
   });
 
-  it('patches only the changed name and platform fields and refreshes the project list', async () => {
+  it('patches only the changed name and refreshes the project list', async () => {
     const user = userEvent.setup();
     const fetchMock = stubApi();
     const { onProjectsChanged } = renderPage();
@@ -275,7 +278,6 @@ describe('ProjectDetailPage', () => {
 
     const nameInput = screen.getByLabelText('Name');
     expect(nameInput).toHaveValue('Star Raiders');
-    expect(screen.getByLabelText('Platform')).toHaveValue('unity');
 
     await user.clear(nameInput);
     await user.type(nameInput, '  Star Raiders Live  ');
@@ -284,36 +286,41 @@ describe('ProjectDetailPage', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Saved');
     expect(onProjectsChanged).toHaveBeenCalledTimes(1);
 
-    const platformInput = screen.getByLabelText('Platform');
-    await user.clear(platformInput);
-    await user.type(platformInput, 'unreal');
-    await user.click(screen.getByRole('button', { name: 'Save changes' }));
-
-    await waitFor(() => expect(onProjectsChanged).toHaveBeenCalledTimes(2));
-
     const patches = methodCalls(fetchMock, 'PATCH');
-    expect(patches).toHaveLength(2);
+    expect(patches).toHaveLength(1);
     expect(patches[0][0]).toBe(`${API}/projects/7`);
     expect(callBody(patches[0])).toEqual({ name: 'Star Raiders Live' });
-    expect(callBody(patches[1])).toEqual({ platform: 'unreal' });
+  });
+
+  it('shows an em dash when the project has no observed platforms', async () => {
+    stubApi({
+      project: () => jsonResponse({ ...project, platforms: [] }),
+    });
+
+    renderPage();
+
+    const facts = await screen.findByTestId('project-detail-facts');
+    expect(within(facts).getByText('—')).toBeInTheDocument();
   });
 
   it('shows the API error text when an update is rejected with 400', async () => {
     const user = userEvent.setup();
     stubApi({
       updateProject: () =>
-        errorResponse(400, { error: 'platform must not be blank.' }),
+        errorResponse(400, { error: 'name must not be blank.' }),
     });
     const { onProjectsChanged } = renderPage();
 
     await screen.findByRole('heading', { level: 2, name: 'Star Raiders' });
 
-    await user.clear(screen.getByLabelText('Platform'));
+    const nameInput = screen.getByLabelText('Name');
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Renamed');
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
     expect(
       await screen.findByText(
-        'Failed to update project: HTTP 400: platform must not be blank.',
+        'Failed to update project: HTTP 400: name must not be blank.',
       ),
     ).toBeInTheDocument();
     expect(onProjectsChanged).not.toHaveBeenCalled();

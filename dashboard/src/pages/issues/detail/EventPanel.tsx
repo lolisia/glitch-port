@@ -1,6 +1,7 @@
 import type { EventDetail } from '../../../api/types';
 import { EventView } from '../../../event/EventView';
 import { EmptyState } from '../../../ui';
+import { PlatformChip } from '../../platform/PlatformChip';
 
 interface EventPanelProps {
   event: EventDetail | null;
@@ -31,7 +32,17 @@ export function EventPanel({ event, deleting, onDelete }: EventPanelProps) {
       {event === null ? (
         <EmptyState>No events recorded.</EmptyState>
       ) : (
-        <EventView event={event} />
+        <>
+          <dl className="event-panel-meta">
+            <div>
+              <dt>Platform</dt>
+              <dd>
+                <PlatformChip platform={event.platform} />
+              </dd>
+            </div>
+          </dl>
+          <EventView event={event} />
+        </>
       )}
     </section>
   );

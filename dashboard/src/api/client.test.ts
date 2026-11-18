@@ -40,7 +40,7 @@ import type {
   ProjectDetail,
   ProjectKey,
   ProjectListItem,
-  StatsBucket,
+  StatsResponse,
 } from './types';
 
 interface MockResponse {
@@ -164,14 +164,17 @@ const event: EventDetail = {
 };
 
 const issueDetail: IssueDetail = { ...issue, latest_event: event };
-const stats: StatsBucket[] = [{ bucket: '2026-01-02T00:00:00Z', count: 7 }];
+const stats: StatsResponse = {
+  buckets: [{ bucket: '2026-01-02T00:00:00Z', count: 7 }],
+  by_platform: [{ platform: 'unreal', issue_count: 2, event_count: 7 }],
+};
 
 const projectList: ProjectListItem[] = [
   {
     id: 1,
     name: 'Starter',
     slug: 'starter',
-    platform: 'unreal',
+    platforms: ['unreal'],
     created_at: '2026-01-01T00:00:00Z',
     issue_count: 3,
     key_count: 1,
@@ -182,7 +185,7 @@ const createdProject: CreatedProject = {
   id: 9,
   name: 'New project',
   slug: 'new-project',
-  platform: 'godot',
+  platforms: ['godot'],
   created_at: '2026-01-03T00:00:00Z',
   dsn: 'http://dev-public-key@localhost:5080/9',
 };
@@ -250,7 +253,6 @@ describe('createProject', () => {
     const fetchMock = stubFetch(jsonResponse(createdProject, 201));
     const input: CreateProjectRequest = {
       name: 'New project',
-      platform: 'godot',
     };
 
     await expect(createProject(input)).resolves.toEqual(createdProject);
@@ -304,13 +306,13 @@ describe('updateProject', () => {
     });
   });
 
-  it('surfaces a blank platform validation error', async () => {
-    stubFetch(errorResponse({ error: 'platform must not be blank.' }, 400));
+  it('surfaces the API error text for an invalid update', async () => {
+    stubFetch(errorResponse({ error: 'name must not be blank.' }, 400));
 
-    const error = await captureError(updateProject(1, { platform: '' }));
+    const error = await captureError(updateProject(1, { name: '' }));
 
     expect(error.status).toBe(400);
-    expect(error.message).toBe('HTTP 400: platform must not be blank.');
+    expect(error.message).toBe('HTTP 400: name must not be blank.');
   });
 });
 
@@ -413,6 +415,7 @@ describe('listIssues', () => {
         environment: 'production',
         release: '1.0.0',
         label: 'crash',
+        platform: ['unity', 'dotnet'],
         q: 'boom',
         sort: 'last_seen',
         limit: 25,
@@ -421,7 +424,7 @@ describe('listIssues', () => {
     ).resolves.toEqual({ items: [issue], next_cursor: 'next' });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `${API}/projects/3/issues?status=unresolved&level=error&environment=production&release=1.0.0&label=crash&q=boom&sort=last_seen&limit=25&cursor=next`,
+      `${API}/projects/3/issues?status=unresolved&level=error&environment=production&release=1.0.0&label=crash&platform=unity%2Cdotnet&q=boom&sort=last_seen&limit=25&cursor=next`,
       { headers: AUTH_HEADERS },
     );
   });
@@ -438,6 +441,7 @@ describe('listIssues', () => {
         environment: undefined,
         release: '',
         label: undefined,
+        platform: [],
         q: '',
         sort: undefined,
         limit: undefined,
@@ -629,7 +633,7 @@ describe('deleteLabel', () => {
 });
 
 describe('getStats', () => {
-  it('defaults to the 24h period', async () => {
+  it('defaults to the 24h period and returns buckets plus platforms', async () => {
     const fetchMock = stubFetch(jsonResponse(stats));
 
     await expect(getStats(2)).resolves.toEqual(stats);

@@ -222,3 +222,22 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.event-panel-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0 0 0.75rem;
+}
+
+.event-panel-meta dt {
+  color: #57606a;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.event-panel-meta dd {
+  margin: 0.25rem 0 0;
+}

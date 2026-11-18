@@ -12,6 +12,8 @@ export interface IssueFilterBarProps {
   labelNames: string[];
   environmentOptions: string[];
   releaseOptions: string[];
+  /** Platforms seen in the active project; the control is hidden when empty. */
+  platformOptions: string[];
   onFilterChange: (patch: Partial<IssueFilters>) => void;
   onSearchChange: (value: string) => void;
 }
@@ -26,9 +28,19 @@ export function IssueFilterBar({
   labelNames,
   environmentOptions,
   releaseOptions,
+  platformOptions,
   onFilterChange,
   onSearchChange,
 }: IssueFilterBarProps) {
+  // Keep platforms restored from a shared link selectable even when the
+  // project list has not caught up yet.
+  const platformChoices = [...platformOptions];
+  for (const platform of filters.platform) {
+    if (!platformChoices.includes(platform)) {
+      platformChoices.push(platform);
+    }
+  }
+
   return (
     <div className="issues-filters">
       <div className="issues-status-tabs" role="group" aria-label="Status">
@@ -106,6 +118,30 @@ export function IssueFilterBar({
             </option>
           ))}
         </select>
+
+        {platformChoices.length > 0 && (
+          <select
+            aria-label="Platform"
+            className="issues-platform-filter"
+            multiple
+            size={Math.min(platformChoices.length, 3)}
+            value={filters.platform}
+            onChange={(event) =>
+              onFilterChange({
+                platform: Array.from(
+                  event.target.selectedOptions,
+                  (option) => option.value,
+                ),
+              })
+            }
+          >
+            {platformChoices.map((platform) => (
+              <option key={platform} value={platform}>
+                {platform}
+              </option>
+            ))}
+          </select>
+        )}
 
         <select
           aria-label="Sort"

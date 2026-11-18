@@ -1,5 +1,6 @@
 import type { IssueDetail } from '../../../api/types';
 import { LevelBadge, RelativeTime, StatusBadge } from '../../../ui';
+import { PlatformChip } from '../../platform/PlatformChip';
 
 /**
  * Summary of the issue above its actions: title, culprit, and the metadata
@@ -24,6 +25,12 @@ export function IssueHeader({ issue }: { issue: IssueDetail }) {
           <dt>Level</dt>
           <dd>
             <LevelBadge level={issue.level} />
+          </dd>
+        </div>
+        <div>
+          <dt>Platform</dt>
+          <dd>
+            <PlatformChip platform={issue.platform} />
           </dd>
         </div>
         <div>

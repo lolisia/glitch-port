@@ -314,6 +314,8 @@ describe('IssueDetailPage', () => {
     ).toBeInTheDocument();
     expect(within(header).getByText('UGameEngine::Init')).toBeInTheDocument();
     expect(within(header).getByText('error')).toBeInTheDocument();
+    expect(within(header).getByText('Platform')).toBeInTheDocument();
+    expect(within(header).getByText('unreal')).toHaveClass('platform-chip');
     expect(within(header).getByText('Unresolved')).toBeInTheDocument();
     expect(within(header).getByText('3')).toBeInTheDocument();
     expect(within(header).getByText('1.2.0')).toBeInTheDocument();
@@ -366,6 +368,11 @@ describe('IssueDetailPage', () => {
 
     // latest_event is rendered straight from GET /issues/{id}.
     expect(await screen.findByText('Latest payload body')).toBeInTheDocument();
+    const eventPanel = screen.getByTestId('issue-event-panel');
+    expect(within(eventPanel).getByText('Platform')).toBeInTheDocument();
+    expect(within(eventPanel).getByText('unreal')).toHaveClass(
+      'platform-chip',
+    );
     expect(
       calls.some(
         (call) =>

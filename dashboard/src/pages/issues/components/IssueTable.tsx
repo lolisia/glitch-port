@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { Issue } from '../../../api/types';
 import { LabelChip, LevelBadge, RelativeTime, StatusBadge } from '../../../ui';
+import { PlatformChip } from '../../platform/PlatformChip';
 
 export interface IssueTableProps {
   issues: Issue[];
@@ -42,6 +43,7 @@ export function IssueTable({
           <th scope="col">Title</th>
           <th scope="col">Culprit</th>
           <th scope="col">Level</th>
+          <th scope="col">Platform</th>
           <th scope="col">Labels</th>
           <th scope="col">Events</th>
           <th scope="col">Last seen</th>
@@ -72,6 +74,9 @@ export function IssueTable({
               <td className="issues-culprit">{issue.culprit ?? ''}</td>
               <td>
                 <LevelBadge level={issue.level} />
+              </td>
+              <td>
+                <PlatformChip platform={issue.platform} />
               </td>
               <td>
                 <div className="issues-labels">
