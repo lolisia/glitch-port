@@ -12,6 +12,8 @@ namespace GlitchPort.Relay.Tests;
 /// </summary>
 internal sealed class FakeProjectConfigHandler : HttpMessageHandler
 {
+    private static readonly TimeSpan DefaultWaitTimeout = TimeSpan.FromSeconds(10);
+
     private readonly object _gate = new();
     private readonly List<RecordedProjectConfigRequest> _requests = [];
     private readonly Queue<Func<HttpRequestMessage, HttpResponseMessage>> _responses = [];
@@ -82,13 +84,20 @@ internal sealed class FakeProjectConfigHandler : HttpMessageHandler
         });
 
     /// <summary>Waits until at least <paramref name="count"/> requests were received.</summary>
-    public Task WaitForRequestCountAsync(int count)
+    /// <param name="count">Number of requests to wait for.</param>
+    /// <param name="timeout">
+    /// Upper bound for the wait; defaults to ten seconds so a regression fails
+    /// the test instead of hanging it.
+    /// </param>
+    /// <exception cref="TimeoutException">Fewer requests arrived in time.</exception>
+    public Task WaitForRequestCountAsync(int count, TimeSpan? timeout = null)
     {
         if (count <= 0)
         {
             return Task.CompletedTask;
         }
 
+        Task completion;
         lock (_gate)
         {
             if (_requests.Count >= count)
@@ -96,10 +105,12 @@ internal sealed class FakeProjectConfigHandler : HttpMessageHandler
                 return Task.CompletedTask;
             }
 
-            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            _waiters.Add(new RequestWaiter(count, completion));
-            return completion.Task;
+            var waiter = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _waiters.Add(new RequestWaiter(count, waiter));
+            completion = waiter.Task;
         }
+
+        return WaitWithTimeoutAsync(completion, count, timeout ?? DefaultWaitTimeout);
     }
 
     /// <summary>Builds a Processor project config payload with snake_case fields.</summary>
@@ -187,6 +198,24 @@ internal sealed class FakeProjectConfigHandler : HttpMessageHandler
             Content = new StringContent(json, Encoding.UTF8, "application/json"),
         };
 
+    private async Task WaitWithTimeoutAsync(Task task, int expectedCount, TimeSpan timeout)
+    {
+        if (await Task.WhenAny(task, Task.Delay(timeout)).ConfigureAwait(false) != task)
+        {
+            int observedCount;
+            lock (_gate)
+            {
+                observedCount = _requests.Count;
+            }
+
+            throw new TimeoutException(
+                $"Expected at least {expectedCount} project config requests but only "
+                + $"{observedCount} arrived within {timeout}.");
+        }
+
+        await task.ConfigureAwait(false);
+    }
+
     private static string? Header(HttpRequestMessage request, string name) =>
         request.Headers.TryGetValues(name, out var values)
             ? string.Join(",", values)
@@ -201,26 +230,6 @@ internal sealed record RecordedProjectConfigRequest(
     HttpMethod Method,
     string? InternalSecret,
     string? IfNoneMatch);
-
-/// <summary>
-/// Deterministic <see cref="TimeProvider"/> that only moves when a test asks it
-/// to, so negative-cache expiry can be exercised without timing sleeps.
-/// </summary>
-internal sealed class ManualTimeProvider : TimeProvider
-{
-    private DateTimeOffset _utcNow;
-
-    public ManualTimeProvider(DateTimeOffset utcNow)
-    {
-        _utcNow = utcNow;
-    }
-
-    /// <summary>Current UTC time reported by the clock.</summary>
-    public override DateTimeOffset GetUtcNow() => _utcNow;
-
-    /// <summary>Moves the clock forward.</summary>
-    public void Advance(TimeSpan duration) => _utcNow += duration;
-}
 
 /// <summary>Builders for project config snapshots used by the Relay tests.</summary>
 internal static class ProjectConfigTestData
