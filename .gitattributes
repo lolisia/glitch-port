@@ -1,0 +1,4 @@
+# Unity serializes its YAML assets (ProjectSettings, scenes, .meta) and package files with LF.
+# Check them out with LF too, so a Unity run does not leave line-ending-only changes
+# under core.autocrlf=true. Binary files keep being detected automatically.
+sdk/unity/** text=auto eol=lf
