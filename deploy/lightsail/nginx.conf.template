@@ -15,7 +15,7 @@ server {
     auth_basic_user_file /run/secrets/dashboard.htpasswd;
 
     location = /healthz { auth_basic off; access_log off; proxy_pass http://relay:8080/healthz; }
-    location ~ ^/api/[0-9]+/messages$ {
+    location ~ ^/api/[0-9]+/(events|messages)$ {
         auth_basic off;
         limit_req zone=ingest burst=20 nodelay;
         limit_req_status 429;
