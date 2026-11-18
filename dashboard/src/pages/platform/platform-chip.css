@@ -2,8 +2,8 @@
   display: inline-block;
   padding: 0.125rem 0.5rem;
   border-radius: 999px;
-  background-color: #eaeef2;
-  color: #1f2328;
+  background-color: var(--color-chip-bg);
+  color: var(--color-fg);
   font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
@@ -16,5 +16,5 @@
 }
 
 .platform-chips-empty {
-  color: #57606a;
+  color: var(--color-fg-muted);
 }
