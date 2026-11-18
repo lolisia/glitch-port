@@ -1,12 +1,15 @@
 import type { ReactNode } from 'react';
 import { ApiError } from '../api/client';
+import { useI18n } from '../i18n';
 
 export function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function LoadingState({ label = 'Loading...' }: { label?: string }) {
-  return <p className="state state-loading">{label}</p>;
+export function LoadingState({ label }: { label?: string }) {
+  const { t } = useI18n();
+
+  return <p className="state state-loading">{label ?? t('common.loading')}</p>;
 }
 
 export function EmptyState({ children }: { children: ReactNode }) {
@@ -20,6 +23,7 @@ export function ErrorState({
   error: unknown;
   prefix: string;
 }) {
+  const { t } = useI18n();
   const needsToken = error instanceof ApiError && error.status === 401;
 
   return (
@@ -29,7 +33,7 @@ export function ErrorState({
       </p>
       {needsToken && (
         <p className="state-hint">
-          Set VITE_ADMIN_TOKEN to an admin token accepted by the collector.
+          {t('ui.tokenHint', { name: 'VITE_ADMIN_TOKEN' })}
         </p>
       )}
     </div>

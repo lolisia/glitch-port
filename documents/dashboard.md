@@ -123,6 +123,42 @@ so a new colour must be added as a token instead of being hard-coded. Label
 chips compute black or white text from the label colour's relative luminance,
 which keeps them readable against any label colour in either theme.
 
+## Language
+
+The **Language** select in the top bar switches the dashboard between English
+and Korean:
+
+| Language | Code | Notes                                                          |
+| -------- | ---- | -------------------------------------------------------------- |
+| English  | `en` | Default and source language. Timestamps read `YYYY-MM-DD HH:mm:ss`. |
+| Korean   | `ko` | Translated shell, labels and screens; Korean date layout.      |
+
+The choice is a per-browser setting stored in `localStorage` under
+`glitchport.locale`. Only `en` and `ko` are accepted. On startup the dashboard
+resolves the active locale in this order:
+
+1. a valid `glitchport.locale` value,
+2. `navigator.language` starting with `ko` (for example `ko` or `ko-KR`), which
+   selects Korean,
+3. English otherwise.
+
+Choosing a language persists it, re-renders the shell and the visible screen
+without a reload, and sets `document.documentElement.lang` to the active locale.
+A missing or invalid stored value falls back to the browser language, so a
+Korean browser starts in Korean until the user explicitly picks a language from
+the selector.
+
+All dashboard-owned text comes from the message dictionaries in
+`src/i18n/messages/`: `en.ts` is the English source object and `ko.ts` must
+define the same keys, which the `Messages` type and a key-parity test enforce.
+The navigation tabs, project picker states, screen headings and column headers,
+loading/empty/error states, level and status badges and the 401 token guidance
+all follow the active locale. Dates, relative times, clock values and formatted
+counts go through `Intl.DateTimeFormat`, `Intl.RelativeTimeFormat` and
+`Intl.NumberFormat`, so an English timestamp stays `2026-01-02 03:04:05` and a
+Korean one reads `2026. 01. 02. 03:04:05`. Server-provided API error text is
+displayed verbatim and is never translated.
+
 ## Routes
 
 The dashboard uses `location.hash`, so every screen has a bookmarkable URL and
@@ -324,7 +360,8 @@ The detail screen loads `GET /api/manage/projects/{id}` and
 
 The messages screen is the original queue view. It loads
 `GET /api/manage/messages?limit=100` and renders a table with **Received at**
-(absolute local time, `YYYY-MM-DD HH:mm:ss`), **Endpoint** and **Message**. A
+(absolute local time in the active locale: `YYYY-MM-DD HH:mm:ss` in English,
+`YYYY. MM. DD. HH:mm:ss` in Korean), **Endpoint** and **Message**. A
 **Refresh** button reloads the list; an empty response shows "No messages yet."
 
 ## Error handling

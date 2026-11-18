@@ -9,6 +9,7 @@ import type {
   ProjectKey,
   ProjectListItem,
 } from './api/types';
+import { I18nProvider, LOCALE_STORAGE_KEY } from './i18n';
 import { ThemeProvider } from './theme/ThemeProvider';
 
 interface MockResponse {
@@ -272,11 +273,13 @@ function optionLabels(select: HTMLElement): string[] {
   );
 }
 
-/** Renders the app inside the provider that supplies the theme control. */
+/** Renders the app inside the providers that supply the theme and locale. */
 function renderApp() {
   return render(
     <ThemeProvider>
-      <App />
+      <I18nProvider>
+        <App />
+      </I18nProvider>
     </ThemeProvider>,
   );
 }
@@ -286,6 +289,7 @@ beforeEach(() => {
   window.localStorage.clear();
   document.documentElement.removeAttribute('data-theme');
   document.documentElement.style.removeProperty('color-scheme');
+  document.documentElement.lang = 'en';
 });
 
 describe('App', () => {
@@ -563,6 +567,9 @@ describe('App', () => {
     expect(await screen.findByTestId('project-picker-state')).toHaveTextContent(
       'No projects yet',
     );
+    expect(screen.getByTestId('project-picker-state').textContent).toBe(
+      'No projects yet — create one.',
+    );
     expect(screen.queryByLabelText('Project')).not.toBeInTheDocument();
     await waitFor(() =>
       expect(screen.getByText(/No project selected/)).toBeInTheDocument(),
@@ -815,5 +822,107 @@ describe('App', () => {
 
     expect(document.documentElement.dataset.theme).toBe('light');
     expect(window.localStorage.getItem('glitchport.theme')).toBe('system');
+  });
+
+  it('adds the EN/KO language select and defaults to English for en-US', async () => {
+    stubFetch();
+
+    renderApp();
+
+    expect(navigator.language).toBe('en-US');
+
+    const language = await screen.findByLabelText('Language');
+    expect(language).toHaveValue('en');
+    expect(optionLabels(language)).toEqual(['EN', 'KO']);
+    expect(language.closest('.top-bar-settings')).not.toBeNull();
+
+    expect(screen.getByRole('link', { name: 'Issues' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('navigation', { name: 'Sections' }),
+    ).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe('en');
+    // The English default comes from the browser, not from a stored choice.
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBeNull();
+  });
+
+  it('switches the shell to Korean and back, persisting glitchport.locale', async () => {
+    const user = userEvent.setup();
+    stubFetch();
+
+    const { unmount } = renderApp();
+
+    const language = await screen.findByLabelText('Language');
+
+    await user.selectOptions(language, 'ko');
+
+    expect(screen.getByRole('link', { name: '이슈' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(screen.getByRole('link', { name: '메시지' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '프로젝트' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('navigation', { name: '섹션' }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('테마')).toHaveValue('system');
+    expect(await screen.findByLabelText('프로젝트')).toHaveValue('1');
+    expect(language).toHaveValue('ko');
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe('ko');
+    expect(document.documentElement.lang).toBe('ko');
+
+    // A reload (remount) resolves the stored choice again.
+    unmount();
+    renderApp();
+
+    expect(screen.getByRole('link', { name: '이슈' })).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe('ko');
+
+    await user.selectOptions(screen.getByLabelText('Language'), 'en');
+
+    expect(screen.getByRole('link', { name: 'Issues' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(screen.getByRole('link', { name: 'Messages' })).toBeInTheDocument();
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe('en');
+    expect(document.documentElement.lang).toBe('en');
+  });
+
+  it('translates the project picker empty state and link', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
+    stubFetch({ projects: jsonResponse([]) });
+
+    renderApp();
+
+    const state = await screen.findByTestId('project-picker-state');
+    expect(state).toHaveTextContent('아직 프로젝트가 없습니다');
+    expect(state).toHaveTextContent('하나 만들기');
+    expect(state.querySelector('a')).toHaveAttribute('href', '#/projects');
+  });
+
+  it('translates the project picker loading and error states', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
+
+    const pending = deferred<MockResponse>();
+    stubFetch({ projects: () => pending.promise });
+
+    const { unmount } = renderApp();
+
+    expect(screen.getByTestId('project-picker-state')).toHaveTextContent(
+      '프로젝트를 불러오는 중...',
+    );
+
+    pending.resolve(errorResponse(500));
+    expect(await screen.findByTestId('project-picker-state')).toHaveTextContent(
+      '프로젝트를 사용할 수 없습니다.',
+    );
+
+    unmount();
+    stubFetch({ projects: errorResponse(500) });
+    renderApp();
+
+    expect(await screen.findByTestId('project-picker-state')).toHaveTextContent(
+      '프로젝트를 사용할 수 없습니다.',
+    );
   });
 });

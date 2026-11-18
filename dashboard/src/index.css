@@ -153,8 +153,8 @@ main {
 }
 
 /*
- * The right-hand settings cluster. T06 adds the language select here next to
- * the theme control; keep the container a row so both controls share it.
+ * The right-hand settings cluster: the language select and the theme control.
+ * Keep the container a row so both controls share it.
  */
 .top-bar-settings {
   display: flex;

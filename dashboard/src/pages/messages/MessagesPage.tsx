@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchMessages } from '../../api/client';
 import type { Message } from '../../api/types';
+import { useI18n } from '../../i18n';
 import {
   EmptyState,
   ErrorState,
@@ -15,6 +16,7 @@ type LoadState =
   | { status: 'ready'; messages: Message[] };
 
 export function MessagesPage() {
+  const { locale, t } = useI18n();
   const [state, setState] = useState<LoadState>({ status: 'loading' });
 
   const load = useCallback(async () => {
@@ -37,35 +39,35 @@ export function MessagesPage() {
   return (
     <section className="messages-page" data-testid="messages-page">
       <header className="page-header">
-        <h2>Messages</h2>
+        <h2>{t('messages.title')}</h2>
         <button type="button" onClick={() => void load()} disabled={loading}>
-          Refresh
+          {t('common.refresh')}
         </button>
       </header>
 
       {loading && <LoadingState />}
 
       {state.status === 'error' && (
-        <ErrorState error={state.error} prefix="Failed to load messages" />
+        <ErrorState error={state.error} prefix={t('messages.loadError')} />
       )}
 
       {state.status === 'ready' && state.messages.length === 0 && (
-        <EmptyState>No messages yet.</EmptyState>
+        <EmptyState>{t('messages.empty')}</EmptyState>
       )}
 
       {state.status === 'ready' && state.messages.length > 0 && (
         <table>
           <thead>
             <tr>
-              <th scope="col">Received at</th>
-              <th scope="col">Endpoint</th>
-              <th scope="col">Message</th>
+              <th scope="col">{t('messages.receivedAt')}</th>
+              <th scope="col">{t('messages.endpoint')}</th>
+              <th scope="col">{t('messages.message')}</th>
             </tr>
           </thead>
           <tbody>
             {state.messages.map((row) => (
               <tr key={row.id}>
-                <td>{formatAbsoluteTime(row.received_at)}</td>
+                <td>{formatAbsoluteTime(row.received_at, locale)}</td>
                 <td>{row.endpoint}</td>
                 <td>{row.message}</td>
               </tr>

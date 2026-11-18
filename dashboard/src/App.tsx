@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { listProjects } from './api/client';
 import type { ProjectListItem } from './api/types';
+import { isLocale, useI18n } from './i18n';
 import { IssueDetailPage } from './pages/issues/IssueDetailPage';
 import { IssuesPage } from './pages/issues/IssuesPage';
 import { MessagesPage } from './pages/messages/MessagesPage';
@@ -34,6 +35,7 @@ type ProjectsState =
 export default function App() {
   const route = useHashRoute();
   const { preference, setPreference } = useTheme();
+  const { locale, setLocale, t } = useI18n();
   const [projectsState, setProjectsState] = useState<ProjectsState>({
     status: 'loading',
   });
@@ -123,6 +125,12 @@ export default function App() {
     }
   };
 
+  const selectLocale = (value: string) => {
+    if (isLocale(value)) {
+      setLocale(value);
+    }
+  };
+
   const renderProjectPicker = () => {
     if (projectsState.status === 'loading') {
       return (
@@ -130,7 +138,7 @@ export default function App() {
           className="project-picker-state"
           data-testid="project-picker-state"
         >
-          Loading projects...
+          {t('app.projectsLoading')}
         </span>
       );
     }
@@ -141,7 +149,7 @@ export default function App() {
           className="project-picker-state"
           data-testid="project-picker-state"
         >
-          Projects unavailable.
+          {t('app.projectsUnavailable')}
         </span>
       );
     }
@@ -152,16 +160,17 @@ export default function App() {
           className="project-picker-state"
           data-testid="project-picker-state"
         >
-          No projects yet — <a href="#/projects">create one</a>.
+          {t('app.noProjects')} —{' '}
+          <a href="#/projects">{t('app.createOne')}</a>.
         </span>
       );
     }
 
     return (
       <label className="project-picker">
-        <span className="project-picker-label">Project</span>
+        <span className="project-picker-label">{t('common.project')}</span>
         <select
-          aria-label="Project"
+          aria-label={t('common.project')}
           value={activeProjectId ?? ''}
           onChange={(event) => selectProject(event.target.value)}
         >
@@ -179,41 +188,52 @@ export default function App() {
     <>
       <header className="top-bar">
         <h1>glitch-port</h1>
-        <nav className="tabs" aria-label="Sections">
+        <nav className="tabs" aria-label={t('nav.sections')}>
           <a
             className="tab"
             href="#/issues"
             aria-current={issuesActive ? 'page' : undefined}
           >
-            Issues
+            {t('nav.issues')}
           </a>
           <a
             className="tab"
             href="#/messages"
             aria-current={route.name === 'messages' ? 'page' : undefined}
           >
-            Messages
+            {t('nav.messages')}
           </a>
           <a
             className="tab"
             href="#/projects"
             aria-current={projectsActive ? 'page' : undefined}
           >
-            Projects
+            {t('nav.projects')}
           </a>
         </nav>
         {renderProjectPicker()}
         <div className="top-bar-settings">
           <label>
-            <span>Theme</span>
+            <span>{t('common.language')}</span>
             <select
-              aria-label="Theme"
+              aria-label="Language"
+              value={locale}
+              onChange={(event) => selectLocale(event.target.value)}
+            >
+              <option value="en">EN</option>
+              <option value="ko">KO</option>
+            </select>
+          </label>
+          <label>
+            <span>{t('common.theme')}</span>
+            <select
+              aria-label={t('common.theme')}
               value={preference}
               onChange={(event) => selectTheme(event.target.value)}
             >
-              <option value="system">System</option>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
+              <option value="system">{t('common.themeSystem')}</option>
+              <option value="light">{t('common.themeLight')}</option>
+              <option value="dark">{t('common.themeDark')}</option>
             </select>
           </label>
         </div>
