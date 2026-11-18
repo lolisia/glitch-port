@@ -5,30 +5,30 @@
   font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
-  background-color: #eaeef2;
-  color: #57606a;
+  background-color: var(--color-chip-bg);
+  color: var(--color-fg-muted);
 }
 
 .level-badge.level-fatal,
 .level-badge.level-error {
-  background-color: #ffebe9;
-  color: #cf222e;
+  background-color: var(--color-danger-subtle);
+  color: var(--color-danger);
 }
 
 .level-badge.level-warning {
-  background-color: #fff8c5;
-  color: #9a6700;
+  background-color: var(--color-warning-subtle);
+  color: var(--color-warning);
 }
 
 .level-badge.level-info {
-  background-color: #ddf4ff;
-  color: #0969da;
+  background-color: var(--color-accent-subtle);
+  color: var(--color-accent);
 }
 
 .level-badge.level-debug,
 .level-badge.level-unknown {
-  background-color: #eaeef2;
-  color: #57606a;
+  background-color: var(--color-chip-bg);
+  color: var(--color-fg-muted);
 }
 
 .status-badge {
@@ -37,17 +37,20 @@
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 600;
-  background-color: #eaeef2;
-  color: #1f2328;
+  background-color: var(--color-chip-bg);
+  color: var(--color-fg);
 }
 
+/*
+ * The text colour is computed from the label background in LabelChip.tsx so
+ * light and dark labels keep a readable contrast in either theme.
+ */
 .label-chip {
   display: inline-block;
   padding: 0.125rem 0.5rem;
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 600;
-  color: #ffffff;
 }
 
 .state {
@@ -55,11 +58,11 @@
 }
 
 .state-empty {
-  color: #57606a;
+  color: var(--color-fg-muted);
 }
 
 .state-hint {
   margin: 0.25rem 0 0;
-  color: #57606a;
+  color: var(--color-fg-muted);
   font-size: 0.875rem;
 }

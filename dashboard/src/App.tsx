@@ -14,6 +14,8 @@ import {
   writeStoredProjectId,
 } from './project/activeProject';
 import { navigate, useHashRoute } from './router';
+import { useTheme } from './theme/ThemeProvider';
+import { isThemePreference } from './theme/theme';
 
 type ProjectsState =
   | { status: 'loading' }
@@ -31,6 +33,7 @@ type ProjectsState =
  */
 export default function App() {
   const route = useHashRoute();
+  const { preference, setPreference } = useTheme();
   const [projectsState, setProjectsState] = useState<ProjectsState>({
     status: 'loading',
   });
@@ -114,6 +117,12 @@ export default function App() {
     writeStoredProjectId(id);
   };
 
+  const selectTheme = (value: string) => {
+    if (isThemePreference(value)) {
+      setPreference(value);
+    }
+  };
+
   const renderProjectPicker = () => {
     if (projectsState.status === 'loading') {
       return (
@@ -194,6 +203,20 @@ export default function App() {
           </a>
         </nav>
         {renderProjectPicker()}
+        <div className="top-bar-settings">
+          <label>
+            <span>Theme</span>
+            <select
+              aria-label="Theme"
+              value={preference}
+              onChange={(event) => selectTheme(event.target.value)}
+            >
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+        </div>
       </header>
 
       <main className="page">

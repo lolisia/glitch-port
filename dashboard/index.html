@@ -3,6 +3,42 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Apply the stored theme before the bundle loads so a dark-mode reload
+      // does not flash a light page. Keep the storage key and the accepted
+      // values in sync with src/theme/theme.ts.
+      (function () {
+        try {
+          var stored = window.localStorage.getItem('glitchport.theme');
+          var preference =
+            stored === 'light' || stored === 'dark' || stored === 'system'
+              ? stored
+              : 'system';
+          var prefersDark = false;
+
+          if (
+            preference === 'system' &&
+            typeof window.matchMedia === 'function'
+          ) {
+            prefersDark = window.matchMedia('(prefers-color-scheme: dark)')
+              .matches;
+          }
+
+          var theme =
+            preference === 'system'
+              ? prefersDark
+                ? 'dark'
+                : 'light'
+              : preference;
+
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.style.colorScheme = theme;
+        } catch (error) {
+          // localStorage or matchMedia can be unavailable; the app still
+          // applies the default theme once its bundle runs.
+        }
+      })();
+    </script>
     <title>glitch-port</title>
   </head>
   <body>

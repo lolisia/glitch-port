@@ -9,6 +9,7 @@ import type {
   ProjectKey,
   ProjectListItem,
 } from './api/types';
+import { ThemeProvider } from './theme/ThemeProvider';
 
 interface MockResponse {
   ok: boolean;
@@ -271,16 +272,27 @@ function optionLabels(select: HTMLElement): string[] {
   );
 }
 
+/** Renders the app inside the provider that supplies the theme control. */
+function renderApp() {
+  return render(
+    <ThemeProvider>
+      <App />
+    </ThemeProvider>,
+  );
+}
+
 beforeEach(() => {
   window.history.replaceState(null, '', '/');
   window.localStorage.clear();
+  document.documentElement.removeAttribute('data-theme');
+  document.documentElement.style.removeProperty('color-scheme');
 });
 
 describe('App', () => {
   it('renders the issues page for a blank hash and rewrites it to #/issues', async () => {
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(
       screen.getByRole('heading', { level: 1, name: 'glitch-port' }),
@@ -298,7 +310,7 @@ describe('App', () => {
     window.history.replaceState(null, '', '/#/not-a-route');
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(screen.getByTestId('issues-page')).toBeInTheDocument();
 
@@ -309,7 +321,7 @@ describe('App', () => {
     window.history.replaceState(null, '', '/#/projects');
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByTestId('projects-page')).toBeInTheDocument();
     expect(window.location.hash).toBe('#/projects');
@@ -319,7 +331,7 @@ describe('App', () => {
     window.history.replaceState(null, '', '/#/issues/42');
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(screen.getByTestId('issue-detail-page')).toBeInTheDocument();
     expect(screen.queryByTestId('issues-page')).not.toBeInTheDocument();
@@ -334,7 +346,7 @@ describe('App', () => {
     window.history.replaceState(null, '', '/#/messages');
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(screen.getByTestId('messages-page')).toBeInTheDocument();
     expect(
@@ -348,7 +360,7 @@ describe('App', () => {
     window.history.replaceState(null, '', '/#/issues');
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     const issuesTab = screen.getByRole('link', { name: 'Issues' });
     const messagesTab = screen.getByRole('link', { name: 'Messages' });
@@ -384,7 +396,7 @@ describe('App', () => {
     window.history.replaceState(null, '', '/#/issues');
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(screen.getByTestId('issues-page')).toBeInTheDocument();
 
@@ -403,7 +415,7 @@ describe('App', () => {
     window.history.replaceState(null, '', '/#/issues?status=resolved&q=null');
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(screen.getByTestId('issues-page')).toBeInTheDocument();
     expect(window.location.hash).toBe('#/issues?status=resolved&q=null');
@@ -412,7 +424,7 @@ describe('App', () => {
   it('persists the first project when nothing is stored or configured', async () => {
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByLabelText('Project')).toHaveValue('1');
     expect(window.localStorage.getItem('gp.projectId')).toBe('1');
@@ -422,7 +434,7 @@ describe('App', () => {
     window.localStorage.setItem('gp.projectId', '2');
     const fetchMock = stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByLabelText('Project')).toHaveValue('2');
 
@@ -436,7 +448,7 @@ describe('App', () => {
     vi.stubEnv('VITE_PROJECT_ID', '2');
     const fetchMock = stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByLabelText('Project')).toHaveValue('2');
     expect(window.localStorage.getItem('gp.projectId')).toBe('2');
@@ -449,7 +461,7 @@ describe('App', () => {
     vi.stubEnv('VITE_PROJECT_ID', 'not-a-project');
     const fetchMock = stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByLabelText('Project')).toHaveValue('1');
     expect(window.localStorage.getItem('gp.projectId')).toBe('1');
@@ -462,7 +474,7 @@ describe('App', () => {
     vi.stubEnv('VITE_PROJECT_ID', '99');
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByLabelText('Project')).toHaveValue('1');
     expect(window.localStorage.getItem('gp.projectId')).toBe('1');
@@ -473,7 +485,7 @@ describe('App', () => {
     window.history.replaceState(null, '', '/#/issues/42');
     const fetchMock = stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(
       await screen.findByTestId('issue-detail-header'),
@@ -494,7 +506,7 @@ describe('App', () => {
       window.localStorage.setItem('gp.projectId', stored);
       stubFetch();
 
-      render(<App />);
+      renderApp();
 
       expect(await screen.findByLabelText('Project')).toHaveValue('1');
       expect(window.localStorage.getItem('gp.projectId')).toBe('1');
@@ -505,7 +517,7 @@ describe('App', () => {
     const user = userEvent.setup();
     const fetchMock = stubFetch();
 
-    render(<App />);
+    renderApp();
 
     const picker = await screen.findByLabelText('Project');
     await waitFor(() =>
@@ -526,7 +538,7 @@ describe('App', () => {
     const pending = deferred<MockResponse>();
     const fetchMock = stubFetch({ projects: () => pending.promise });
 
-    render(<App />);
+    renderApp();
 
     expect(screen.getByTestId('project-picker-state')).toHaveTextContent(
       'Loading projects...',
@@ -546,7 +558,7 @@ describe('App', () => {
   it('renders an inline state for an empty project list without project requests', async () => {
     const fetchMock = stubFetch({ projects: jsonResponse([]) });
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByTestId('project-picker-state')).toHaveTextContent(
       'No projects yet',
@@ -563,7 +575,7 @@ describe('App', () => {
     window.localStorage.setItem('gp.projectId', '9');
     stubFetch({ projects: jsonResponse([]) });
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByTestId('project-picker-state')).toHaveTextContent(
       'No projects yet',
@@ -605,7 +617,7 @@ describe('App', () => {
       },
     });
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByLabelText('Project')).toHaveValue('2');
 
@@ -640,7 +652,7 @@ describe('App', () => {
   it('renders an inline state when the project list fails without project requests', async () => {
     const fetchMock = stubFetch({ projects: errorResponse(500) });
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByTestId('project-picker-state')).toHaveTextContent(
       'Projects unavailable.',
@@ -655,7 +667,7 @@ describe('App', () => {
     window.history.replaceState(null, '', '/#/projects/3');
     stubFetch();
 
-    render(<App />);
+    renderApp();
 
     expect(screen.queryByTestId('issues-page')).not.toBeInTheDocument();
     expect(
@@ -692,7 +704,7 @@ describe('App', () => {
       },
     });
 
-    render(<App />);
+    renderApp();
 
     await screen.findByRole('heading', { level: 2, name: 'Starter' });
 
@@ -724,7 +736,7 @@ describe('App', () => {
       },
     });
 
-    render(<App />);
+    renderApp();
 
     expect(
       await screen.findByRole('heading', { level: 2, name: 'Starter' }),
@@ -752,12 +764,56 @@ describe('App', () => {
         errorResponse(404, { error: 'Project 99 was not found.' }),
     });
 
-    render(<App />);
+    renderApp();
 
     expect(await screen.findByText('Project not found')).toBeInTheDocument();
     expect(
       screen.getByRole('link', { name: 'Back to projects' }),
     ).toHaveAttribute('href', '#/projects');
     expect(window.location.hash).toBe('#/projects/99');
+  });
+
+  it('applies a stored dark theme before the theme control changes', async () => {
+    window.localStorage.setItem('glitchport.theme', 'dark');
+    stubFetch();
+
+    renderApp();
+
+    const themeSelect = await screen.findByLabelText('Theme');
+    expect(themeSelect).toHaveValue('dark');
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(document.documentElement.style.colorScheme).toBe('dark');
+    expect(window.localStorage.getItem('glitchport.theme')).toBe('dark');
+  });
+
+  it('updates the document theme and persists the theme preference', async () => {
+    const user = userEvent.setup();
+    stubFetch();
+
+    renderApp();
+
+    const themeSelect = await screen.findByLabelText('Theme');
+    // jsdom has no matchMedia, so `system` resolves to light.
+    expect(themeSelect).toHaveValue('system');
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(document.documentElement.style.colorScheme).toBe('light');
+    expect(window.localStorage.getItem('glitchport.theme')).toBe('system');
+
+    await user.selectOptions(themeSelect, 'dark');
+
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(document.documentElement.style.colorScheme).toBe('dark');
+    expect(window.localStorage.getItem('glitchport.theme')).toBe('dark');
+
+    await user.selectOptions(themeSelect, 'light');
+
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(document.documentElement.style.colorScheme).toBe('light');
+    expect(window.localStorage.getItem('glitchport.theme')).toBe('light');
+
+    await user.selectOptions(themeSelect, 'system');
+
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(window.localStorage.getItem('glitchport.theme')).toBe('system');
   });
 });

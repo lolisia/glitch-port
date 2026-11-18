@@ -90,6 +90,39 @@ deployed behind an authenticating gateway, set both `VITE_API_BASE` and
 `/api/manage/...` on the dashboard's own origin without an `Authorization`
 header.
 
+## Theme
+
+The **Theme** select in the top bar chooses how the dashboard is coloured:
+
+| Preference        | Meaning                                                                 |
+| ----------------- | ----------------------------------------------------------------------- |
+| System (default)  | Follow the operating system/browser `prefers-color-scheme` setting.      |
+| Light             | Always use the light palette.                                            |
+| Dark              | Always use the dark palette.                                             |
+
+The preference is a per-browser setting stored in `localStorage` under
+`glitchport.theme`. Only `system`, `light` and `dark` are accepted; a missing
+or invalid value falls back to `system`. `src/theme/ThemeProvider.tsx` applies
+the resolved theme by setting `data-theme="light"` or `data-theme="dark"` and
+`color-scheme` on the `<html>` element. While the preference is `system` it
+subscribes to `matchMedia('(prefers-color-scheme: dark)')` change events and
+removes the listener when an explicit preference is selected. When
+`matchMedia` is unavailable the dashboard resolves to light.
+
+A small inline script in `dashboard/index.html` reads the same key and applies
+the theme before the bundle loads, so reloading in dark mode does not flash the
+light theme.
+
+All colours are defined as CSS custom properties in `src/index.css`: `:root`
+holds the light tokens (`--color-bg`, `--color-bg-subtle`, `--color-surface`,
+`--color-fg`, `--color-fg-muted`, `--color-border`, `--color-accent`,
+`--color-danger`, `--color-warning`, `--color-success`, `--color-code-bg`,
+`--color-stack-bg` and supporting tokens) and `:root[data-theme='dark']`
+overrides them for dark mode. The screen styles only reference the variables,
+so a new colour must be added as a token instead of being hard-coded. Label
+chips compute black or white text from the label colour's relative luminance,
+which keeps them readable against any label colour in either theme.
+
 ## Routes
 
 The dashboard uses `location.hash`, so every screen has a bookmarkable URL and
