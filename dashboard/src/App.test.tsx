@@ -8,6 +8,7 @@ import type {
   ProjectDetail,
   ProjectKey,
   ProjectListItem,
+  Release,
 } from './api/types';
 import { I18nProvider, LOCALE_STORAGE_KEY } from './i18n';
 import { ThemeProvider } from './theme/ThemeProvider';
@@ -74,8 +75,13 @@ const issueDetail: IssueDetail = {
   first_seen: '2026-01-01T00:00:00Z',
   last_seen: '2026-01-02T00:00:00Z',
   event_count: 3,
+  first_release: '1.0.0',
   last_release: '1.0.0',
   last_environment: 'production',
+  resolved_at: null,
+  resolved_in_release: null,
+  regressed_at: null,
+  regression_count: 0,
   labels: [],
   latest_event: null,
 };
@@ -111,6 +117,16 @@ const projectKeys: ProjectKey[] = [
     dsn: 'http://a1b2c3d4e5f60718293a4b5c6d7e8f90@localhost:5080/1',
   },
 ];
+
+const release: Release = {
+  release: '1.0.0',
+  first_seen: '2026-01-01T00:00:00Z',
+  last_seen: '2026-01-02T00:00:00Z',
+  event_count: 12,
+  issue_count: 3,
+  new_issue_count: 2,
+  unresolved_issue_count: 1,
+};
 
 const createdKey: ProjectKey = {
   id: 9,
@@ -222,11 +238,22 @@ function stubFetch(options: StubOptions = {}) {
       if (/^\/api\/manage\/projects\/\d+\/issues$/.test(path)) {
         return jsonResponse({ items: [], next_cursor: null });
       }
+      if (/^\/api\/manage\/projects\/\d+\/releases$/.test(path)) {
+        return jsonResponse({ items: [release], next_cursor: null });
+      }
       if (/^\/api\/manage\/projects\/\d+\/stats$/.test(path)) {
         return jsonResponse({ buckets: [], by_platform: [] });
       }
       if (/^\/api\/manage\/projects\/\d+\/labels$/.test(path)) {
         return jsonResponse([]);
+      }
+      if (/^\/api\/manage\/issues\/\d+\/tags$/.test(path)) {
+        return jsonResponse({
+          issue_id: issueDetail.id,
+          sample_size: 0,
+          user_count: 0,
+          tags: [],
+        });
       }
       if (/^\/api\/manage\/issues\/\d+\/events$/.test(path)) {
         return jsonResponse({ items: [], next_cursor: null });
@@ -357,6 +384,40 @@ describe('App', () => {
       screen.getByRole('heading', { name: 'Messages' }),
     ).toBeInTheDocument();
     expect(await screen.findByText('No messages yet.')).toBeInTheDocument();
+  });
+
+  it('renders the releases route without rewriting the hash', async () => {
+    window.history.replaceState(null, '', '/#/releases');
+    stubFetch();
+
+    renderApp();
+
+    expect(await screen.findByTestId('releases-page')).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: 'Releases' }),
+    ).toHaveAttribute('aria-current', 'page');
+    expect(await screen.findByRole('link', { name: '1.0.0' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/releases');
+  });
+
+  it('navigates to #/releases from the nav tab', async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, '', '/#/issues');
+    stubFetch();
+
+    renderApp();
+
+    const releasesTab = screen.getByRole('link', { name: 'Releases' });
+    expect(releasesTab).not.toHaveAttribute('aria-current');
+
+    await user.click(releasesTab);
+
+    expect(await screen.findByTestId('releases-page')).toBeInTheDocument();
+    expect(releasesTab).toHaveAttribute('aria-current', 'page');
+    expect(
+      screen.getByRole('link', { name: 'Issues' }),
+    ).not.toHaveAttribute('aria-current');
+    expect(window.location.hash).toBe('#/releases');
   });
 
   it('switches screens and aria-current when the tabs are clicked', async () => {
@@ -859,6 +920,7 @@ describe('App', () => {
       'aria-current',
       'page',
     );
+    expect(screen.getByRole('link', { name: '릴리스' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '메시지' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '프로젝트' })).toBeInTheDocument();
     expect(

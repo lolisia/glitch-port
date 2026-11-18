@@ -15,6 +15,7 @@ import type {
   IssueDetail,
   IssueStatus,
   Label,
+  UpdateIssueRequest,
 } from '../../api/types';
 import { navigate } from '../../router';
 import { useI18n } from '../../i18n';
@@ -24,6 +25,7 @@ import { EventPanel } from './detail/EventPanel';
 import { IssueActions } from './detail/IssueActions';
 import { IssueHeader } from './detail/IssueHeader';
 import { LabelsEditor } from './detail/LabelsEditor';
+import { TagFacets } from './detail/TagFacets';
 import { NoProjectState } from './components/NoProjectState';
 import './issue-detail.css';
 
@@ -182,12 +184,19 @@ export function IssueDetailPage({
   }, [issueId, projectId]);
 
   const changeStatus = useCallback(
-    async (status: IssueStatus) => {
+    async (
+      status: IssueStatus,
+      resolveIn?: UpdateIssueRequest['resolve_in'],
+    ) => {
       const token = issueToken.current;
       setActionError(null);
 
       try {
-        const updated = await updateIssue(issueId, { status });
+        const patch: UpdateIssueRequest =
+          resolveIn === undefined
+            ? { status }
+            : { status, resolve_in: resolveIn };
+        const updated = await updateIssue(issueId, patch);
 
         if (issueToken.current !== token) {
           return;
@@ -499,7 +508,11 @@ export function IssueDetailPage({
           )}
 
           <IssueActions
+            lastRelease={loaded.issue.last_release}
             onChangeStatus={(status) => void changeStatus(status)}
+            onResolveNextRelease={() =>
+              void changeStatus('resolved', 'next_release')
+            }
             onDelete={() => void handleDeleteIssue()}
           />
 
@@ -513,6 +526,8 @@ export function IssueDetailPage({
             onNewNamesChange={setNewNames}
             onSave={() => void saveLabels()}
           />
+
+          <TagFacets issueId={issueId} />
 
           <div className="issue-events">
             {eventError !== null && (

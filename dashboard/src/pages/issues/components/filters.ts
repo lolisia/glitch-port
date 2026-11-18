@@ -25,9 +25,13 @@ export interface IssueFilters {
   level: string;
   environment: string;
   release: string;
+  /** Exact value of the issue's first_release. */
+  first_release: string;
   label: string;
   /** Selected platforms; an empty list means "all platforms". */
   platform: string[];
+  /** Only unresolved issues that reopened after being resolved. */
+  regressed: boolean;
   q: string;
   sort: IssueSortFilter;
 }
@@ -37,8 +41,10 @@ export const DEFAULT_ISSUE_FILTERS: IssueFilters = {
   level: '',
   environment: '',
   release: '',
+  first_release: '',
   label: '',
   platform: [],
+  regressed: false,
   q: '',
   sort: 'last_seen',
 };
@@ -61,6 +67,14 @@ export function parseIssueSortFilter(value: string | null): IssueSortFilter {
 
 function readTrimmed(query: URLSearchParams, key: string): string {
   return query.get(key)?.trim() ?? '';
+}
+
+/**
+ * Reads the `regressed` toggle. Only `true` (case-insensitive, like the API)
+ * enables it; every other value means "all issues".
+ */
+export function parseRegressedFilter(value: string | null): boolean {
+  return value?.trim().toLowerCase() === 'true';
 }
 
 /**
@@ -92,8 +106,10 @@ export function readIssueFilters(query: URLSearchParams): IssueFilters {
     level: readTrimmed(query, 'level'),
     environment: readTrimmed(query, 'environment'),
     release: readTrimmed(query, 'release'),
+    first_release: readTrimmed(query, 'first_release'),
     label: readTrimmed(query, 'label'),
     platform: parsePlatformFilter(query.get('platform')),
+    regressed: parseRegressedFilter(query.get('regressed')),
     q: readTrimmed(query, 'q'),
     sort: parseIssueSortFilter(query.get('sort')),
   };
@@ -120,9 +136,14 @@ export function buildIssueFilterParams(
   append('level', filters.level);
   append('environment', filters.environment);
   append('release', filters.release);
+  append('first_release', filters.first_release);
   append('label', filters.label);
   // One comma-separated value keeps shared links compact and matches the API.
   append('platform', filters.platform.join(','));
+  // The API only accepts `regressed=true`; "off" is the absence of the key.
+  if (filters.regressed) {
+    append('regressed', 'true');
+  }
   if (filters.sort !== DEFAULT_ISSUE_FILTERS.sort) {
     append('sort', filters.sort);
   }
@@ -140,12 +161,18 @@ export function buildIssueListQuery(
     level: filters.level,
     environment: filters.environment,
     release: filters.release,
+    first_release: filters.first_release,
     label: filters.label,
     platform: filters.platform,
     q: filters.q,
     sort: filters.sort,
     limit: ISSUE_PAGE_SIZE,
   };
+
+  // The endpoint rejects `regressed=false`; an absent value means all issues.
+  if (filters.regressed) {
+    query.regressed = true;
+  }
 
   if (cursor !== undefined) {
     query.cursor = cursor;

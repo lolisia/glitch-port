@@ -113,6 +113,17 @@ export function IssueFilterBar({
           ))}
         </select>
 
+        <input
+          type="search"
+          className="issues-first-release"
+          aria-label={t('issues.filters.firstRelease')}
+          placeholder={t('issues.filters.firstReleasePlaceholder')}
+          value={filters.first_release}
+          onChange={(event) =>
+            onFilterChange({ first_release: event.target.value })
+          }
+        />
+
         <select
           aria-label={t('issues.filters.label')}
           value={filters.label}
@@ -163,6 +174,15 @@ export function IssueFilterBar({
             </option>
           ))}
         </select>
+
+        <button
+          type="button"
+          className="issues-regressed-filter"
+          aria-pressed={filters.regressed}
+          onClick={() => onFilterChange({ regressed: !filters.regressed })}
+        >
+          {t('issues.filters.regressed')}
+        </button>
       </div>
     </div>
   );

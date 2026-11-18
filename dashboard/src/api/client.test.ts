@@ -14,6 +14,7 @@ import {
   fetchMessages,
   getEvent,
   getIssue,
+  getIssueTags,
   getProject,
   getStats,
   listIssueEvents,
@@ -21,6 +22,7 @@ import {
   listLabels,
   listProjectKeys,
   listProjects,
+  listReleases,
   parseConfiguredProjectId,
   revokeProjectKey,
   updateIssue,
@@ -35,11 +37,13 @@ import type {
   EventDetail,
   Issue,
   IssueDetail,
+  IssueTagsResponse,
   Label,
   Message,
   ProjectDetail,
   ProjectKey,
   ProjectListItem,
+  ReleaseListResponse,
   StatsResponse,
 } from './types';
 
@@ -130,8 +134,13 @@ const issue: Issue = {
   first_seen: '2026-01-01T00:00:00Z',
   last_seen: '2026-01-02T00:00:00Z',
   event_count: 3,
+  first_release: '1.0.0',
   last_release: null,
   last_environment: 'production',
+  resolved_at: null,
+  resolved_in_release: null,
+  regressed_at: null,
+  regression_count: 0,
   labels: [label],
 };
 
@@ -167,6 +176,38 @@ const issueDetail: IssueDetail = { ...issue, latest_event: event };
 const stats: StatsResponse = {
   buckets: [{ bucket: '2026-01-02T00:00:00Z', count: 7 }],
   by_platform: [{ platform: 'unreal', issue_count: 2, event_count: 7 }],
+};
+
+const releaseList: ReleaseListResponse = {
+  items: [
+    {
+      release: '1.0.0',
+      first_seen: '2026-01-01T00:00:00Z',
+      last_seen: '2026-01-02T00:00:00Z',
+      event_count: 12,
+      issue_count: 4,
+      new_issue_count: 3,
+      unresolved_issue_count: 2,
+    },
+  ],
+  next_cursor: 'release-cursor',
+};
+
+const issueTags: IssueTagsResponse = {
+  issue_id: 42,
+  sample_size: 3,
+  user_count: 2,
+  tags: [
+    {
+      key: 'release',
+      total: 3,
+      distinct: 2,
+      top: [
+        { value: '1.0.0', count: 2 },
+        { value: '1.1.0', count: 1 },
+      ],
+    },
+  ],
 };
 
 const projectList: ProjectListItem[] = [
@@ -414,8 +455,10 @@ describe('listIssues', () => {
         level: 'error',
         environment: 'production',
         release: '1.0.0',
+        first_release: '0.9.0',
         label: 'crash',
         platform: ['unity', 'dotnet'],
+        regressed: true,
         q: 'boom',
         sort: 'last_seen',
         limit: 25,
@@ -424,7 +467,7 @@ describe('listIssues', () => {
     ).resolves.toEqual({ items: [issue], next_cursor: 'next' });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `${API}/projects/3/issues?status=unresolved&level=error&environment=production&release=1.0.0&label=crash&platform=unity%2Cdotnet&q=boom&sort=last_seen&limit=25&cursor=next`,
+      `${API}/projects/3/issues?status=unresolved&level=error&environment=production&release=1.0.0&first_release=0.9.0&label=crash&platform=unity%2Cdotnet&regressed=true&q=boom&sort=last_seen&limit=25&cursor=next`,
       { headers: AUTH_HEADERS },
     );
   });
@@ -440,8 +483,10 @@ describe('listIssues', () => {
         level: '',
         environment: undefined,
         release: '',
+        first_release: '',
         label: undefined,
         platform: [],
+        regressed: undefined,
         q: '',
         sort: undefined,
         limit: undefined,
@@ -653,6 +698,60 @@ describe('getStats', () => {
       `${API}/projects/2/stats?period=14d`,
       { headers: AUTH_HEADERS },
     );
+  });
+});
+
+describe('listReleases', () => {
+  it('serializes the environment, limit and cursor', async () => {
+    const fetchMock = stubFetch(jsonResponse(releaseList));
+
+    await expect(
+      listReleases(3, {
+        environment: 'production',
+        limit: 50,
+        cursor: 'release-cursor',
+      }),
+    ).resolves.toEqual(releaseList);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${API}/projects/3/releases?environment=production&limit=50&cursor=release-cursor`,
+      { headers: AUTH_HEADERS },
+    );
+  });
+
+  it('omits the query string when no filters are given', async () => {
+    const fetchMock = stubFetch(jsonResponse({ items: [], next_cursor: null }));
+
+    await expect(listReleases(3)).resolves.toEqual({
+      items: [],
+      next_cursor: null,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/projects/3/releases`, {
+      headers: AUTH_HEADERS,
+    });
+  });
+});
+
+describe('getIssueTags', () => {
+  it('fetches the tag distribution with a per-facet limit', async () => {
+    const fetchMock = stubFetch(jsonResponse(issueTags));
+
+    await expect(getIssueTags(42, 10)).resolves.toEqual(issueTags);
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/issues/42/tags?limit=10`, {
+      headers: AUTH_HEADERS,
+    });
+  });
+
+  it('omits the limit so the server default applies', async () => {
+    const fetchMock = stubFetch(jsonResponse(issueTags));
+
+    await getIssueTags(42);
+
+    expect(fetchMock).toHaveBeenCalledWith(`${API}/issues/42/tags`, {
+      headers: AUTH_HEADERS,
+    });
   });
 });
 

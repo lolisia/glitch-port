@@ -77,8 +77,13 @@ function makeIssue(overrides: Partial<Issue> = {}): Issue {
     first_seen: new Date(now - (2 * 60 * 60 * 1000 + 10_000)).toISOString(),
     last_seen: new Date(now - (5 * 60 * 1000 + 10_000)).toISOString(),
     event_count: 12,
+    first_release: '0.9.0',
     last_release: '1.0.0',
     last_environment: 'production',
+    resolved_at: null,
+    resolved_in_release: null,
+    regressed_at: null,
+    regression_count: 0,
     labels: [crashLabel],
     ...overrides,
   };
@@ -300,6 +305,160 @@ describe('IssuesPage', () => {
       `${API}/projects/1/labels`,
       { headers: AUTH_HEADERS },
     );
+  });
+
+  it('shows the Regressed badge only on unresolved regressed issues', async () => {
+    const regressedAt = new Date(Date.now() - 15 * 60_000).toISOString();
+    const regressed = makeIssue({
+      id: 7,
+      title: 'Came back',
+      regressed_at: regressedAt,
+      regression_count: 1,
+    });
+    const resolved = makeIssue({
+      id: 8,
+      title: 'Old resolved',
+      status: 'resolved',
+      regressed_at: regressedAt,
+      regression_count: 2,
+    });
+    const plain = makeIssue({ id: 9, title: 'Never regressed' });
+
+    stubApi({ issues: issuePage([regressed, resolved, plain]) });
+
+    renderPage(<IssuesPage projectId={1} />);
+
+    const regressedRow = (
+      await screen.findByRole('link', { name: 'Came back' })
+    ).closest('tr');
+    expect(regressedRow).not.toBeNull();
+    expect(within(regressedRow as HTMLElement).getByText('Regressed')).toHaveClass(
+      'regressed-badge',
+    );
+
+    const resolvedRow = screen
+      .getByRole('link', { name: 'Old resolved' })
+      .closest('tr');
+    expect(resolvedRow).not.toBeNull();
+    expect(
+      within(resolvedRow as HTMLElement).queryByText('Regressed'),
+    ).not.toBeInTheDocument();
+
+    const plainRow = screen
+      .getByRole('link', { name: 'Never regressed' })
+      .closest('tr');
+    expect(plainRow).not.toBeNull();
+    expect(
+      within(plainRow as HTMLElement).queryByText('Regressed'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('syncs the regressed toggle and first_release input with the hash and request', async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubApi({
+      issues: [
+        issuePage([makeIssue()]),
+        issuePage([makeIssue()]),
+        issuePage([makeIssue()]),
+        issuePage([makeIssue()]),
+      ],
+    });
+
+    renderPage(<IssuesPage projectId={1} />);
+    await screen.findByRole('table');
+
+    const firstRelease = screen.getByLabelText('First release');
+    fireEvent.change(firstRelease, {
+      target: { value: 'game@1.0.0' },
+    });
+
+    await waitFor(() =>
+      expect(hashParams().get('first_release')).toBe('game@1.0.0'),
+    );
+    await waitFor(() =>
+      expect(
+        lastIssueRequest(fetchMock).searchParams.get('first_release'),
+      ).toBe('game@1.0.0'),
+    );
+    await screen.findByRole('table');
+
+    const regressed = screen.getByRole('button', { name: 'Regressed' });
+    expect(regressed).toHaveAttribute('aria-pressed', 'false');
+
+    await user.click(regressed);
+
+    expect(regressed).toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => expect(hashParams().get('regressed')).toBe('true'));
+    await waitFor(() =>
+      expect(lastIssueRequest(fetchMock).searchParams.get('regressed')).toBe(
+        'true',
+      ),
+    );
+    await screen.findByRole('table');
+    expect(window.location.hash).toBe(
+      '#/issues?first_release=game%401.0.0&regressed=true',
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Regressed' }));
+
+    expect(regressed).toHaveAttribute('aria-pressed', 'false');
+    await waitFor(() => expect(hashParams().has('regressed')).toBe(false));
+    await waitFor(() =>
+      expect(
+        lastIssueRequest(fetchMock).searchParams.has('regressed'),
+      ).toBe(false),
+    );
+  });
+
+  it('prefills the regressed toggle and first_release from the hash', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/#/issues?first_release=game%401.0.0&regressed=true',
+    );
+    const fetchMock = stubApi({ issues: issuePage([makeIssue()]) });
+
+    renderPage(<IssuesPage projectId={1} />);
+    await screen.findByRole('table');
+
+    expect(screen.getByLabelText('First release')).toHaveValue('game@1.0.0');
+    expect(screen.getByRole('button', { name: 'Regressed' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    const query = lastIssueRequest(fetchMock).searchParams;
+    expect(query.get('first_release')).toBe('game@1.0.0');
+    expect(query.get('regressed')).toBe('true');
+  });
+
+  it('bulk resolves the selection in the next release', async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubApi({
+      issues: [
+        issuePage([makeIssue({ id: 1, title: 'First' })]),
+        issuePage([makeIssue({ id: 2, title: 'Second' })]),
+      ],
+    });
+
+    renderPage(<IssuesPage projectId={1} />);
+    await screen.findByRole('link', { name: 'First' });
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
+    await user.click(
+      screen.getByRole('button', { name: 'Resolve in next release' }),
+    );
+
+    expect(await screen.findByRole('link', { name: 'Second' })).toBeInTheDocument();
+
+    const bulk = bulkCalls(fetchMock);
+    expect(bulk).toHaveLength(1);
+    expect(bulk[0][1]).toEqual({
+      method: 'POST',
+      headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [1], action: 'resolve_next_release' }),
+    });
+    expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
   });
 
   it('renders the 24h stats chart, total and platform breakdown from getStats', async () => {

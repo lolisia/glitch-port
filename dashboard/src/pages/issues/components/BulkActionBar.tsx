@@ -44,6 +44,13 @@ export function BulkActionBar({
         </button>
         <button
           type="button"
+          onClick={() => onAction('resolve_next_release')}
+          disabled={pending}
+        >
+          {t('issues.bulk.resolveNextRelease')}
+        </button>
+        <button
+          type="button"
           onClick={() => onAction('unresolve')}
           disabled={pending}
         >

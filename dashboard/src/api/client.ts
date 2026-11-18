@@ -11,11 +11,13 @@ import type {
   IssueDetail,
   IssueListQuery,
   IssueListResponse,
+  IssueTagsResponse,
   Label,
   Message,
   ProjectDetail,
   ProjectKey,
   ProjectListItem,
+  ReleaseListResponse,
   StatsResponse,
   UpdateIssueRequest,
   UpdateLabelRequest,
@@ -345,5 +347,35 @@ export function getStats(
 ): Promise<StatsResponse> {
   return apiRequest<StatsResponse>(`/projects/${projectId}/stats`, {
     query: { period },
+  });
+}
+
+/**
+ * GET /api/manage/projects/{projectId}/releases
+ *
+ * Releases are ordered by last_seen descending; `next_cursor` pages through
+ * them when a project has more than `limit` releases.
+ */
+export function listReleases(
+  projectId: number,
+  query: { environment?: string; limit?: number; cursor?: string } = {},
+): Promise<ReleaseListResponse> {
+  return apiRequest<ReleaseListResponse>(`/projects/${projectId}/releases`, {
+    query,
+  });
+}
+
+/**
+ * GET /api/manage/issues/{issueId}/tags
+ *
+ * `limit` caps the values returned per facet (1-25, 10 by default); the
+ * response describes the newest sampled events of the issue.
+ */
+export function getIssueTags(
+  issueId: number,
+  limit?: number,
+): Promise<IssueTagsResponse> {
+  return apiRequest<IssueTagsResponse>(`/issues/${issueId}/tags`, {
+    query: { limit },
   });
 }

@@ -240,3 +240,126 @@
 .event-panel-meta dd {
   margin: 0.25rem 0 0;
 }
+
+/* Regression context ------------------------------------------------------ */
+
+.issue-reopen-note {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border-subtle);
+  border-left: 3px solid var(--color-accent);
+  border-radius: 4px;
+  background-color: var(--color-accent-subtle);
+  font-size: 0.875rem;
+}
+
+/* Tag distribution ------------------------------------------------------- */
+
+.issue-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.issue-tags h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.issue-tags-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0;
+  color: var(--color-fg-muted);
+  font-size: 0.875rem;
+}
+
+.issue-tag-facets {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.issue-tag-facet-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0 0 0.25rem;
+  font-size: 0.875rem;
+}
+
+.issue-tag-facet-key {
+  font-weight: 600;
+}
+
+.issue-tag-facet-total {
+  color: var(--color-fg-muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.issue-tag-values {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.issue-tag-value {
+  display: grid;
+  grid-template-columns: minmax(6rem, 14rem) minmax(4rem, 1fr) 3rem 3.5rem;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.issue-tag-value-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.issue-tag-value-bar-track {
+  height: 0.5rem;
+  border-radius: 999px;
+  background-color: var(--color-chip-bg);
+  overflow: hidden;
+}
+
+.issue-tag-value-bar {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background-color: var(--color-accent);
+}
+
+.issue-tag-value-percentage,
+.issue-tag-value-count {
+  text-align: right;
+  color: var(--color-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.issue-tag-facet-empty,
+.issue-tags-empty {
+  margin: 0;
+  color: var(--color-fg-muted);
+  font-size: 0.875rem;
+}
+
+@media (max-width: 720px) {
+  .issue-tag-value {
+    grid-template-columns: minmax(4rem, 1fr) 3rem 3rem;
+  }
+
+  .issue-tag-value-bar-track {
+    display: none;
+  }
+}

@@ -8,6 +8,7 @@ import { IssuesPage } from './pages/issues/IssuesPage';
 import { MessagesPage } from './pages/messages/MessagesPage';
 import { ProjectDetailPage } from './pages/projects/ProjectDetailPage';
 import { ProjectsPage } from './pages/projects/ProjectsPage';
+import { ReleasesPage } from './pages/releases/ReleasesPage';
 import {
   clearStoredProjectId,
   parseConfiguredProjectId,
@@ -202,6 +203,13 @@ export default function App() {
           </a>
           <a
             className="tab"
+            href="#/releases"
+            aria-current={route.name === 'releases' ? 'page' : undefined}
+          >
+            {t('nav.releases')}
+          </a>
+          <a
+            className="tab"
             href="#/messages"
             aria-current={route.name === 'messages' ? 'page' : undefined}
           >
@@ -245,6 +253,10 @@ export default function App() {
 
       <main className="page">
         {route.name === 'messages' && <MessagesPage />}
+
+        {route.name === 'releases' && (
+          <ReleasesPage projectId={activeProjectId} />
+        )}
 
         {route.name === 'projects' && (
           <ProjectsPage onProjectsChanged={reloadProjects} />

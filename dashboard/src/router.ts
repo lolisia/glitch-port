@@ -1,7 +1,14 @@
 import { useMemo, useSyncExternalStore } from 'react';
 
 export interface AppRoute {
-  name: 'issues' | 'issue' | 'messages' | 'projects' | 'project' | 'unknown';
+  name:
+    | 'issues'
+    | 'issue'
+    | 'releases'
+    | 'messages'
+    | 'projects'
+    | 'project'
+    | 'unknown';
   issueId: number | null;
   /** Set for `#/projects/<id>`; null for every other route. */
   projectId: number | null;
@@ -42,6 +49,10 @@ export function parseHash(hash: string): AppRoute {
 
   if (path === 'issues') {
     return { name: 'issues', issueId: null, projectId: null, query };
+  }
+
+  if (path === 'releases') {
+    return { name: 'releases', issueId: null, projectId: null, query };
   }
 
   if (path === 'projects') {

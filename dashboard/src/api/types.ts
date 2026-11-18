@@ -108,8 +108,18 @@ export interface Issue {
   first_seen: string;
   last_seen: string;
   event_count: number;
+  /** Release of the earliest event; null when no event carried a release. */
+  first_release: string | null;
   last_release: string | null;
   last_environment: string | null;
+  /** Set while the issue is resolved; null after it reopens. */
+  resolved_at: string | null;
+  /** Release the issue was resolved in; null for an immediate resolution. */
+  resolved_in_release: string | null;
+  /** Set while the issue is an unresolved regression, null otherwise. */
+  regressed_at: string | null;
+  /** Number of times a resolved issue reopened after its resolution. */
+  regression_count: number;
   labels: Label[];
 }
 
@@ -228,9 +238,13 @@ export interface IssueListQuery {
   level?: string;
   environment?: string;
   release?: string;
+  /** Exact value of the issue's first_release. */
+  first_release?: string;
   label?: string;
   /** One or more platform names; serialized as a comma-separated value. */
   platform?: string[];
+  /** Only unresolved issues that reopened after being resolved. */
+  regressed?: boolean;
   q?: string;
   sort?: 'last_seen' | 'first_seen' | 'count';
   limit?: number;
@@ -239,11 +253,17 @@ export interface IssueListQuery {
 
 export interface UpdateIssueRequest {
   status?: IssueStatus;
+  /**
+   * Only valid together with `status: 'resolved'`. `next_release` pins the
+   * resolution to the release of the most recent event.
+   */
+  resolve_in?: 'now' | 'next_release';
   labels?: string[];
 }
 
 export type BulkAction =
   | 'resolve'
+  | 'resolve_next_release'
   | 'unresolve'
   | 'ignore'
   | 'delete'
@@ -268,4 +288,56 @@ export interface CreateLabelRequest {
 export interface UpdateLabelRequest {
   name?: string;
   color?: string;
+}
+
+/**
+ * One release aggregated from the stored events of a project.
+ *
+ * `first_seen` and `last_seen` are the event timestamps, not when the release
+ * was deployed; `new_issue_count` counts the issues whose first_release is this
+ * release.
+ */
+export interface Release {
+  release: string;
+  first_seen: string;
+  last_seen: string;
+  event_count: number;
+  issue_count: number;
+  new_issue_count: number;
+  unresolved_issue_count: number;
+}
+
+/** `GET /api/manage/projects/{projectId}/releases` response. */
+export interface ReleaseListResponse {
+  items: Release[];
+  next_cursor: string | null;
+}
+
+/** One value of a tag facet and the number of sampled events carrying it. */
+export interface IssueTagValue {
+  value: string;
+  count: number;
+}
+
+/** Distribution of one tag key over the sampled events of an issue. */
+export interface IssueTagFacet {
+  /** Facet key, for example `release`, `os.name` or `tags.map`. */
+  key: string;
+  /** Number of sampled events with a non-empty value of the key. */
+  total: number;
+  /** Number of distinct non-empty values of the key. */
+  distinct: number;
+  /** Most frequent values, ordered by count descending then value ascending. */
+  top: IssueTagValue[];
+}
+
+/** `GET /api/manage/issues/{issueId}/tags` response. */
+export interface IssueTagsResponse {
+  issue_id: number;
+  /** Number of newest events the distribution was computed from. */
+  sample_size: number;
+  /** Distinct non-null user ids among the sampled events. */
+  user_count: number;
+  /** Fixed facets followed by the most frequent payload tag keys. */
+  tags: IssueTagFacet[];
 }

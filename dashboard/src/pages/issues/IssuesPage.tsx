@@ -46,8 +46,18 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
   const { t } = useI18n();
   // Memoized so array filters keep a stable identity between renders.
   const filters = useMemo(() => readIssueFilters(route.query), [route.query]);
-  const { status, level, environment, release, label, platform, q, sort } =
-    filters;
+  const {
+    status,
+    level,
+    environment,
+    release,
+    first_release,
+    label,
+    platform,
+    regressed,
+    q,
+    sort,
+  } = filters;
 
   const [items, setItems] = useState<Issue[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -216,8 +226,10 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
       level,
       environment,
       release,
+      first_release,
       label,
       platform,
+      regressed,
       q,
       sort,
     });
@@ -228,8 +240,10 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
     level,
     environment,
     release,
+    first_release,
     label,
     platform,
+    regressed,
     q,
     sort,
   ]);

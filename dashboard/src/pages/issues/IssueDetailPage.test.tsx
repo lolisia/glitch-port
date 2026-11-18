@@ -8,6 +8,7 @@ import type {
   EventSummaryList,
   Issue,
   IssueDetail,
+  IssueTagsResponse,
   Label,
   UpdateIssueRequest,
 } from '../../api/types';
@@ -133,8 +134,13 @@ const baseIssue: IssueDetail = {
   first_seen: FIRST_SEEN,
   last_seen: LAST_SEEN,
   event_count: 3,
+  first_release: '1.0.0',
   last_release: '1.2.0',
   last_environment: 'production',
+  resolved_at: null,
+  resolved_in_release: null,
+  regressed_at: null,
+  regression_count: 0,
   labels: [LABELS[0]],
   latest_event: latestEvent,
 };
@@ -150,6 +156,29 @@ const defaultEventDetails: Record<string, EventDetail> = {
   'event-1': oldestEvent,
 };
 
+const defaultTags: IssueTagsResponse = {
+  issue_id: 42,
+  sample_size: 3,
+  user_count: 2,
+  tags: [
+    {
+      key: 'release',
+      total: 3,
+      distinct: 2,
+      top: [
+        { value: '1.2.0', count: 2 },
+        { value: '1.0.0', count: 1 },
+      ],
+    },
+    {
+      key: 'os.name',
+      total: 2,
+      distinct: 1,
+      top: [{ value: 'Windows 11', count: 2 }],
+    },
+  ],
+};
+
 type Resolver<T> = T | (() => T);
 
 interface ServerOptions {
@@ -162,6 +191,8 @@ interface ServerOptions {
   eventError?: MockResponse;
   patchIssue?: (body: UpdateIssueRequest) => Issue;
   patchError?: MockResponse;
+  tags?: Resolver<IssueTagsResponse>;
+  tagsError?: MockResponse;
   onDeleteEvent?: (id: string) => void;
   onDeleteIssue?: () => void;
 }
@@ -186,15 +217,30 @@ function applyPatch(issue: IssueDetail, patch: UpdateIssueRequest): Issue {
           return existing ?? { id: 100 + index, name, color: '#888888' };
         });
 
+  let resolvedAt = issue.resolved_at;
+  let resolvedInRelease = issue.resolved_in_release;
+
+  if (patch.status === 'resolved') {
+    resolvedAt = issue.resolved_at ?? new Date().toISOString();
+    resolvedInRelease =
+      patch.resolve_in === 'next_release' ? issue.last_release : null;
+  } else if (patch.status !== undefined) {
+    resolvedAt = null;
+    resolvedInRelease = null;
+  }
+
   return {
     ...issue,
     status: patch.status ?? issue.status,
+    resolved_at: resolvedAt,
+    resolved_in_release: resolvedInRelease,
     labels,
   };
 }
 
 const ISSUE_PATH = '/api/manage/issues/42';
 const EVENTS_PATH = '/api/manage/issues/42/events';
+const TAGS_PATH = '/api/manage/issues/42/tags';
 const EVENT_PATH_PREFIX = '/api/manage/events/';
 const LABELS_PATH = '/api/manage/projects/1/labels';
 
@@ -277,6 +323,14 @@ function stubApi(options: ServerOptions = {}) {
 
       if (method === 'GET' && /^\/api\/manage\/projects\/\d+\/labels$/.test(path)) {
         return jsonResponse(resolveValue(options.labels ?? LABELS));
+      }
+
+      if (method === 'GET' && path === TAGS_PATH) {
+        if (options.tagsError !== undefined) {
+          return options.tagsError;
+        }
+
+        return jsonResponse(resolveValue(options.tags ?? defaultTags));
       }
 
       throw new Error(`Unexpected fetch: ${method} ${path}`);
@@ -416,19 +470,25 @@ describe('IssueDetailPage', () => {
     expect(within(items[1]).getByText('<no message>')).toBeInTheDocument();
   });
 
-  it('renders dashes for a missing release and environment', async () => {
+  it('renders dashes for missing release, resolution and regression fields', async () => {
     stubApi({
       issue: {
         ...baseIssue,
+        first_release: null,
         last_release: null,
         last_environment: null,
+        resolved_at: null,
+        resolved_in_release: null,
+        regressed_at: null,
       },
     });
 
     renderPage(<IssueDetailPage issueId={42} projectId={1} />);
 
     const header = await screen.findByTestId('issue-detail-header');
-    expect(within(header).getAllByText('-')).toHaveLength(2);
+    // first/last release, environment, resolved at/in release and regressed at.
+    expect(within(header).getAllByText('-')).toHaveLength(6);
+    expect(screen.queryByTestId('issue-reopen-note')).not.toBeInTheDocument();
   });
 
   it('renders the load error and token guidance on 401', async () => {
@@ -491,6 +551,103 @@ describe('IssueDetailPage', () => {
     expect(screen.getByRole('button', { name: 'Unresolve' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Ignore' })).toBeEnabled();
     expect(await screen.findByText('Latest payload body')).toBeInTheDocument();
+  });
+
+  it('resolves in the next release and shows the pinned release with the reopen note', async () => {
+    const user = userEvent.setup();
+    const { calls } = stubApi();
+
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
+
+    const header = await screen.findByTestId('issue-detail-header');
+    const button = screen.getByRole('button', {
+      name: 'Resolve in next release',
+    });
+    expect(button).toBeEnabled();
+
+    await user.click(button);
+
+    await waitFor(() =>
+      expect(callsTo(calls, 'PATCH', ISSUE_PATH)).toHaveLength(1),
+    );
+    expect(callsTo(calls, 'PATCH', ISSUE_PATH)[0].body).toEqual({
+      status: 'resolved',
+      resolve_in: 'next_release',
+    });
+
+    expect(await within(header).findByText('Resolved')).toBeInTheDocument();
+    expect(
+      await screen.findByTestId('issue-reopen-note'),
+    ).toHaveTextContent('This issue reopens if it recurs after 1.2.0.');
+  });
+
+  it('disables resolve in next release when the issue has no release', async () => {
+    stubApi({ issue: { ...baseIssue, last_release: null } });
+
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
+
+    await screen.findByTestId('issue-detail-header');
+
+    const button = screen.getByRole('button', {
+      name: 'Resolve in next release',
+    });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute(
+      'title',
+      'No release recorded for this issue yet.',
+    );
+  });
+
+  it('shows first and last release plus regression information', async () => {
+    const regressedAt = minutesAgo(20);
+    const resolvedAt = minutesAgo(40);
+
+    stubApi({
+      issue: {
+        ...baseIssue,
+        status: 'resolved',
+        resolved_at: resolvedAt,
+        resolved_in_release: '1.2.0',
+        regressed_at: regressedAt,
+        regression_count: 2,
+      },
+    });
+
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
+
+    const header = await screen.findByTestId('issue-detail-header');
+
+    expect(within(header).getByText('First release')).toBeInTheDocument();
+    expect(within(header).getByText('Last release')).toBeInTheDocument();
+    expect(within(header).getByText('Resolved at')).toBeInTheDocument();
+    expect(within(header).getByText('Resolved in release')).toBeInTheDocument();
+    expect(within(header).getByText('Regressions')).toBeInTheDocument();
+    expect(within(header).getByText('2')).toBeInTheDocument();
+    expect(within(header).getAllByText('1.2.0').length).toBeGreaterThan(0);
+    expect(
+      header.querySelector(`time[datetime="${regressedAt}"]`),
+    ).not.toBeNull();
+    expect(
+      header.querySelector(`time[datetime="${resolvedAt}"]`),
+    ).not.toBeNull();
+
+    expect(screen.getByTestId('issue-reopen-note')).toHaveTextContent(
+      'This issue reopens if it recurs after 1.2.0.',
+    );
+  });
+
+  it('keeps the detail page usable when the tag distribution fails', async () => {
+    stubApi({ tagsError: jsonResponse({ error: 'boom' }, 500) });
+
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
+
+    const header = await screen.findByTestId('issue-detail-header');
+    expect(
+      await screen.findByText('Failed to load tags: HTTP 500: boom'),
+    ).toBeInTheDocument();
+    expect(header).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete issue' })).toBeEnabled();
+    expect(screen.getByTestId('issue-event-list')).toBeInTheDocument();
   });
 
   it('saves checked labels plus typed names in project order and clears the input', async () => {
@@ -884,7 +1041,8 @@ describe('IssueDetailPage', () => {
     expect(within(header).getByText('상태')).toBeInTheDocument();
     expect(within(header).getByText('첫 발생')).toBeInTheDocument();
     expect(within(header).getByText('마지막 발생')).toBeInTheDocument();
-    expect(within(header).getByText('릴리스')).toBeInTheDocument();
+    expect(within(header).getByText('첫 릴리스')).toBeInTheDocument();
+    expect(within(header).getByText('마지막 릴리스')).toBeInTheDocument();
     expect(within(header).getByText('환경')).toBeInTheDocument();
     expect(within(header).getByText('오류')).toBeInTheDocument();
     expect(within(header).getByText('미해결')).toBeInTheDocument();
