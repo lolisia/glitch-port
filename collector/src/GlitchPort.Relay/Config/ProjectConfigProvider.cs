@@ -1,13 +1,17 @@
 namespace GlitchPort.Relay.Config;
 
 /// <summary>
-/// Merges the static <c>Relay:Projects</c> configuration with the latest
-/// Processor project configuration and authorizes public keys against the
-/// union. Unknown (project id, key) pairs are negatively cached for
+/// Holds the latest Processor project configuration and authorizes public keys
+/// against it. Unknown (project id, key) pairs are negatively cached for
 /// <c>Relay:UnknownKeyCacheSeconds</c>; a successful Processor refresh clears
 /// that cache so keys created in the meantime start working immediately.
 /// </summary>
 /// <remarks>
+/// The Processor snapshot is the only key source: there is no static
+/// configuration fallback. Before the first successful refresh the provider
+/// reports the <c>none</c> source and the ingest endpoints answer
+/// <c>503 Service Unavailable</c> so clients retry instead of losing events.
+/// <para>
 /// The negative cache is a best-effort optimization that only avoids repeating
 /// lookups for pairs that are known to be unknown. Unknown keys arrive straight
 /// from a public request header, so they are attacker controlled: the cache
@@ -15,6 +19,7 @@ namespace GlitchPort.Relay.Config;
 /// characters, never grows beyond <see cref="MaxUnknownKeyCacheEntries"/>
 /// entries and is never scanned per request. Authentication itself does not
 /// depend on the cache.
+/// </para>
 /// </remarks>
 public sealed class ProjectConfigProvider
 {
@@ -28,28 +33,29 @@ public sealed class ProjectConfigProvider
     /// </summary>
     public const int MaxUnknownKeyCacheKeyLength = 128;
 
-    private const string StaticSource = "static";
-    private const string ProcessorSource = "processor";
+    /// <summary>Source reported before the first successful Processor refresh.</summary>
+    public const string NotLoadedSource = "none";
+
+    /// <summary>Source reported after at least one successful Processor refresh.</summary>
+    public const string ProcessorSource = "processor";
 
     private readonly object _gate = new();
-    private readonly IReadOnlyDictionary<long, string[]> _staticProjects;
     private readonly TimeSpan _unknownKeyCacheDuration;
     private readonly TimeProvider _timeProvider;
     private readonly Dictionary<(long ProjectId, string Key), DateTimeOffset> _unknownKeys = [];
 
     private ProjectConfigSnapshot _snapshot = ProjectConfigSnapshot.Empty;
     private DateTimeOffset? _lastRefresh;
-    private bool _refreshedFromProcessor;
+    private bool _configurationLoaded;
     private long _unknownKeyCacheHits;
 
     /// <summary>Creates a provider from the Relay options.</summary>
-    /// <param name="options">Static Relay configuration.</param>
+    /// <param name="options">Relay configuration.</param>
     /// <param name="timeProvider">Clock used for negative-cache expiry.</param>
     public ProjectConfigProvider(RelayOptions options, TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        _staticProjects = options.Projects;
         _unknownKeyCacheDuration = TimeSpan.FromSeconds(options.UnknownKeyCacheSeconds);
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
@@ -66,14 +72,33 @@ public sealed class ProjectConfigProvider
         }
     }
 
-    /// <summary>Where the active project configuration came from.</summary>
+    /// <summary>
+    /// Whether a successful Processor refresh (HTTP <c>200</c> or <c>304</c>)
+    /// has happened. The ingest endpoints answer <c>503</c> until this is true,
+    /// and a presented key is deliberately not negatively cached in that state.
+    /// </summary>
+    public bool IsConfigurationLoaded
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _configurationLoaded;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Either <c>none</c> before the first successful refresh or
+    /// <c>processor</c> afterwards.
+    /// </summary>
     public string Source
     {
         get
         {
             lock (_gate)
             {
-                return _refreshedFromProcessor ? ProcessorSource : StaticSource;
+                return _configurationLoaded ? ProcessorSource : NotLoadedSource;
             }
         }
     }
@@ -90,14 +115,14 @@ public sealed class ProjectConfigProvider
         }
     }
 
-    /// <summary>Union of the static and cached project ids.</summary>
+    /// <summary>Number of projects in the latest Processor configuration.</summary>
     public int ProjectCount
     {
         get
         {
             lock (_gate)
             {
-                return CountProjects();
+                return _snapshot.ProjectCount;
             }
         }
     }
@@ -116,7 +141,7 @@ public sealed class ProjectConfigProvider
 
     /// <summary>
     /// Number of authorizations that were answered from the unknown-key negative
-    /// cache instead of the static or Processor configuration.
+    /// cache instead of the Processor configuration.
     /// </summary>
     public long UnknownKeyCacheHits
     {
@@ -135,15 +160,15 @@ public sealed class ProjectConfigProvider
         lock (_gate)
         {
             return new ProjectConfigStatus(
-                _refreshedFromProcessor ? ProcessorSource : StaticSource,
+                _configurationLoaded ? ProcessorSource : NotLoadedSource,
                 _lastRefresh,
-                CountProjects());
+                _snapshot.ProjectCount);
         }
     }
 
     /// <summary>
     /// Authorizes <paramref name="publicKey"/> for <paramref name="projectId"/>
-    /// against the static and cached configuration.
+    /// against the latest Processor configuration.
     /// </summary>
     public PublicKeyAuthorization? Authorize(long projectId, string? publicKey)
     {
@@ -154,41 +179,22 @@ public sealed class ProjectConfigProvider
 
         lock (_gate)
         {
-            var isStaticKey = _staticProjects.TryGetValue(projectId, out var staticKeys)
-                && staticKeys is not null
-                && staticKeys.Contains(publicKey, StringComparer.Ordinal);
-
             var now = _timeProvider.GetUtcNow();
             if (_unknownKeyCacheDuration > TimeSpan.Zero
                 && _unknownKeys.TryGetValue((projectId, publicKey), out var expiresAt))
             {
                 if (expiresAt > now)
                 {
-                    // The static configuration is immutable for the lifetime of
-                    // the Relay, so an accepted static key can never have been
-                    // cached as unknown; let it through to pick up a Processor
-                    // rate limit when the cached snapshot also knows the key.
-                    if (!isStaticKey)
-                    {
-                        _unknownKeyCacheHits++;
-                        return null;
-                    }
+                    _unknownKeyCacheHits++;
+                    return null;
                 }
-                else
-                {
-                    _unknownKeys.Remove((projectId, publicKey));
-                }
+
+                _unknownKeys.Remove((projectId, publicKey));
             }
 
-            int? cachedRateLimit = null;
-            var isCachedKey = _snapshot.TryGetRateLimit(projectId, publicKey, out cachedRateLimit);
-
-            if (isStaticKey || isCachedKey)
+            if (_snapshot.TryGetRateLimit(projectId, publicKey, out var cachedRateLimit))
             {
-                return new PublicKeyAuthorization(
-                    projectId,
-                    publicKey,
-                    isCachedKey ? cachedRateLimit : null);
+                return new PublicKeyAuthorization(projectId, publicKey, cachedRateLimit);
             }
 
             RememberUnknownKey(projectId, publicKey, now);
@@ -208,7 +214,7 @@ public sealed class ProjectConfigProvider
         {
             _snapshot = snapshot;
             _lastRefresh = refreshedAt;
-            _refreshedFromProcessor = true;
+            _configurationLoaded = true;
             _unknownKeys.Clear();
         }
     }
@@ -222,21 +228,9 @@ public sealed class ProjectConfigProvider
         lock (_gate)
         {
             _lastRefresh = refreshedAt;
-            _refreshedFromProcessor = true;
+            _configurationLoaded = true;
             _unknownKeys.Clear();
         }
-    }
-
-    private int CountProjects()
-    {
-        var projectIds = new HashSet<long>(_staticProjects.Keys);
-
-        foreach (var projectId in _snapshot.Projects.Keys)
-        {
-            projectIds.Add(projectId);
-        }
-
-        return projectIds.Count;
     }
 
     private void RememberUnknownKey(long projectId, string publicKey, DateTimeOffset now)
@@ -261,7 +255,7 @@ public sealed class ProjectConfigProvider
 }
 
 /// <summary>Health information about the active project configuration.</summary>
-/// <param name="Source">Either <c>static</c> or <c>processor</c>.</param>
+/// <param name="Source">Either <c>none</c> before the first successful refresh or <c>processor</c> afterwards.</param>
 /// <param name="LastRefresh">Time of the last successful refresh, if any.</param>
-/// <param name="ProjectCount">Union of static and cached project ids.</param>
+/// <param name="ProjectCount">Number of projects in the latest Processor configuration.</param>
 public sealed record ProjectConfigStatus(string Source, DateTimeOffset? LastRefresh, int ProjectCount);

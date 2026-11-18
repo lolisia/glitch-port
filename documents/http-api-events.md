@@ -48,13 +48,18 @@ missing key.
 
 The Relay loads keys from the Processor and refreshes them periodically
 (`Relay:ConfigRefreshSeconds`, default 60 seconds). A revoked key stops working
-after the next refresh unless the same key is also listed in the Relay's static
-`Relay:Projects` configuration; a newly created key starts working after the
-next refresh. Unknown `(project id, key)` pairs are also kept in an in-memory
+after the next refresh; a newly created key starts working after the next
+refresh. Unknown `(project id, key)` pairs are also kept in an in-memory
 negative cache for `Relay:UnknownKeyCacheSeconds` (default 30 seconds) so
 repeated bad keys do not cause repeated lookups. That cache is an internal
 optimization only and does not change the contract: a key that is not valid for
 the project always returns `401`, even while it is cached.
+
+The Processor configuration is the only key source; the Relay has no static key
+fallback. Until the first successful configuration load, both ingest endpoints
+return `503 Service Unavailable` with `Retry-After: 5` and
+`{"error":"project configuration not loaded"}`. SDKs retry (or queue) the
+event, so nothing is lost during a Relay start or a Processor outage.
 
 ## Rate limits
 
@@ -262,6 +267,7 @@ returns `400`. The successful response is `202` with the same
 | `401 Unauthorized` | `X-GlitchPort-Key` is missing, unknown, revoked or does not belong to the project. | `{"error": "A valid X-GlitchPort-Key header is required."}` |
 | `413 Payload Too Large` | The decompressed body exceeds 1 MB. | `{"error": "<reason>"}` |
 | `429 Too Many Requests` | The project or key exceeded its ingest rate limit. The event was not stored. | `{"error": "rate limit exceeded"}` and `Retry-After: <seconds>`. |
+| `503 Service Unavailable` | The Relay has not loaded the Processor project configuration yet. Retry after the advertised delay; the event was not stored. | `{"error":"project configuration not loaded"}` and `Retry-After: 5`. |
 | `503 Service Unavailable` | The event could not be published (for example the Processor is temporarily unavailable). The event was not acknowledged and can be retried. | `{"error": "<reason>"}` and `Retry-After: 5`. |
 
 Clients should retry `429` and `503` after at least the number of seconds in

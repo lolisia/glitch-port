@@ -185,7 +185,7 @@ ASPNETCORE_ENVIRONMENT=Development \
 processor_pid=$!
 
 echo "e2e-events: starting relay (log: $relay_log)"
-ASPNETCORE_ENVIRONMENT=Development \
+ASPNETCORE_ENVIRONMENT=Development Relay__ConfigRefreshSeconds=2 \
     dotnet run --project collector/src/GlitchPort.Relay/GlitchPort.Relay.csproj \
     -c Release --no-build >"$relay_log" 2>&1 &
 relay_pid=$!
@@ -217,6 +217,38 @@ wait_for_health() {
 
 wait_for_health "processor" "$processor_endpoint/healthz" "$processor_pid"
 wait_for_health "relay" "$relay_endpoint/healthz" "$relay_pid"
+
+# Poll the Relay /healthz until its project configuration was loaded from the
+# Processor. Until that first successful refresh the Relay answers ingest
+# requests with 503, so no event may be sent before config.source is
+# "processor".
+wait_for_relay_config() {
+    local deadline=$((SECONDS + 60))
+    local body=""
+    local source=""
+
+    echo "e2e-events: waiting for the relay project configuration"
+
+    while :; do
+        body="$(curl -sf "$relay_endpoint/healthz" 2>/dev/null || true)"
+        source="$(sed -n -E 's/.*"source"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' <<<"$body")"
+
+        if [ "$source" = "processor" ]; then
+            echo "e2e-events: relay loaded the project configuration from the processor"
+            return 0
+        fi
+
+        if [ "$SECONDS" -ge "$deadline" ]; then
+            echo "e2e-events: relay did not report config.source=processor within 60s" >&2
+            printf '%s\n' "${body:-<no response>}" >&2
+            return 1
+        fi
+
+        sleep 1
+    done
+}
+
+wait_for_relay_config
 
 # Return a fresh 32-character hexadecimal event id. Four $RANDOM values keep
 # repeated runs from being deduplicated when a previous teardown left data

@@ -50,8 +50,11 @@ internal sealed class HealthResponse
 /// <summary>Project-configuration section of the health response.</summary>
 internal sealed class HealthConfigResponse
 {
-    /// <summary>Either <c>static</c> or <c>processor</c>.</summary>
-    public string Source { get; init; } = "static";
+    /// <summary>
+    /// Either <c>none</c> before the first successful Processor refresh or
+    /// <c>processor</c> afterwards.
+    /// </summary>
+    public string Source { get; init; } = "none";
 
     /// <summary>
     /// ISO 8601 UTC timestamp of the last successful refresh, or
@@ -60,6 +63,6 @@ internal sealed class HealthConfigResponse
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public string? LastRefresh { get; init; }
 
-    /// <summary>Union of the static and cached project ids.</summary>
+    /// <summary>Number of projects in the latest Processor configuration.</summary>
     public int ProjectCount { get; init; }
 }

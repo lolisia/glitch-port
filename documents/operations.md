@@ -208,7 +208,10 @@ The Relay does not pin a client, SDK instance or event to a particular
 Processor. Any instance can handle any ingest request, and the Dashboard or
 automation can call the Management API on any instance. No sticky sessions or
 shared memory are required; the per-Relay project-config cache is disposable and
-rebuilt from the Processors.
+is loaded only from the Processors. There is no static key fallback: until the
+first configuration load succeeds, ingest requests return `503` with
+`Retry-After: 5` and `{"error":"project configuration not loaded"}`, so clients
+retry or queue instead of losing events.
 
 ## Full local stack
 

@@ -126,7 +126,10 @@ public sealed class ProjectConfigCacheTests
         Assert.Equal("processor", harness.Provider.Source);
         Assert.NotNull(harness.Provider.LastRefresh);
         Assert.Equal(0, harness.Provider.Snapshot.ProjectCount);
-        Assert.NotNull(harness.Provider.Authorize(1, "static-key"));
+
+        // A 304 without a snapshot leaves the empty configuration active: no
+        // key is accepted until the Processor actually returns a snapshot.
+        Assert.Null(harness.Provider.Authorize(1, "legacy-key"));
     }
 
     [Fact]
@@ -166,21 +169,18 @@ public sealed class ProjectConfigCacheTests
     }
 
     [Fact]
-    public async Task RefreshOnceAsync_WhenNoRefreshEverSucceeded_UsesStaticConfigurationOnly()
+    public async Task RefreshOnceAsync_WhenNoRefreshEverSucceeded_ReportsNoneAndAuthorizesNothing()
     {
         using var harness = new CacheHarness(["http://processor-a:5090"]);
 
         var refreshed = await harness.Cache.RefreshOnceAsync(CancellationToken.None);
 
         Assert.False(refreshed);
-        Assert.Equal("static", harness.Provider.Source);
+        Assert.Equal("none", harness.Provider.Source);
         Assert.Null(harness.Provider.LastRefresh);
         Assert.Equal(0, harness.Provider.Snapshot.ProjectCount);
-        Assert.Equal(1, harness.Provider.ProjectCount);
-
-        var authorization = harness.Provider.Authorize(1, "static-key");
-        Assert.NotNull(authorization);
-        Assert.Null(authorization.RateLimitPerMinute);
+        Assert.Equal(0, harness.Provider.ProjectCount);
+        Assert.Null(harness.Provider.Authorize(1, "legacy-key"));
         Assert.Null(harness.Provider.Authorize(7, "processor-key"));
     }
 
@@ -277,17 +277,15 @@ public sealed class ProjectConfigCacheTests
     }
 
     [Fact]
-    public void Authorize_WithOverlongStaticKey_AcceptsTheKey()
+    public void Authorize_WithOverlongSnapshotKey_AcceptsTheKey()
     {
+        // The negative-cache length limit only bounds attacker-controlled
+        // values; a key that the Processor snapshot contains is always valid.
         var longKey = new string('k', ProjectConfigProvider.MaxUnknownKeyCacheKeyLength + 1);
-        var provider = new ProjectConfigProvider(
-            new RelayOptions
-            {
-                Projects = new Dictionary<long, string[]>
-                {
-                    [1] = [longKey],
-                },
-            });
+        var provider = new ProjectConfigProvider(new RelayOptions());
+        provider.ApplySnapshot(
+            ProjectConfigTestData.Snapshot("v1", (1, longKey, null)),
+            DateTimeOffset.UtcNow);
 
         var authorization = provider.Authorize(1, longKey);
 
@@ -404,16 +402,34 @@ public sealed class ProjectConfigCacheTests
         try
         {
             await harness.Handler.WaitForRequestCountAsync(1);
+            await WaitForProviderAsync(harness.Provider);
 
             var request = Assert.Single(harness.Handler.Requests);
             Assert.Equal(
                 "http://processor-a:5090/internal/project-configs",
                 request.RequestUri.ToString());
             Assert.Equal(TimeSpan.FromSeconds(60), harness.Cache.RefreshInterval);
+            Assert.Equal("processor", harness.Provider.Source);
+            Assert.Equal("v1", harness.Provider.Snapshot.Version);
         }
         finally
         {
             await harness.Cache.StopAsync(CancellationToken.None);
+        }
+    }
+
+    private static async Task WaitForProviderAsync(ProjectConfigProvider provider)
+    {
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10);
+
+        while (provider.Source != ProjectConfigProvider.ProcessorSource)
+        {
+            if (DateTimeOffset.UtcNow >= deadline)
+            {
+                throw new TimeoutException("The immediate project-config refresh did not complete.");
+            }
+
+            await Task.Delay(10);
         }
     }
 
@@ -429,10 +445,6 @@ public sealed class ProjectConfigCacheTests
                 ProcessorEndpoints = endpoints,
                 InternalSharedSecret = "internal-secret",
                 ConfigRefreshSeconds = configRefreshSeconds,
-                Projects = new Dictionary<long, string[]>
-                {
-                    [1] = ["static-key"],
-                },
             };
             Provider = new ProjectConfigProvider(Options);
             _httpClient = new HttpClient(Handler);

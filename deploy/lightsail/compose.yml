@@ -31,6 +31,10 @@ services:
       ConnectionStrings__Postgres: Host=postgres;Database=glitchport;Username=glitchport;Password=${POSTGRES_PASSWORD};Maximum Pool Size=10
       Processor__InternalSharedSecret: ${INTERNAL_SHARED_SECRET:?required}
       Processor__AdminToken: ${PROCESSOR_ADMIN_TOKEN:?required}
+      Processor__Bootstrap__Projects__0__Id: 1
+      Processor__Bootstrap__Projects__0__Name: Default
+      Processor__Bootstrap__Projects__0__Slug: default
+      Processor__Bootstrap__Projects__0__PublicKeys__0: ${INGEST_PUBLIC_KEY:?required}
     depends_on:
       postgres: { condition: service_healthy }
   relay:
@@ -40,7 +44,6 @@ services:
     environment:
       Relay__ProcessorEndpoints__0: http://processor:8080
       Relay__InternalSharedSecret: ${INTERNAL_SHARED_SECRET:?required}
-      Relay__Projects__1__0: ${INGEST_PUBLIC_KEY:?required}
     depends_on: [processor]
   dashboard:
     <<: *runtime

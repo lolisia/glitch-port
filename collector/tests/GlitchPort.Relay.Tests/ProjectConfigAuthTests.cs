@@ -12,11 +12,11 @@ public sealed class ProjectConfigAuthTests
         """;
 
     [Fact]
-    public async Task PostMessage_WithStaticKey_IsStillAcceptedWhenProcessorHasOtherKeys()
+    public async Task PostMessage_WithKeyNotInSnapshot_ReturnsUnauthorized()
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
         var provider = GetProvider(factory);
 
         provider.ApplySnapshot(
@@ -28,16 +28,16 @@ public sealed class ProjectConfigAuthTests
             MessageJson,
             RelayTestClient.ValidKey);
 
-        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        Assert.Equal(RelayTestClient.ProjectId, Assert.Single(publisher.Envelopes).ProjectId);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Empty(publisher.Envelopes);
     }
 
     [Fact]
-    public async Task PostMessage_WithCachedProcessorKey_IsAcceptedForUnknownStaticProject()
+    public async Task PostMessage_WithProcessorKey_IsAcceptedForProject()
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
         var provider = GetProvider(factory);
 
         provider.ApplySnapshot(
@@ -64,10 +64,9 @@ public sealed class ProjectConfigAuthTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
-        await factory.ProjectConfigHandler.WaitForRequestCountAsync(1);
-        factory.ProjectConfigHandler.EnqueueConfig("v1", (42, "processor-only-key", 4));
+        factory.ProjectConfigHandler.EnqueueConfig("v2", (42, "processor-only-key", 4));
         var cache = factory.Services.GetRequiredService<ProjectConfigCache>();
         Assert.True(await cache.RefreshOnceAsync(CancellationToken.None));
 
@@ -86,7 +85,7 @@ public sealed class ProjectConfigAuthTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var response = await RelayTestClient.PostMessageAsync(
             client,
@@ -102,7 +101,7 @@ public sealed class ProjectConfigAuthTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
         var provider = GetProvider(factory);
 
         provider.ApplySnapshot(
@@ -137,7 +136,7 @@ public sealed class ProjectConfigAuthTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
         var provider = GetProvider(factory);
 
         provider.ApplySnapshot(
@@ -166,33 +165,35 @@ public sealed class ProjectConfigAuthTests
     }
 
     [Fact]
-    public void Authorize_WhenStaticAndCachedConfigurationKnowKey_UsesCachedRateLimit()
+    public void Authorize_WhenSnapshotKnowsKey_UsesConfiguredRateLimit()
     {
         using var factory = new RelayApplicationFactory(new RecordingEnvelopePublisher());
+        using var client = factory.CreateClient();
         var provider = GetProvider(factory);
 
         provider.ApplySnapshot(
             ProjectConfigTestData.Snapshot(
                 "v1",
                 (1, RelayTestClient.ValidKey, 17),
-                (1, "cached-only-key", null)),
+                (1, "other-key", null)),
             DateTimeOffset.UtcNow);
 
-        var both = provider.Authorize(1, RelayTestClient.ValidKey);
-        Assert.NotNull(both);
-        Assert.Equal(1, both.ProjectId);
-        Assert.Equal(RelayTestClient.ValidKey, both.Key);
-        Assert.Equal(17, both.RateLimitPerMinute);
+        var withLimit = provider.Authorize(1, RelayTestClient.ValidKey);
+        Assert.NotNull(withLimit);
+        Assert.Equal(1, withLimit.ProjectId);
+        Assert.Equal(RelayTestClient.ValidKey, withLimit.Key);
+        Assert.Equal(17, withLimit.RateLimitPerMinute);
 
-        var cachedOnly = provider.Authorize(1, "cached-only-key");
-        Assert.NotNull(cachedOnly);
-        Assert.Null(cachedOnly.RateLimitPerMinute);
+        var withoutLimit = provider.Authorize(1, "other-key");
+        Assert.NotNull(withoutLimit);
+        Assert.Null(withoutLimit.RateLimitPerMinute);
     }
 
     [Fact]
     public void Authorize_ForUnknownKey_ReturnsNull()
     {
         using var factory = new RelayApplicationFactory(new RecordingEnvelopePublisher());
+        using var client = factory.CreateClient();
         var provider = GetProvider(factory);
 
         provider.ApplySnapshot(
@@ -204,19 +205,16 @@ public sealed class ProjectConfigAuthTests
     }
 
     [Fact]
-    public void Authorize_ForStaticOnlyKey_ReturnsNullRateLimit()
+    public void Authorize_BeforeAnySnapshot_ReturnsNull()
     {
-        using var factory = new RelayApplicationFactory(new RecordingEnvelopePublisher());
+        using var factory = new RelayApplicationFactory(
+            new RecordingEnvelopePublisher(),
+            new FakeProjectConfigHandler());
+        using var client = factory.CreateClient();
         var provider = GetProvider(factory);
 
-        provider.ApplySnapshot(
-            ProjectConfigTestData.Snapshot("v1", (1, "other-key", 5)),
-            DateTimeOffset.UtcNow);
-
-        var authorization = provider.Authorize(1, RelayTestClient.ValidKey);
-
-        Assert.NotNull(authorization);
-        Assert.Null(authorization.RateLimitPerMinute);
+        Assert.Equal(ProjectConfigProvider.NotLoadedSource, provider.Source);
+        Assert.Null(provider.Authorize(1, "any-key"));
     }
 
     [Fact]

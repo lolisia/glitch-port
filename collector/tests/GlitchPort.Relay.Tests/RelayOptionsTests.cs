@@ -14,7 +14,6 @@ public sealed class RelayOptionsTests
 
         Assert.Empty(options.ProcessorEndpoints);
         Assert.Equal(string.Empty, options.InternalSharedSecret);
-        Assert.Empty(options.Projects);
         Assert.Equal(TimeSpan.FromSeconds(RelayOptions.DefaultTimeoutSeconds), options.Timeout);
         Assert.Equal(
             RelayOptions.DefaultConfigRefreshSeconds,
@@ -170,14 +169,11 @@ public sealed class RelayOptionsTests
     }
 
     [Fact]
-    public void FromConfiguration_BindsProjectsEndpointsAndSecret()
+    public void FromConfiguration_BindsProcessorEndpointsAndSecret()
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Relay:Projects:1:0"] = "first-key",
-                ["Relay:Projects:1:1"] = "second-key",
-                ["Relay:Projects:7:0"] = "other-key",
                 ["Relay:ProcessorEndpoints:0"] = "http://processor-a:5090",
                 ["Relay:ProcessorEndpoints:1"] = "http://processor-b:5090",
                 ["Relay:InternalSharedSecret"] = "shared-secret",
@@ -196,7 +192,5 @@ public sealed class RelayOptionsTests
         Assert.Equal(TimeSpan.FromSeconds(2.5), options.Timeout);
         Assert.Equal(3, options.ConfigRefreshSeconds);
         Assert.Equal(7, options.UnknownKeyCacheSeconds);
-        Assert.Equal(new[] { "first-key", "second-key" }, options.Projects[1]);
-        Assert.Equal(new[] { "other-key" }, options.Projects[7]);
     }
 }

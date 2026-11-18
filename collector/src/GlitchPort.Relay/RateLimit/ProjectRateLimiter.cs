@@ -40,7 +40,7 @@ public sealed class ProjectRateLimiter
     private readonly Dictionary<(long ProjectId, string Key), Bucket> _keyBuckets = [];
 
     /// <summary>Creates the limiter from the Relay options.</summary>
-    /// <param name="options">Static Relay configuration.</param>
+    /// <param name="options">Relay configuration.</param>
     /// <param name="timeProvider">Clock used to refill the buckets.</param>
     public ProjectRateLimiter(RelayOptions options, TimeProvider? timeProvider = null)
     {

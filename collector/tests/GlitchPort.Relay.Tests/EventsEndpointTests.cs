@@ -12,7 +12,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         const string Json = """
             {
@@ -70,7 +70,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var response = await RelayTestClient.PostEventAsync(
             client,
@@ -94,7 +94,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var response = await RelayTestClient.PostEventAsync(
             client,
@@ -124,7 +124,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var response = await RelayTestClient.PostEventAsync(client, json);
 
@@ -138,7 +138,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var response = await RelayTestClient.PostEventAsync(
             client,
@@ -154,7 +154,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         const string Json = """
             {
@@ -248,7 +248,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var response = await RelayTestClient.PostEventAsync(client, json);
 
@@ -263,7 +263,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var response = await RelayTestClient.PostEventAsync(
             client,
@@ -280,7 +280,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var response = await RelayTestClient.PostEventAsync(
             client,
@@ -296,7 +296,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var response = await RelayTestClient.PostEventAsync(
             client,
@@ -312,7 +312,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var response = await RelayTestClient.PostJsonAsync(
             client,
@@ -328,7 +328,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var response = await RelayTestClient.PostEventAsync(
             client,
@@ -345,7 +345,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var response = await RelayTestClient.PostEventAsync(
             client,
@@ -363,7 +363,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var response = await RelayTestClient.PostEventAsync(
             client,
@@ -381,7 +381,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         var compressed = RelayTestClient.CompressJson("""{"message":"boom"}""");
         var truncated = compressed[..(compressed.Length / 2)];
@@ -401,7 +401,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         var json = JsonSerializer.Serialize(new { message = new string('a', 1_100_000) });
         using var response = await RelayTestClient.PostEventAsync(client, json);
@@ -416,7 +416,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         var json = JsonSerializer.Serialize(new { message = new string('a', 1_100_000) });
         using var response = await RelayTestClient.PostEventAsync(client, json, gzip: true);
@@ -430,7 +430,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         // {"message":"..."} is 14 bytes around the message.
         const int PrefixLength = 14;
@@ -450,7 +450,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new ThrowingEnvelopePublisher(new InvalidOperationException("processor down"));
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var response = await RelayTestClient.PostEventAsync(
             client,
@@ -466,7 +466,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var response = await RelayTestClient.PostEventAsync(
             client,
@@ -490,7 +490,7 @@ public sealed class EventsEndpointTests
     {
         var publisher = new RecordingEnvelopePublisher();
         using var factory = new RelayApplicationFactory(publisher);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateLoadedClientAsync();
 
         using var response = await RelayTestClient.PostEventAsync(
             client,

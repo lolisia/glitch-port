@@ -10,9 +10,13 @@ namespace GlitchPort.Relay.Tests;
 public sealed class HealthEndpointTests
 {
     [Fact]
-    public async Task GetHealthz_WithoutSuccessfulRefresh_ReportsStaticConfig()
+    public async Task GetHealthz_WithoutLoadedConfiguration_ReportsNoneConfig()
     {
-        using var factory = new RelayApplicationFactory(new RecordingEnvelopePublisher());
+        // This handler fails every project-config request, so the startup
+        // refresh never succeeds and no snapshot is loaded.
+        using var factory = new RelayApplicationFactory(
+            new RecordingEnvelopePublisher(),
+            new FakeProjectConfigHandler());
         using var client = factory.CreateClient();
 
         // Proves the dedicated project-config client uses the injected fake
@@ -26,13 +30,13 @@ public sealed class HealthEndpointTests
         Assert.Equal("ok", body.GetProperty("status").GetString());
 
         var config = body.GetProperty("config");
-        Assert.Equal("static", config.GetProperty("source").GetString());
+        Assert.Equal("none", config.GetProperty("source").GetString());
         Assert.Equal(JsonValueKind.Null, config.GetProperty("last_refresh").ValueKind);
-        Assert.Equal(1, config.GetProperty("project_count").GetInt32());
+        Assert.Equal(0, config.GetProperty("project_count").GetInt32());
     }
 
     [Fact]
-    public async Task GetHealthz_AfterSuccessfulRefresh_ReportsProcessorAndUnionProjectCount()
+    public async Task GetHealthz_AfterSuccessfulRefresh_ReportsProcessorAndSnapshotProjectCount()
     {
         using var factory = new RelayApplicationFactory(new RecordingEnvelopePublisher());
         using var client = factory.CreateClient();
