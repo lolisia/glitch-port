@@ -148,12 +148,30 @@
 
 /* Table ------------------------------------------------------------------ */
 
-.issues-table {
+/* Narrow viewports scroll the table instead of crushing its columns. */
+.issues-table-scroll {
   margin-top: 0.5rem;
+  overflow-x: auto;
 }
 
 .issues-table td {
   vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* Only the free-text columns wrap; they absorb the remaining width. */
+.issues-table td.issues-title,
+.issues-table td.issues-culprit {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.issues-table td.issues-title {
+  min-width: 16rem;
+}
+
+.issues-table td.issues-culprit {
+  min-width: 12rem;
 }
 
 .issues-select-column {

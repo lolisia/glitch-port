@@ -30,79 +30,81 @@ export function IssueTable({
   });
 
   return (
-    <table className="issues-table">
-      <thead>
-        <tr>
-          <th scope="col" className="issues-select-column">
-            <input
-              ref={selectAllRef}
-              type="checkbox"
-              aria-label={t('issues.table.selectAll')}
-              checked={allSelected}
-              onChange={onToggleAll}
-            />
-          </th>
-          <th scope="col">{t('issues.table.title')}</th>
-          <th scope="col">{t('issues.table.culprit')}</th>
-          <th scope="col">{t('issues.table.level')}</th>
-          <th scope="col">{t('issues.table.platform')}</th>
-          <th scope="col">{t('issues.table.labels')}</th>
-          <th scope="col">{t('issues.table.events')}</th>
-          <th scope="col">{t('issues.table.lastSeen')}</th>
-          <th scope="col">{t('issues.table.firstSeen')}</th>
-          <th scope="col">{t('issues.table.status')}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {issues.map((issue) => {
-          const selected = selection.has(issue.id);
+    <div className="issues-table-scroll">
+      <table className="issues-table">
+        <thead>
+          <tr>
+            <th scope="col" className="issues-select-column">
+              <input
+                ref={selectAllRef}
+                type="checkbox"
+                aria-label={t('issues.table.selectAll')}
+                checked={allSelected}
+                onChange={onToggleAll}
+              />
+            </th>
+            <th scope="col">{t('issues.table.title')}</th>
+            <th scope="col">{t('issues.table.culprit')}</th>
+            <th scope="col">{t('issues.table.level')}</th>
+            <th scope="col">{t('issues.table.platform')}</th>
+            <th scope="col">{t('issues.table.labels')}</th>
+            <th scope="col">{t('issues.table.events')}</th>
+            <th scope="col">{t('issues.table.lastSeen')}</th>
+            <th scope="col">{t('issues.table.firstSeen')}</th>
+            <th scope="col">{t('issues.table.status')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {issues.map((issue) => {
+            const selected = selection.has(issue.id);
 
-          return (
-            <tr
-              key={issue.id}
-              className={selected ? 'issue-row issue-row-selected' : 'issue-row'}
-            >
-              <td className="issues-select-column">
-                <input
-                  type="checkbox"
-                  aria-label={t('issues.table.selectIssue', { id: issue.id })}
-                  checked={selected}
-                  onChange={() => onToggle(issue.id)}
-                />
-              </td>
-              <td className="issues-title">
-                <a href={`#/issues/${issue.id}`}>{issue.title}</a>
-              </td>
-              <td className="issues-culprit">{issue.culprit ?? ''}</td>
-              <td>
-                <LevelBadge level={issue.level} />
-              </td>
-              <td>
-                <PlatformChip platform={issue.platform} />
-              </td>
-              <td>
-                <div className="issues-labels">
-                  {issue.labels.map((label) => (
-                    <LabelChip key={label.id} label={label} />
-                  ))}
-                </div>
-              </td>
-              <td className="issues-number">
-                {formatNumber(issue.event_count, locale)}
-              </td>
-              <td>
-                <RelativeTime value={issue.last_seen} />
-              </td>
-              <td>
-                <RelativeTime value={issue.first_seen} />
-              </td>
-              <td>
-                <StatusBadge status={issue.status} />
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+            return (
+              <tr
+                key={issue.id}
+                className={selected ? 'issue-row issue-row-selected' : 'issue-row'}
+              >
+                <td className="issues-select-column">
+                  <input
+                    type="checkbox"
+                    aria-label={t('issues.table.selectIssue', { id: issue.id })}
+                    checked={selected}
+                    onChange={() => onToggle(issue.id)}
+                  />
+                </td>
+                <td className="issues-title">
+                  <a href={`#/issues/${issue.id}`}>{issue.title}</a>
+                </td>
+                <td className="issues-culprit">{issue.culprit ?? ''}</td>
+                <td>
+                  <LevelBadge level={issue.level} />
+                </td>
+                <td>
+                  <PlatformChip platform={issue.platform} />
+                </td>
+                <td>
+                  <div className="issues-labels">
+                    {issue.labels.map((label) => (
+                      <LabelChip key={label.id} label={label} />
+                    ))}
+                  </div>
+                </td>
+                <td className="issues-number">
+                  {formatNumber(issue.event_count, locale)}
+                </td>
+                <td>
+                  <RelativeTime value={issue.last_seen} />
+                </td>
+                <td>
+                  <RelativeTime value={issue.first_seen} />
+                </td>
+                <td>
+                  <StatusBadge status={issue.status} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }

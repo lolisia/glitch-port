@@ -1,5 +1,6 @@
 .level-badge {
   display: inline-block;
+  white-space: nowrap;
   padding: 0.125rem 0.5rem;
   border-radius: 999px;
   font-size: 0.75rem;
@@ -33,6 +34,7 @@
 
 .status-badge {
   display: inline-block;
+  white-space: nowrap;
   padding: 0.125rem 0.5rem;
   border-radius: 999px;
   font-size: 0.75rem;
@@ -47,6 +49,7 @@
  */
 .label-chip {
   display: inline-block;
+  white-space: nowrap;
   padding: 0.125rem 0.5rem;
   border-radius: 999px;
   font-size: 0.75rem;
