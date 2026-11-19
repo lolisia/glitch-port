@@ -27,7 +27,6 @@ import { IssueHeader } from './detail/IssueHeader';
 import { LabelsEditor } from './detail/LabelsEditor';
 import { TagFacets } from './detail/TagFacets';
 import { NoProjectState } from './components/NoProjectState';
-import './issue-detail.css';
 
 const EVENTS_PAGE_SIZE = 25;
 
@@ -487,7 +486,7 @@ export function IssueDetailPage({
   }
 
   return (
-    <section className="issue-detail-page" data-testid="issue-detail-page">
+    <section className="flex flex-col gap-5" data-testid="issue-detail-page">
       {projectId === null && <NoProjectState />}
 
       {projectId !== null && state.status === 'loading' && <LoadingState />}
@@ -529,7 +528,7 @@ export function IssueDetailPage({
 
           <TagFacets issueId={issueId} />
 
-          <div className="issue-events">
+          <div className="flex flex-col gap-3">
             {eventError !== null && (
               <ErrorState
                 error={eventError.error}
@@ -537,7 +536,7 @@ export function IssueDetailPage({
               />
             )}
 
-            <div className="issue-events-grid">
+            <div className="grid items-start gap-4 lg:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)]">
               <EventList
                 events={events}
                 selectedId={selected?.id ?? null}

@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react';
 import { getIssueTags } from '../../../api/client';
-import type { IssueTagFacet, IssueTagValue, IssueTagsResponse } from '../../../api/types';
+import type {
+  IssueTagFacet,
+  IssueTagValue,
+  IssueTagsResponse,
+} from '../../../api/types';
 import { formatNumber, useI18n } from '../../../i18n';
 import { ErrorState, LoadingState } from '../../../ui';
+import { Card } from '@/components/ui/card';
 
 /**
  * Fixed facet keys map to translated labels. Payload tag keys (`tags.<name>`)
@@ -69,40 +74,48 @@ export function TagFacets({ issueId }: { issueId: number }) {
     const labelKey = TAG_KEY_LABELS[facet.key];
 
     return (
-      <div
-        className="issue-tag-facet"
+      <Card
+        className="gap-2 border-border/60 p-4 shadow-none"
         data-testid="tag-facet"
         key={facet.key}
       >
-        <h4 className="issue-tag-facet-heading">
-          <span className="issue-tag-facet-key">
+        <h4 className="m-0 flex items-baseline justify-between gap-2 text-sm">
+          <span className="font-semibold">
             {labelKey === undefined ? facet.key : t(labelKey)}
           </span>
-          <span className="issue-tag-facet-total">
+          <span className="text-xs font-normal text-muted-foreground tabular-nums">
             {formatNumber(facet.total, locale)}
           </span>
         </h4>
 
         {facet.top.length === 0 ? (
-          <p className="issue-tag-facet-empty">
+          <p className="m-0 text-sm text-muted-foreground">
             {t('issues.detail.tags.emptyFacet')}
           </p>
         ) : (
-          <ul className="issue-tag-values">
+          <ul className="m-0 flex list-none flex-col gap-1 p-0">
             {facet.top.map((value: IssueTagValue) => {
               const pct = percentage(value.count, facet.total);
 
               return (
-                <li className="issue-tag-value" key={value.value}>
-                  <span className="issue-tag-value-label">{value.value}</span>
-                  <span className="issue-tag-value-bar-track" aria-hidden="true">
+                <li
+                  className="issue-tag-value grid grid-cols-[minmax(4rem,1fr)_3rem_3.5rem] items-center gap-2 text-xs sm:grid-cols-[minmax(6rem,14rem)_minmax(4rem,1fr)_3rem_3.5rem]"
+                  key={value.value}
+                >
+                  <span className="truncate">{value.value}</span>
+                  <span
+                    className="hidden h-2 overflow-hidden rounded-full bg-muted sm:block"
+                    aria-hidden="true"
+                  >
                     <span
-                      className="issue-tag-value-bar"
+                      className="issue-tag-value-bar block h-full rounded-full bg-primary"
                       style={{ width: `${pct}%` }}
                     />
                   </span>
-                  <span className="issue-tag-value-percentage">{pct}%</span>
-                  <span className="issue-tag-value-count">
+                  <span className="text-right text-muted-foreground tabular-nums">
+                    {pct}%
+                  </span>
+                  <span className="text-right text-muted-foreground tabular-nums">
                     {formatNumber(value.count, locale)}
                   </span>
                 </li>
@@ -110,17 +123,19 @@ export function TagFacets({ issueId }: { issueId: number }) {
             })}
           </ul>
         )}
-      </div>
+      </Card>
     );
   };
 
   return (
-    <section
-      className="issue-tags"
+    <Card
+      className="gap-3 p-6"
       data-testid="issue-tags"
       aria-labelledby="issue-tags-heading"
     >
-      <h3 id="issue-tags-heading">{t('issues.detail.tags.title')}</h3>
+      <h3 id="issue-tags-heading" className="m-0 text-base font-semibold">
+        {t('issues.detail.tags.title')}
+      </h3>
 
       {state.status === 'loading' && <LoadingState />}
 
@@ -133,7 +148,7 @@ export function TagFacets({ issueId }: { issueId: number }) {
 
       {state.status === 'ready' && (
         <>
-          <p className="issue-tags-summary">
+          <p className="m-0 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
             <span>
               {t('issues.detail.tags.sampleSize', {
                 count: state.tags.sample_size,
@@ -147,14 +162,16 @@ export function TagFacets({ issueId }: { issueId: number }) {
           </p>
 
           {state.tags.tags.length === 0 ? (
-            <p className="issue-tags-empty">{t('issues.detail.tags.empty')}</p>
+            <p className="m-0 text-sm text-muted-foreground">
+              {t('issues.detail.tags.empty')}
+            </p>
           ) : (
-            <div className="issue-tag-facets">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {state.tags.tags.map(renderFacet)}
             </div>
           )}
         </>
       )}
-    </section>
+    </Card>
   );
 }

@@ -77,12 +77,14 @@ describe('TagFacets', () => {
     expect(screen.getByText('Loading...')).toBeInTheDocument();
 
     const panel = await screen.findByTestId('issue-tags');
+    expect(panel).toHaveAttribute('data-slot', 'card');
     expect(within(panel).getByText('Tag distribution')).toBeInTheDocument();
     expect(within(panel).getByText('Sampled events: 4')).toBeInTheDocument();
     expect(within(panel).getByText('Distinct users: 2')).toBeInTheDocument();
 
     const facets = within(panel).getAllByTestId('tag-facet');
     expect(facets).toHaveLength(3);
+    expect(facets[0]).toHaveAttribute('data-slot', 'card');
 
     // Fixed keys use their translated label.
     expect(within(facets[0]).getByText('Release')).toBeInTheDocument();
@@ -97,6 +99,8 @@ describe('TagFacets', () => {
       '75%',
       '25%',
     ]);
+    // Tailwind progress bars keep the width in style and the token colour.
+    expect(bars[0]).toHaveClass('bg-primary');
 
     expect(within(facets[1]).getByText('OS')).toBeInTheDocument();
     expect(within(facets[1]).getByText('100%')).toBeInTheDocument();

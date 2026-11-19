@@ -368,6 +368,8 @@ describe('IssueDetailPage', () => {
     const header = await screen.findByTestId('issue-detail-header');
 
     expect(screen.getByTestId('issue-detail-page')).toBeInTheDocument();
+    // The header is a shadcn Card with Badges for the level and status.
+    expect(header).toHaveAttribute('data-slot', 'card');
     expect(
       within(header).getByRole('heading', {
         level: 2,
@@ -375,10 +377,16 @@ describe('IssueDetailPage', () => {
       }),
     ).toBeInTheDocument();
     expect(within(header).getByText('UGameEngine::Init')).toBeInTheDocument();
-    expect(within(header).getByText('error')).toBeInTheDocument();
+    expect(within(header).getByText('error')).toHaveAttribute(
+      'data-slot',
+      'badge',
+    );
     expect(within(header).getByText('Platform')).toBeInTheDocument();
     expect(within(header).getByText('unreal')).toHaveClass('platform-chip');
-    expect(within(header).getByText('Unresolved')).toBeInTheDocument();
+    expect(within(header).getByText('Unresolved')).toHaveAttribute(
+      'data-slot',
+      'badge',
+    );
     expect(within(header).getByText('3')).toBeInTheDocument();
     expect(within(header).getByText('1.2.0')).toBeInTheDocument();
     expect(within(header).getByText('production')).toBeInTheDocument();
@@ -407,7 +415,10 @@ describe('IssueDetailPage', () => {
 
     const items = within(
       screen.getByTestId('issue-event-list'),
-    ).getAllByRole('listitem');
+    ).getAllByRole('row');
+    expect(
+      within(screen.getByTestId('issue-event-list')).getByRole('table'),
+    ).toBeInTheDocument();
     expect(items).toHaveLength(3);
     expect(within(items[0]).getByText('Third summary')).toBeInTheDocument();
     expect(within(items[0]).getByText('error')).toBeInTheDocument();
@@ -431,6 +442,7 @@ describe('IssueDetailPage', () => {
     // latest_event is rendered straight from GET /issues/{id}.
     expect(await screen.findByText('Latest payload body')).toBeInTheDocument();
     const eventPanel = screen.getByTestId('issue-event-panel');
+    expect(eventPanel).toHaveAttribute('data-slot', 'card');
     expect(within(eventPanel).getByText('Platform')).toBeInTheDocument();
     expect(within(eventPanel).getByText('unreal')).toHaveClass(
       'platform-chip',
@@ -464,7 +476,7 @@ describe('IssueDetailPage', () => {
     await screen.findByTestId('issue-detail-header');
     const items = within(
       screen.getByTestId('issue-event-list'),
-    ).getAllByRole('listitem');
+    ).getAllByRole('row');
 
     expect(within(items[0]).getByText('<no message>')).toBeInTheDocument();
     expect(within(items[1]).getByText('<no message>')).toBeInTheDocument();
@@ -735,6 +747,20 @@ describe('IssueDetailPage', () => {
     expect(screen.getByRole('checkbox', { name: 'crash' })).not.toBeChecked();
   });
 
+  it('toggles a project label from its visible label text', async () => {
+    const user = userEvent.setup();
+    stubApi();
+
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
+
+    await screen.findByTestId('issue-detail-header');
+
+    expect(screen.getByRole('checkbox', { name: 'ui' })).not.toBeChecked();
+    await user.click(screen.getByText('ui'));
+
+    expect(screen.getByRole('checkbox', { name: 'ui' })).toBeChecked();
+  });
+
   it('shows an action error when a status update fails', async () => {
     const user = userEvent.setup();
     stubApi({ patchError: jsonResponse({ error: 'boom' }, 500) });
@@ -760,7 +786,7 @@ describe('IssueDetailPage', () => {
     await screen.findByText('Latest payload body');
     const items = within(
       screen.getByTestId('issue-event-list'),
-    ).getAllByRole('listitem');
+    ).getAllByRole('row');
 
     await user.click(within(items[1]).getByRole('button'));
 
@@ -825,7 +851,7 @@ describe('IssueDetailPage', () => {
     await screen.findByText('Latest payload body');
     const items = within(
       screen.getByTestId('issue-event-list'),
-    ).getAllByRole('listitem');
+    ).getAllByRole('row');
 
     await user.click(within(items[1]).getByRole('button'));
 
@@ -857,7 +883,7 @@ describe('IssueDetailPage', () => {
 
     expect(await screen.findByText('First summary')).toBeInTheDocument();
     expect(
-      within(screen.getByTestId('issue-event-list')).getAllByRole('listitem'),
+      within(screen.getByTestId('issue-event-list')).getAllByRole('row'),
     ).toHaveLength(3);
 
     const pageCalls = callsTo(calls, 'GET', EVENTS_PATH);
@@ -930,7 +956,7 @@ describe('IssueDetailPage', () => {
     ).toBeInTheDocument();
     const items = within(
       screen.getByTestId('issue-event-list'),
-    ).getAllByRole('listitem');
+    ).getAllByRole('row');
     expect(items).toHaveLength(2);
     expect(within(items[0]).getByRole('button')).toHaveAttribute(
       'aria-current',

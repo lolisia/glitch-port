@@ -122,6 +122,10 @@ describe('EventView', () => {
       'frame-context',
     );
     expect(frames[0]).toHaveClass('frame', 'frame-in-app');
+    // Application frames keep the destructive accent, and the frame list is
+    // scrollable with the shadcn ScrollArea.
+    expect(frames[0]).toHaveClass('border-l-destructive', 'bg-destructive/10');
+    expect(frames[0].closest('[data-slot="scroll-area"]')).not.toBeNull();
 
     expect(within(frames[1]).getByText('Game.Main')).toBeInTheDocument();
     expect(
@@ -182,6 +186,7 @@ describe('EventView', () => {
     expect(frames[0]).toHaveClass('frame', 'frame-system');
     expect(frames[1]).toHaveClass('frame', 'frame-system');
     expect(frames[2]).toHaveClass('frame', 'frame-in-app');
+    expect(frames[0]).toHaveClass('border-l-border', 'bg-muted');
 
     await user.click(expandedToggle);
 
@@ -339,6 +344,8 @@ describe('EventView', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('Something went wrong.')).toHaveClass(
       'event-message',
+      'bg-muted',
+      'font-mono',
     );
     expect(
       screen.queryByRole('heading', { level: 3, name: 'Exceptions' }),
@@ -437,6 +444,7 @@ describe('EventView', () => {
       .getByRole('heading', { level: 4, name: 'runtime' })
       .closest('.context') as HTMLElement;
     expect(runtimeContext).not.toBeNull();
+    expect(runtimeContext.closest('[data-slot="scroll-area"]')).not.toBeNull();
     expect(within(runtimeContext).getByText('engine')).toBeInTheDocument();
     expect(within(runtimeContext).getByText('il2cpp')).toBeInTheDocument();
     expect(
@@ -510,6 +518,7 @@ describe('EventView', () => {
     expect(details?.querySelector('pre')?.textContent).toBe(
       JSON.stringify(payload, null, 2),
     );
+    expect(details?.querySelector('pre')).toHaveClass('bg-muted', 'font-mono');
 
     const view = container.querySelector('.event-view');
     expect(view?.lastElementChild).toBe(details?.parentElement);
