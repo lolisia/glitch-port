@@ -557,6 +557,22 @@ describe('ProjectDetailPage', () => {
     let rows = await findKeyRows();
     await user.click(within(rows[1]).getByRole('button', { name: 'Revoke' }));
 
+    const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByText('Revoke key?')).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        'Events sent with production will be rejected immediately and the key stays in the list as revoked. This cannot be undone.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Cancel' }),
+    ).toBeInTheDocument();
+    expect(deleteKey).not.toHaveBeenCalled();
+
+    const confirm = within(dialog).getByRole('button', { name: 'Revoke key' });
+    expect(confirm).toHaveClass('bg-destructive');
+    await user.click(confirm);
+
     await waitFor(() => expect(deleteKey).toHaveBeenCalledWith(activeKey.id));
     await waitFor(() => {
       const currentRows = within(screen.getByRole('table')).getAllByRole('row');
@@ -580,6 +596,32 @@ describe('ProjectDetailPage', () => {
     expect(within(facts).getByText('0')).toBeInTheDocument();
   });
 
+  it('keeps the key active when the revoke dialog is cancelled', async () => {
+    const user = userEvent.setup();
+    const deleteKey = vi.fn(() => noContentResponse());
+    stubApi({ deleteKey });
+
+    renderPage();
+    await screen.findByRole('heading', { level: 2, name: 'Star Raiders' });
+
+    let rows = await findKeyRows();
+    await user.click(within(rows[1]).getByRole('button', { name: 'Revoke' }));
+
+    const dialog = await screen.findByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument(),
+    );
+    expect(deleteKey).not.toHaveBeenCalled();
+
+    rows = within(screen.getByRole('table')).getAllByRole('row');
+    expect(
+      within(rows[1]).getByRole('button', { name: 'Revoke' }),
+    ).toBeInTheDocument();
+    expect(within(rows[1]).getByText('Active')).toBeInTheDocument();
+  });
+
   it('keeps the delete button disabled until the exact project name is typed', async () => {
     const user = userEvent.setup();
     stubApi();
@@ -597,9 +639,12 @@ describe('ProjectDetailPage', () => {
     await user.clear(confirm);
     await user.type(confirm, 'Star Raiders');
     expect(button).toBeEnabled();
+
+    // Completing the gate immediately asks for the final confirmation.
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
   });
 
-  it('deletes the project after confirmation and navigates to #/projects', async () => {
+  it('deletes the project after the typed name and the final dialog', async () => {
     const user = userEvent.setup();
     const deleteProject = vi.fn(() => noContentResponse());
     stubApi({ deleteProject });
@@ -611,11 +656,58 @@ describe('ProjectDetailPage', () => {
       screen.getByLabelText('Confirm project name'),
       'Star Raiders',
     );
-    await user.click(screen.getByRole('button', { name: 'Delete project' }));
+
+    const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByText('Delete project?')).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        'This permanently removes Star Raiders, including its issues, events, labels, keys, alert rules and notifications. This cannot be undone.',
+      ),
+    ).toBeInTheDocument();
+    expect(deleteProject).not.toHaveBeenCalled();
+
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Delete project' }),
+    );
 
     await waitFor(() => expect(deleteProject).toHaveBeenCalledTimes(1));
     expect(onProjectsChanged).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(window.location.hash).toBe('#/projects'));
+  });
+
+  it('keeps the project when the final delete dialog is cancelled', async () => {
+    const user = userEvent.setup();
+    const deleteProject = vi.fn(() => noContentResponse());
+    stubApi({ deleteProject });
+    const { onProjectsChanged } = renderPage();
+
+    await screen.findByRole('heading', { level: 2, name: 'Star Raiders' });
+
+    await user.type(
+      screen.getByLabelText('Confirm project name'),
+      'Star Raiders',
+    );
+
+    const dialog = await screen.findByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument(),
+    );
+    expect(deleteProject).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole('button', { name: 'Delete project' }),
+    ).toBeEnabled();
+    expect(onProjectsChanged).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe('');
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Star Raiders' }),
+    ).toBeInTheDocument();
+
+    // The explicit button reopens the final dialog after a dismissal.
+    await user.click(screen.getByRole('button', { name: 'Delete project' }));
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
+    expect(deleteProject).not.toHaveBeenCalled();
   });
 
   it('saves the inbound filters and shows the alert rules on the same page', async () => {
@@ -706,6 +798,7 @@ describe('ProjectDetailPage', () => {
   });
 
   it('renders the facts, key table, forms and danger zone in Korean', async () => {
+    const user = userEvent.setup();
     window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
     stubApi();
 
@@ -777,6 +870,38 @@ describe('ProjectDetailPage', () => {
     expect(
       screen.getByRole('button', { name: '프로젝트 삭제' }),
     ).toBeDisabled();
+
+    await user.click(activeRow.getByRole('button', { name: '해지' }));
+
+    const revokeDialog = await screen.findByRole('alertdialog');
+    expect(
+      within(revokeDialog).getByText('키를 해지할까요?'),
+    ).toBeInTheDocument();
+    expect(
+      within(revokeDialog).getByRole('button', { name: '키 해지' }),
+    ).toBeInTheDocument();
+    await user.click(
+      within(revokeDialog).getByRole('button', { name: '취소' }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument(),
+    );
+
+    await user.type(
+      screen.getByLabelText('프로젝트 이름 확인'),
+      'Star Raiders',
+    );
+
+    const deleteDialog = await screen.findByRole('alertdialog');
+    expect(
+      within(deleteDialog).getByText('프로젝트를 삭제할까요?'),
+    ).toBeInTheDocument();
+    expect(
+      within(deleteDialog).getByRole('button', { name: '취소' }),
+    ).toBeInTheDocument();
+    expect(
+      within(deleteDialog).getByRole('button', { name: '프로젝트 삭제' }),
+    ).toHaveClass('bg-destructive');
   });
 
   it('renders the not-found state in Korean', async () => {

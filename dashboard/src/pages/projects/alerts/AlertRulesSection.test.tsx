@@ -8,7 +8,7 @@ import type {
   CreateAlertRuleRequest,
   UpdateAlertRuleRequest,
 } from '../../../api/types';
-import { I18nProvider } from '../../../i18n';
+import { I18nProvider, LOCALE_STORAGE_KEY } from '../../../i18n';
 import { AlertRulesSection } from './AlertRulesSection';
 
 interface MockResponse {
@@ -401,7 +401,7 @@ describe('AlertRulesSection', () => {
     await waitFor(() => expect(toggle).not.toBeChecked());
   });
 
-  it('deletes a rule only after the inline confirmation', async () => {
+  it('deletes a rule only after the alert dialog confirmation', async () => {
     const user = userEvent.setup();
     const fetchMock = stubApi({
       rules: () => jsonResponse({ items: [newIssueRule] }),
@@ -412,14 +412,24 @@ describe('AlertRulesSection', () => {
 
     await user.click(screen.getByRole('button', { name: 'Delete' }));
 
+    const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByText('Delete alert rule?')).toBeInTheDocument();
     expect(
-      screen.getByText('Delete rule Any new crash?'),
+      within(dialog).getByText('Delete rule Any new crash?'),
     ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Cancel' }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Confirm delete' }),
+    ).toHaveClass('bg-destructive');
     expect(
       callsTo(fetchMock, '/api/manage/alert-rules/12', 'DELETE'),
     ).toHaveLength(0);
 
-    await user.click(screen.getByRole('button', { name: 'Confirm delete' }));
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Confirm delete' }),
+    );
 
     await waitFor(() =>
       expect(
@@ -427,6 +437,54 @@ describe('AlertRulesSection', () => {
       ).toHaveLength(1),
     );
     expect(await screen.findByText('No alert rules yet.')).toBeInTheDocument();
+  });
+
+  it('closes the delete dialog without a request when cancelled', async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubApi({
+      rules: () => jsonResponse({ items: [newIssueRule] }),
+    });
+
+    renderSection();
+    await screen.findByText('Any new crash');
+
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+
+    const dialog = await screen.findByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument(),
+    );
+    expect(
+      callsTo(fetchMock, '/api/manage/alert-rules/12', 'DELETE'),
+    ).toHaveLength(0);
+    expect(screen.getByText('Any new crash')).toBeInTheDocument();
+  });
+
+  it('localizes the delete dialog in Korean', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
+    const user = userEvent.setup();
+    stubApi({ rules: () => jsonResponse({ items: [newIssueRule] }) });
+
+    renderSection();
+    await screen.findByText('Any new crash');
+
+    await user.click(screen.getByRole('button', { name: '삭제' }));
+
+    const dialog = await screen.findByRole('alertdialog');
+    expect(
+      within(dialog).getByText('알림 규칙을 삭제할까요?'),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText('Any new crash 규칙을 삭제할까요?'),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: '취소' }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: '삭제 확인' }),
+    ).toBeInTheDocument();
   });
 
   it('shows the delivered or failed result of a test send', async () => {

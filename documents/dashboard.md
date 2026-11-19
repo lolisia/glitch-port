@@ -403,8 +403,9 @@ selected language; project names, slugs and platform names stay as stored.
 The detail screen loads `GET /api/manage/projects/{id}` and
 `GET /api/manage/projects/{id}/keys` in parallel. Its facts labels, key table
 headers, form labels and hints, status labels, buttons, copy feedback and the
-danger-zone confirmation follow the selected language; the project name, slug,
-key values, DSNs and the created/revoked times are shown as stored/returned.
+key-revocation, alert-rule deletion and project deletion confirmation dialogs
+follow the selected language; the project name, slug, key values, DSNs and the
+created/revoked times are shown as stored/returned.
 
 - **Header and facts** — the project name, a "Back to projects" link, the slug,
   a **Platforms seen** chip list built from the project's `platforms` (an em
@@ -423,9 +424,10 @@ key values, DSNs and the created/revoked times are shown as stored/returned.
   /api/manage/keys/{keyId}` with `{ "rate_limit_per_minute": <value> }`: a
   blank field sends `null` (no per-key limit), `0` means unlimited, and
   negative or non-integer values are rejected client-side without a request.
-  **Revoke** calls `DELETE /api/manage/keys/{keyId}`, reloads the list and
-  leaves the row in place as revoked. The active key count follows the
-  refreshed list.
+  **Revoke** asks for confirmation in an alert dialog: cancelling closes it
+  without a request, and confirming calls `DELETE /api/manage/keys/{keyId}`,
+  reloads the list and leaves the row in place as revoked. The active key
+  count follows the refreshed list.
 - **Create key** — an optional label and an optional rate limit. `POST
   /api/manage/projects/{id}/keys` creates the key, then the new DSN is shown
   with a **Copy new key DSN** button and the key list is reloaded.
@@ -434,7 +436,9 @@ key values, DSNs and the created/revoked times are shown as stored/returned.
   from `GET /api/manage/projects/{id}/alert-notifications?limit=50` in
   parallel. The rule table shows the rule name, trigger, condition summary,
   channel and an **Enabled** checkbox; **Edit**, **Test send** and **Delete**
-  act on one row, with an inline confirmation for deletion. **New alert rule**
+  act on one row. **Delete** opens an alert dialog with **Cancel** and a
+  destructive **Confirm delete**: cancelling sends no request, confirming calls
+  `DELETE /api/manage/alert-rules/{id}` and removes the row. **New alert rule**
   opens the same form used for editing: name, trigger (`new_issue`,
   `regression` or `event_frequency`), threshold and window (only for
   `event_frequency`), channel (`webhook`, `discord` or `slack`), target URL,
@@ -444,8 +448,7 @@ key values, DSNs and the created/revoked times are shown as stored/returned.
   including explicit `null`s for cleared optional fields. The enabled checkbox
   sends `{"is_enabled": <value>}`. **Test send** calls
   `POST /api/manage/alert-rules/{id}/test` and reports whether the target
-  accepted the sample; nothing is queued. **Delete** calls
-  `DELETE /api/manage/alert-rules/{id}`. The **Recent notifications** table
+  accepted the sample; nothing is queued. The **Recent notifications** table
   under the rules lists queued, sending, sent and failed notifications with
   their rule, trigger, status, attempts, sent time and last error. The rules and
   the notifications have independent loading, empty and error states, and a
@@ -461,11 +464,14 @@ key values, DSNs and the created/revoked times are shown as stored/returned.
   [Inbound filters](management-api.md#inbound-filters) for the matching rules
   and the filtered ingest response.
 - **Danger zone** — deleting a project requires typing its exact name; the
-  **Delete project** button stays disabled until the text matches. `DELETE
-  /api/manage/projects/{id}` removes the project with its issues, events,
-  labels, keys, alert rules and notifications, navigates to `#/projects` and
-  reloads the project list. When the deleted project was the active one, the
-  selector falls back to the first remaining project.
+  **Delete project** button stays disabled until the text matches. Typing the
+  exact name opens the final alert dialog with **Cancel** and a destructive
+  **Delete project** action (the button reopens it after a dismissal):
+  cancelling leaves the project untouched, while confirming
+  calls `DELETE /api/manage/projects/{id}`, which removes the project with its
+  issues, events, labels, keys, alert rules and notifications, navigates to
+  `#/projects` and reloads the project list. When the deleted project was the
+  active one, the selector falls back to the first remaining project.
 
 ### Messages (`#/messages`)
 

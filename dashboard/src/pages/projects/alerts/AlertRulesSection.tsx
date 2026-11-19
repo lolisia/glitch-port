@@ -1,5 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Pencil, Plus, Send, Trash } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -304,6 +314,10 @@ export function AlertRulesSection({ projectId }: { projectId: number }) {
   };
 
   const formOpen = creating || editingRule !== null;
+  const confirmingRule =
+    confirmingId !== null && rulesState.status === 'ready'
+      ? (rulesState.data.find((rule) => rule.id === confirmingId) ?? null)
+      : null;
 
   return (
     <Card
@@ -422,42 +436,15 @@ export function AlertRulesSection({ projectId }: { projectId: number }) {
                             {t('projects.detail.alerts.test')}
                           </Button>
 
-                          {confirmingId === rule.id ? (
-                            <span className="flex flex-wrap items-center gap-2 text-sm">
-                              <span>
-                                {t('projects.detail.alerts.deleteConfirm', {
-                                  name: rule.name,
-                                })}
-                              </span>
-                              <Button
-                                type="button"
-                                variant="destructive"
-                                size="sm"
-                                disabled={deletingId === rule.id}
-                                onClick={() => void handleDelete(rule)}
-                              >
-                                {t('projects.detail.alerts.confirmDelete')}
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setConfirmingId(null)}
-                              >
-                                {t('projects.detail.alerts.cancel')}
-                              </Button>
-                            </span>
-                          ) : (
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="sm"
-                              onClick={() => setConfirmingId(rule.id)}
-                            >
-                              <Trash aria-hidden="true" />
-                              {t('projects.detail.alerts.delete')}
-                            </Button>
-                          )}
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => setConfirmingId(rule.id)}
+                          >
+                            <Trash aria-hidden="true" />
+                            {t('projects.detail.alerts.delete')}
+                          </Button>
                         </div>
 
                         {testResult !== undefined && (
@@ -487,6 +474,42 @@ export function AlertRulesSection({ projectId }: { projectId: number }) {
               </TableBody>
             </Table>
           </div>
+        )}
+
+        {confirmingRule !== null && (
+          <AlertDialog
+            open
+            onOpenChange={(open) => {
+              if (!open) {
+                setConfirmingId(null);
+              }
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {t('projects.detail.alerts.deleteDialogTitle')}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t('projects.detail.alerts.deleteConfirm', {
+                    name: confirmingRule.name,
+                  })}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>
+                  {t('projects.detail.alerts.cancel')}
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  variant="destructive"
+                  disabled={deletingId === confirmingRule.id}
+                  onClick={() => void handleDelete(confirmingRule)}
+                >
+                  {t('projects.detail.alerts.confirmDelete')}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         )}
 
         {mutationError !== null && (

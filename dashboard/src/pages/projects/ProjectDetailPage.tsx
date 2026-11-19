@@ -1,6 +1,17 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Copy } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -126,8 +137,21 @@ export function ProjectDetailPage({
   const [createdKey, setCreatedKey] = useState<ProjectKey | null>(null);
   const [createdCopy, setCreatedCopy] = useState<CopyState>('idle');
   const [confirmName, setConfirmName] = useState('');
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<unknown>(null);
+  const projectName =
+    projectState.status === 'ready' ? projectState.data.name : null;
+
+  // Typing the exact project name completes the first gate, so the final
+  // confirmation opens right away: the destructive request stays one explicit
+  // dialog action away. Cancelling keeps the typed name, and the Delete
+  // project button reopens the dialog without another confirmation step.
+  useEffect(() => {
+    if (projectName !== null && confirmName === projectName) {
+      setConfirmDeleteOpen(true);
+    }
+  }, [confirmName, projectName]);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,6 +161,7 @@ export function ProjectDetailPage({
     setCreatedKey(null);
     setCreatedCopy('idle');
     setConfirmName('');
+    setConfirmDeleteOpen(false);
     setDeleteError(null);
 
     // Start both requests together: neither depends on the other, and a key
@@ -541,11 +566,41 @@ export function ProjectDetailPage({
               type="button"
               variant="destructive"
               disabled={confirmName !== project.name || deleting}
-              onClick={() => void handleDelete(project)}
+              onClick={() => setConfirmDeleteOpen(true)}
             >
               {t('projects.detail.danger.submit')}
             </Button>
           </div>
+
+          <AlertDialog
+            open={confirmDeleteOpen}
+            onOpenChange={setConfirmDeleteOpen}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {t('projects.detail.danger.dialog.title')}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t('projects.detail.danger.dialog.description', {
+                    name: project.name,
+                  })}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>
+                  {t('projects.detail.danger.dialog.cancel')}
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  variant="destructive"
+                  disabled={deleting}
+                  onClick={() => void handleDelete(project)}
+                >
+                  {t('projects.detail.danger.dialog.confirm')}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           {deleteError !== null && (
             <ErrorState
@@ -826,15 +881,42 @@ function KeyRow({
         </TableCell>
         <TableCell>
           {projectKey.is_active && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={revoking}
-              onClick={() => void handleRevoke()}
-            >
-              {t('projects.detail.keys.revoke')}
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={revoking}
+                >
+                  {t('projects.detail.keys.revoke')}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {t('projects.detail.keys.revokeDialog.title')}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {t('projects.detail.keys.revokeDialog.description', {
+                      name: projectKey.label ?? projectKey.public_key,
+                    })}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>
+                    {t('projects.detail.keys.revokeDialog.cancel')}
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    variant="destructive"
+                    disabled={revoking}
+                    onClick={() => void handleRevoke()}
+                  >
+                    {t('projects.detail.keys.revokeDialog.confirm')}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
         </TableCell>
       </TableRow>

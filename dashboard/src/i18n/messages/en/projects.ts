@@ -54,6 +54,13 @@ export const projects = {
       save: 'Save',
       saved: 'Saved',
       revoke: 'Revoke',
+      revokeDialog: {
+        title: 'Revoke key?',
+        description:
+          'Events sent with {name} will be rejected immediately and the key stays in the list as revoked. This cannot be undone.',
+        confirm: 'Revoke key',
+        cancel: 'Cancel',
+      },
       rateError: 'Failed to save rate limit',
       revokeError: 'Failed to revoke key',
       rateInvalid: 'Rate limit must be a non-negative integer.',
@@ -101,6 +108,7 @@ export const projects = {
       edit: 'Edit',
       test: 'Test send',
       delete: 'Delete',
+      deleteDialogTitle: 'Delete alert rule?',
       deleteConfirm: 'Delete rule {name}?',
       confirmDelete: 'Confirm delete',
       deleteError: 'Failed to delete alert rule',
@@ -190,6 +198,13 @@ export const projects = {
       confirm: 'Confirm project name',
       submit: 'Delete project',
       error: 'Failed to delete project',
+      dialog: {
+        title: 'Delete project?',
+        description:
+          'This permanently removes {name}, including its issues, events, labels, keys, alert rules and notifications. This cannot be undone.',
+        confirm: 'Delete project',
+        cancel: 'Cancel',
+      },
     },
   },
 } as const;

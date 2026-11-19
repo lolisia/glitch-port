@@ -54,6 +54,13 @@ export const projects: ProjectsMessages = {
       save: '저장',
       saved: '저장됨',
       revoke: '해지',
+      revokeDialog: {
+        title: '키를 해지할까요?',
+        description:
+          '{name}(으)로 보낸 이벤트는 즉시 거부되고 키는 해지된 상태로 목록에 남습니다. 되돌릴 수 없습니다.',
+        confirm: '키 해지',
+        cancel: '취소',
+      },
       rateError: '요청 제한을 저장하지 못했습니다',
       revokeError: '키를 해지하지 못했습니다',
       rateInvalid: '요청 제한은 0 이상의 정수여야 합니다.',
@@ -101,6 +108,7 @@ export const projects: ProjectsMessages = {
       edit: '편집',
       test: '테스트 전송',
       delete: '삭제',
+      deleteDialogTitle: '알림 규칙을 삭제할까요?',
       deleteConfirm: '{name} 규칙을 삭제할까요?',
       confirmDelete: '삭제 확인',
       deleteError: '알림 규칙을 삭제하지 못했습니다',
@@ -188,6 +196,13 @@ export const projects: ProjectsMessages = {
       confirm: '프로젝트 이름 확인',
       submit: '프로젝트 삭제',
       error: '프로젝트를 삭제하지 못했습니다',
+      dialog: {
+        title: '프로젝트를 삭제할까요?',
+        description:
+          '{name} 프로젝트와 그 이슈, 이벤트, 라벨, 키, 알림 규칙, 알림 내역이 영구적으로 삭제됩니다. 되돌릴 수 없습니다.',
+        confirm: '프로젝트 삭제',
+        cancel: '취소',
+      },
     },
   },
 };
