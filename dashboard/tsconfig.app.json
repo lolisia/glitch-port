@@ -23,7 +23,13 @@
     "noUncheckedSideEffectImports": true,
 
     /* Vite environment types (import.meta.env) */
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+
+    /* shadcn/ui aliases */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "include": ["src"]
 }

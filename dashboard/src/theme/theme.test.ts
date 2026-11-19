@@ -153,6 +153,7 @@ describe('applyTheme', () => {
 
 describe('systemPrefersDark', () => {
   it('returns false when matchMedia is unavailable', () => {
+    vi.stubGlobal('matchMedia', undefined);
     expect(typeof window.matchMedia).toBe('undefined');
     expect(systemPrefersDark()).toBe(false);
   });
@@ -168,6 +169,7 @@ describe('systemPrefersDark', () => {
 
 describe('watchSystemTheme', () => {
   it('returns a no-op unsubscribe when matchMedia is unavailable', () => {
+    vi.stubGlobal('matchMedia', undefined);
     const unsubscribe = watchSystemTheme(() => {});
 
     expect(() => unsubscribe()).not.toThrow();
@@ -205,6 +207,7 @@ describe('ThemeProvider', () => {
   });
 
   it('defaults to system and light when matchMedia is unavailable', () => {
+    vi.stubGlobal('matchMedia', undefined);
     const { result } = renderTheme();
 
     expect(result.current.preference).toBe('system');
