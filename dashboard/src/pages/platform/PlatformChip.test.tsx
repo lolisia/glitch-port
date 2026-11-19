@@ -13,8 +13,9 @@ describe('PlatformChip', () => {
 
     const chip = screen.getByText('unreal');
     expect(chip).toHaveClass('platform-chip');
-    // The chip colours come from platform-chip.css, which reads the theme
-    // tokens, so the markup must not pin an inline colour to one theme.
+    expect(chip).toHaveAttribute('data-variant', 'outline');
+    // The outline badge colours come from the theme tokens, so the markup must
+    // not pin an inline colour to one theme.
     expect(chip).not.toHaveAttribute('style');
   });
 });

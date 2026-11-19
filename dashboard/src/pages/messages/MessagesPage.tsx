@@ -1,4 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { fetchMessages } from '../../api/client';
 import type { Message } from '../../api/types';
 import { useI18n } from '../../i18n';
@@ -8,7 +18,6 @@ import {
   LoadingState,
   formatAbsoluteTime,
 } from '../../ui';
-import './MessagesPage.css';
 
 type LoadState =
   | { status: 'loading' }
@@ -37,44 +46,57 @@ export function MessagesPage() {
   const loading = state.status === 'loading';
 
   return (
-    <section className="messages-page" data-testid="messages-page">
-      <header className="page-header">
-        <h2>{t('messages.title')}</h2>
-        <button type="button" onClick={() => void load()} disabled={loading}>
+    <section className="flex flex-col gap-4" data-testid="messages-page">
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <h2 className="text-xl font-semibold tracking-tight">
+          {t('messages.title')}
+        </h2>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => void load()}
+          disabled={loading}
+        >
           {t('common.refresh')}
-        </button>
+        </Button>
       </header>
 
-      {loading && <LoadingState />}
+      <Card>
+        <CardContent className="flex flex-col gap-4">
+          {loading && <LoadingState />}
 
-      {state.status === 'error' && (
-        <ErrorState error={state.error} prefix={t('messages.loadError')} />
-      )}
+          {state.status === 'error' && (
+            <ErrorState error={state.error} prefix={t('messages.loadError')} />
+          )}
 
-      {state.status === 'ready' && state.messages.length === 0 && (
-        <EmptyState>{t('messages.empty')}</EmptyState>
-      )}
+          {state.status === 'ready' && state.messages.length === 0 && (
+            <EmptyState>{t('messages.empty')}</EmptyState>
+          )}
 
-      {state.status === 'ready' && state.messages.length > 0 && (
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">{t('messages.receivedAt')}</th>
-              <th scope="col">{t('messages.endpoint')}</th>
-              <th scope="col">{t('messages.message')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {state.messages.map((row) => (
-              <tr key={row.id}>
-                <td>{formatAbsoluteTime(row.received_at, locale)}</td>
-                <td>{row.endpoint}</td>
-                <td>{row.message}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+          {state.status === 'ready' && state.messages.length > 0 && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">{t('messages.receivedAt')}</TableHead>
+                  <TableHead scope="col">{t('messages.endpoint')}</TableHead>
+                  <TableHead scope="col">{t('messages.message')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {state.messages.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell>
+                      {formatAbsoluteTime(row.received_at, locale)}
+                    </TableCell>
+                    <TableCell>{row.endpoint}</TableCell>
+                    <TableCell>{row.message}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
     </section>
   );
 }

@@ -1,4 +1,6 @@
+import { Loader2 } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ApiError } from '../api/client';
 import { useI18n } from '../i18n';
 
@@ -9,11 +11,21 @@ export function toErrorMessage(error: unknown): string {
 export function LoadingState({ label }: { label?: string }) {
   const { t } = useI18n();
 
-  return <p className="state state-loading">{label ?? t('common.loading')}</p>;
+  return (
+    <div
+      role="status"
+      className="flex items-center gap-2 py-4 text-sm text-muted-foreground"
+    >
+      <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+      <span>{label ?? t('common.loading')}</span>
+    </div>
+  );
 }
 
 export function EmptyState({ children }: { children: ReactNode }) {
-  return <p className="state state-empty">{children}</p>;
+  return (
+    <p className="py-8 text-center text-sm text-muted-foreground">{children}</p>
+  );
 }
 
 export function ErrorState({
@@ -27,15 +39,15 @@ export function ErrorState({
   const needsToken = error instanceof ApiError && error.status === 401;
 
   return (
-    <div className="state state-error">
-      <p role="alert">
+    <Alert variant="destructive">
+      <AlertDescription>
         {prefix}: {toErrorMessage(error)}
-      </p>
+      </AlertDescription>
       {needsToken && (
-        <p className="state-hint">
+        <p className="col-start-2 text-sm text-muted-foreground">
           {t('ui.tokenHint', { name: 'VITE_ADMIN_TOKEN' })}
         </p>
       )}
-    </div>
+    </Alert>
   );
 }
