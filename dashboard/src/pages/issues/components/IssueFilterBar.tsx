@@ -1,6 +1,9 @@
 import { MultiSelectCombobox } from '../../../components/MultiSelectCombobox';
 import { Input } from '../../../components/ui/input';
-import { NativeSelect } from '../../../components/ui/native-select';
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from '../../../components/ui/native-select';
 import { Toggle } from '../../../components/ui/toggle';
 import {
   ToggleGroup,
@@ -101,9 +104,9 @@ export function IssueFilterBar({
           onChange={(event) => onFilterChange({ level: event.target.value })}
         >
           {LEVEL_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
+            <NativeSelectOption key={option.value} value={option.value}>
               {t(option.labelKey)}
-            </option>
+            </NativeSelectOption>
           ))}
         </NativeSelect>
 
@@ -114,11 +117,11 @@ export function IssueFilterBar({
             onFilterChange({ environment: event.target.value })
           }
         >
-          <option value="">{t('issues.filters.allEnvironments')}</option>
+          <NativeSelectOption value="">{t('issues.filters.allEnvironments')}</NativeSelectOption>
           {environmentOptions.map((value) => (
-            <option key={value} value={value}>
+            <NativeSelectOption key={value} value={value}>
               {value}
-            </option>
+            </NativeSelectOption>
           ))}
         </NativeSelect>
 
@@ -127,11 +130,11 @@ export function IssueFilterBar({
           value={filters.release}
           onChange={(event) => onFilterChange({ release: event.target.value })}
         >
-          <option value="">{t('issues.filters.allReleases')}</option>
+          <NativeSelectOption value="">{t('issues.filters.allReleases')}</NativeSelectOption>
           {releaseOptions.map((value) => (
-            <option key={value} value={value}>
+            <NativeSelectOption key={value} value={value}>
               {value}
-            </option>
+            </NativeSelectOption>
           ))}
         </NativeSelect>
 
@@ -151,11 +154,11 @@ export function IssueFilterBar({
           value={filters.label}
           onChange={(event) => onFilterChange({ label: event.target.value })}
         >
-          <option value="">{t('issues.filters.allLabels')}</option>
+          <NativeSelectOption value="">{t('issues.filters.allLabels')}</NativeSelectOption>
           {labelNames.map((name) => (
-            <option key={name} value={name}>
+            <NativeSelectOption key={name} value={name}>
               {name}
-            </option>
+            </NativeSelectOption>
           ))}
         </NativeSelect>
 
@@ -184,9 +187,9 @@ export function IssueFilterBar({
           }
         >
           {SORT_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
+            <NativeSelectOption key={option.value} value={option.value}>
               {t(option.labelKey)}
-            </option>
+            </NativeSelectOption>
           ))}
         </NativeSelect>
 
