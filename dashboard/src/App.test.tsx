@@ -841,14 +841,55 @@ describe('App', () => {
     expect(window.location.hash).toBe('#/projects/99');
   });
 
-  it('applies a stored dark theme before the theme control changes', async () => {
-    window.localStorage.setItem('glitchport.theme', 'dark');
+  it('renders no language or theme controls in the shell on #/issues', async () => {
+    window.history.replaceState(null, '', '/#/issues');
     stubFetch();
 
     renderApp();
 
-    const themeSelect = await screen.findByLabelText('Theme');
-    expect(themeSelect).toHaveValue('dark');
+    expect(await screen.findByLabelText('Project')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Language')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Theme')).not.toBeInTheDocument();
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument();
+  });
+
+  it('navigates to the settings page from the sidebar footer link', async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, '', '/#/issues');
+    stubFetch();
+
+    renderApp();
+
+    const settingsLink = screen.getByRole('link', { name: 'Settings' });
+    expect(settingsLink).toHaveAttribute('href', '#/settings');
+    expect(settingsLink).not.toHaveAttribute('aria-current');
+
+    await user.click(settingsLink);
+
+    expect(await screen.findByTestId('settings-page')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Settings' }),
+    ).toBeInTheDocument();
+    expect(settingsLink).toHaveAttribute('aria-current', 'page');
+    expect(
+      screen.getByRole('link', { name: 'Issues' }),
+    ).not.toHaveAttribute('aria-current');
+    expect(window.location.hash).toBe('#/settings');
+  });
+
+  it('applies a stored dark theme before the theme radio changes', async () => {
+    window.localStorage.setItem('glitchport.theme', 'dark');
+    window.history.replaceState(null, '', '/#/settings');
+    stubFetch();
+
+    renderApp();
+
+    const appearance = await screen.findByRole('radiogroup', {
+      name: 'Theme',
+    });
+    expect(
+      within(appearance).getByRole('radio', { name: 'Dark' }),
+    ).toBeChecked();
     expect(document.documentElement.dataset.theme).toBe('dark');
     expect(document.documentElement.style.colorScheme).toBe('dark');
     expect(window.localStorage.getItem('glitchport.theme')).toBe('dark');
@@ -856,36 +897,47 @@ describe('App', () => {
 
   it('updates the document theme and persists the theme preference', async () => {
     const user = userEvent.setup();
+    window.history.replaceState(null, '', '/#/settings');
     stubFetch();
 
     renderApp();
 
-    const themeSelect = await screen.findByLabelText('Theme');
+    const appearance = await screen.findByRole('radiogroup', {
+      name: 'Theme',
+    });
+    const system = within(appearance).getByRole('radio', { name: 'System' });
+    const light = within(appearance).getByRole('radio', { name: 'Light' });
+    const dark = within(appearance).getByRole('radio', { name: 'Dark' });
+
     // jsdom has no matchMedia, so `system` resolves to light.
-    expect(themeSelect).toHaveValue('system');
+    expect(system).toBeChecked();
     expect(document.documentElement.dataset.theme).toBe('light');
     expect(document.documentElement.style.colorScheme).toBe('light');
     expect(window.localStorage.getItem('glitchport.theme')).toBe('system');
 
-    await user.selectOptions(themeSelect, 'dark');
+    await user.click(dark);
 
+    expect(dark).toBeChecked();
     expect(document.documentElement.dataset.theme).toBe('dark');
     expect(document.documentElement.style.colorScheme).toBe('dark');
     expect(window.localStorage.getItem('glitchport.theme')).toBe('dark');
 
-    await user.selectOptions(themeSelect, 'light');
+    await user.click(light);
 
+    expect(light).toBeChecked();
     expect(document.documentElement.dataset.theme).toBe('light');
     expect(document.documentElement.style.colorScheme).toBe('light');
     expect(window.localStorage.getItem('glitchport.theme')).toBe('light');
 
-    await user.selectOptions(themeSelect, 'system');
+    await user.click(system);
 
+    expect(system).toBeChecked();
     expect(document.documentElement.dataset.theme).toBe('light');
     expect(window.localStorage.getItem('glitchport.theme')).toBe('system');
   });
 
-  it('adds the EN/KO language select and defaults to English for en-US', async () => {
+  it('offers the language select with English and Korean and defaults to English for en-US', async () => {
+    window.history.replaceState(null, '', '/#/settings');
     stubFetch();
 
     renderApp();
@@ -894,8 +946,7 @@ describe('App', () => {
 
     const language = await screen.findByLabelText('Language');
     expect(language).toHaveValue('en');
-    expect(optionLabels(language)).toEqual(['EN', 'KO']);
-    expect(language.closest('.top-bar-settings')).not.toBeNull();
+    expect(optionLabels(language)).toEqual(['English', '한국어']);
 
     expect(screen.getByRole('link', { name: 'Issues' })).toBeInTheDocument();
     expect(
@@ -908,6 +959,7 @@ describe('App', () => {
 
   it('switches the shell to Korean and back, persisting glitchport.locale', async () => {
     const user = userEvent.setup();
+    window.history.replaceState(null, '', '/#/settings');
     stubFetch();
 
     const { unmount } = renderApp();
@@ -916,19 +968,26 @@ describe('App', () => {
 
     await user.selectOptions(language, 'ko');
 
-    expect(screen.getByRole('link', { name: '이슈' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
+    expect(
+      screen.getByRole('heading', { level: 2, name: '설정' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '이슈' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '릴리스' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '메시지' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '프로젝트' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '설정' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
     expect(
       screen.getByRole('navigation', { name: '섹션' }),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText('테마')).toHaveValue('system');
+    expect(screen.getByRole('radiogroup', { name: '테마' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('radio', { name: '시스템' }),
+    ).toBeChecked();
     expect(await screen.findByLabelText('프로젝트')).toHaveValue('1');
-    expect(language).toHaveValue('ko');
+    expect(screen.getByLabelText('Language')).toHaveValue('ko');
     expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe('ko');
     expect(document.documentElement.lang).toBe('ko');
 
@@ -938,13 +997,14 @@ describe('App', () => {
 
     expect(screen.getByRole('link', { name: '이슈' })).toBeInTheDocument();
     expect(document.documentElement.lang).toBe('ko');
+    expect(screen.getByLabelText('Language')).toHaveValue('ko');
 
     await user.selectOptions(screen.getByLabelText('Language'), 'en');
 
-    expect(screen.getByRole('link', { name: 'Issues' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Settings' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Issues' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Messages' })).toBeInTheDocument();
     expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe('en');
     expect(document.documentElement.lang).toBe('en');
@@ -990,12 +1050,15 @@ describe('App', () => {
 
   it('translates the issues, issue detail and projects screens after switching to Korean', async () => {
     const user = userEvent.setup();
+    window.history.replaceState(null, '', '/#/settings');
     stubFetch();
 
     renderApp();
 
     const language = await screen.findByLabelText('Language');
     await user.selectOptions(language, 'ko');
+
+    await user.click(screen.getByRole('link', { name: '이슈' }));
 
     // Issue list
     expect(

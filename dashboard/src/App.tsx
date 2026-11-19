@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { listProjects } from './api/client';
-import logoUrl from './assets/glitch-port-icon.svg';
-import type { ProjectListItem } from './api/types';
-import { isLocale, useI18n } from './i18n';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
+import { AppHeader, type ProjectsState } from './layout/AppHeader';
+import { AppSidebar } from './layout/AppSidebar';
 import { IssueDetailPage } from './pages/issues/IssueDetailPage';
 import { IssuesPage } from './pages/issues/IssuesPage';
 import { MessagesPage } from './pages/messages/MessagesPage';
 import { ProjectDetailPage } from './pages/projects/ProjectDetailPage';
 import { ProjectsPage } from './pages/projects/ProjectsPage';
 import { ReleasesPage } from './pages/releases/ReleasesPage';
+import { SettingsPage } from './pages/settings/SettingsPage';
 import {
   clearStoredProjectId,
   parseConfiguredProjectId,
@@ -17,17 +19,10 @@ import {
   writeStoredProjectId,
 } from './project/activeProject';
 import { navigate, useHashRoute } from './router';
-import { useTheme } from './theme/ThemeProvider';
-import { isThemePreference } from './theme/theme';
-
-type ProjectsState =
-  | { status: 'loading' }
-  | { status: 'error'; error: unknown }
-  | { status: 'ready'; projects: ProjectListItem[] };
 
 /**
- * The dashboard shell: the top bar project selector, the route switch and the
- * active project resolution.
+ * The dashboard shell: the sidebar navigation, the header project selector,
+ * the route switch and the active project resolution.
  *
  * The project list is loaded once on mount and reloaded when a screen reports
  * a change. Every reload re-resolves the active project (stored id, configured
@@ -36,8 +31,6 @@ type ProjectsState =
  */
 export default function App() {
   const route = useHashRoute();
-  const { preference, setPreference } = useTheme();
-  const { locale, setLocale, t } = useI18n();
   const [projectsState, setProjectsState] = useState<ProjectsState>({
     status: 'loading',
   });
@@ -95,12 +88,9 @@ export default function App() {
     };
   }, [projectsVersion]);
 
-  // Unknown routes fall back to the issues page, so the Issues tab stays
+  // Unknown routes fall back to the issues page, so the Issues link stays
   // highlighted until the normalising effect replaces the hash.
   const unknownRoute = route.name === 'unknown';
-  const issuesActive =
-    route.name === 'issues' || route.name === 'issue' || unknownRoute;
-  const projectsActive = route.name === 'projects' || route.name === 'project';
 
   useEffect(() => {
     const hash = window.location.hash;
@@ -121,166 +111,51 @@ export default function App() {
     writeStoredProjectId(id);
   };
 
-  const selectTheme = (value: string) => {
-    if (isThemePreference(value)) {
-      setPreference(value);
-    }
-  };
-
-  const selectLocale = (value: string) => {
-    if (isLocale(value)) {
-      setLocale(value);
-    }
-  };
-
-  const renderProjectPicker = () => {
-    if (projectsState.status === 'loading') {
-      return (
-        <span
-          className="project-picker-state"
-          data-testid="project-picker-state"
-        >
-          {t('app.projectsLoading')}
-        </span>
-      );
-    }
-
-    if (projectsState.status === 'error') {
-      return (
-        <span
-          className="project-picker-state"
-          data-testid="project-picker-state"
-        >
-          {t('app.projectsUnavailable')}
-        </span>
-      );
-    }
-
-    if (projectsState.projects.length === 0) {
-      return (
-        <span
-          className="project-picker-state"
-          data-testid="project-picker-state"
-        >
-          {t('app.noProjects')} —{' '}
-          <a href="#/projects">{t('app.createOne')}</a>.
-        </span>
-      );
-    }
-
-    return (
-      <label className="project-picker">
-        <span className="project-picker-label">{t('common.project')}</span>
-        <select
-          aria-label={t('common.project')}
-          value={activeProjectId ?? ''}
-          onChange={(event) => selectProject(event.target.value)}
-        >
-          {projectsState.projects.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.name}
-            </option>
-          ))}
-        </select>
-      </label>
-    );
-  };
-
   return (
-    <>
-      <header className="top-bar">
-        <h1 className="brand">
-          <img className="brand-logo" src={logoUrl} alt="" width={28} height={28} />
-          glitch-port
-        </h1>
-        <nav className="tabs" aria-label={t('nav.sections')}>
-          <a
-            className="tab"
-            href="#/issues"
-            aria-current={issuesActive ? 'page' : undefined}
-          >
-            {t('nav.issues')}
-          </a>
-          <a
-            className="tab"
-            href="#/releases"
-            aria-current={route.name === 'releases' ? 'page' : undefined}
-          >
-            {t('nav.releases')}
-          </a>
-          <a
-            className="tab"
-            href="#/messages"
-            aria-current={route.name === 'messages' ? 'page' : undefined}
-          >
-            {t('nav.messages')}
-          </a>
-          <a
-            className="tab"
-            href="#/projects"
-            aria-current={projectsActive ? 'page' : undefined}
-          >
-            {t('nav.projects')}
-          </a>
-        </nav>
-        {renderProjectPicker()}
-        <div className="top-bar-settings">
-          <label>
-            <span>{t('common.language')}</span>
-            <select
-              aria-label="Language"
-              value={locale}
-              onChange={(event) => selectLocale(event.target.value)}
-            >
-              <option value="en">EN</option>
-              <option value="ko">KO</option>
-            </select>
-          </label>
-          <label>
-            <span>{t('common.theme')}</span>
-            <select
-              aria-label={t('common.theme')}
-              value={preference}
-              onChange={(event) => selectTheme(event.target.value)}
-            >
-              <option value="system">{t('common.themeSystem')}</option>
-              <option value="light">{t('common.themeLight')}</option>
-              <option value="dark">{t('common.themeDark')}</option>
-            </select>
-          </label>
-        </div>
-      </header>
-
-      <main className="page">
-        {route.name === 'messages' && <MessagesPage />}
-
-        {route.name === 'releases' && (
-          <ReleasesPage projectId={activeProjectId} />
-        )}
-
-        {route.name === 'projects' && (
-          <ProjectsPage onProjectsChanged={reloadProjects} />
-        )}
-
-        {route.name === 'project' && route.projectId !== null && (
-          <ProjectDetailPage
-            key={route.projectId}
-            projectId={route.projectId}
-            onProjectsChanged={reloadProjects}
+    <TooltipProvider>
+      <SidebarProvider>
+        <AppSidebar route={route} />
+        <SidebarInset>
+          <AppHeader
+            route={route}
+            projectsState={projectsState}
+            activeProjectId={activeProjectId}
+            onSelectProject={selectProject}
           />
-        )}
+          <div className="mx-auto w-full max-w-[1600px] p-4 md:p-6">
+            {route.name === 'messages' && <MessagesPage />}
 
-        {route.name === 'issue' && route.issueId !== null && (
-          <IssueDetailPage
-            issueId={route.issueId}
-            projectId={activeProjectId}
-          />
-        )}
+            {route.name === 'releases' && (
+              <ReleasesPage projectId={activeProjectId} />
+            )}
 
-        {(route.name === 'issues' || unknownRoute) && (
-          <IssuesPage projectId={activeProjectId} />
-        )}
-      </main>
-    </>
+            {route.name === 'projects' && (
+              <ProjectsPage onProjectsChanged={reloadProjects} />
+            )}
+
+            {route.name === 'project' && route.projectId !== null && (
+              <ProjectDetailPage
+                key={route.projectId}
+                projectId={route.projectId}
+                onProjectsChanged={reloadProjects}
+              />
+            )}
+
+            {route.name === 'issue' && route.issueId !== null && (
+              <IssueDetailPage
+                issueId={route.issueId}
+                projectId={activeProjectId}
+              />
+            )}
+
+            {route.name === 'settings' && <SettingsPage />}
+
+            {(route.name === 'issues' || unknownRoute) && (
+              <IssuesPage projectId={activeProjectId} />
+            )}
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
+    </TooltipProvider>
   );
 }

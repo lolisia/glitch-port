@@ -13,6 +13,7 @@ import { event } from './en/event';
 import { issues } from './en/issues';
 import { projects } from './en/projects';
 import { releases } from './en/releases';
+import { settings } from './en/settings';
 import type { DeepStringify } from './types';
 
 export const en = {
@@ -22,6 +23,7 @@ export const en = {
     releases: 'Releases',
     messages: 'Messages',
     projects: 'Projects',
+    settings: 'Settings',
   },
   common: {
     language: 'Language',
@@ -75,6 +77,7 @@ export const en = {
   event,
   projects,
   releases,
+  settings,
 } as const;
 
 export type Messages = DeepStringify<typeof en>;
