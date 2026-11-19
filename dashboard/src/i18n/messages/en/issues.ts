@@ -12,6 +12,11 @@ export const issues = {
   empty: 'No issues found.',
   loadError: 'Failed to load issues',
   loadMore: 'Load more',
+  /** Shared labels for the destructive confirmation dialogs. */
+  dialog: {
+    cancel: 'Cancel',
+    delete: 'Delete',
+  },
   status: {
     unresolved: 'Unresolved',
     resolved: 'Resolved',
@@ -93,6 +98,9 @@ export const issues = {
     // The confirmation always said "issues", including for a single row.
     confirmDelete_one: 'Delete {count} selected issues?',
     confirmDelete_other: 'Delete {count} selected issues?',
+    deleteDialog: {
+      title: 'Delete selected issues',
+    },
   },
   detail: {
     back: 'Back to issues',
@@ -121,6 +129,9 @@ export const issues = {
     ignore: 'Ignore',
     deleteIssue: 'Delete issue',
     confirmDelete: 'Delete this issue and all of its events?',
+    deleteDialog: {
+      title: 'Delete issue',
+    },
     labels: {
       title: 'Labels',
       empty: 'No labels',
@@ -142,6 +153,9 @@ export const issues = {
       empty: 'No events recorded.',
       platform: 'Platform',
       confirmDelete: 'Delete this event?',
+      deleteDialog: {
+        title: 'Delete event',
+      },
     },
     tags: {
       title: 'Tag distribution',

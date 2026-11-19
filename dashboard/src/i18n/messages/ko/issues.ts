@@ -9,6 +9,10 @@ export const issues: IssuesMessages = {
   empty: '이슈가 없습니다.',
   loadError: '이슈를 불러오지 못했습니다',
   loadMore: '더 보기',
+  dialog: {
+    cancel: '취소',
+    delete: '삭제',
+  },
   status: {
     unresolved: '미해결',
     resolved: '해결됨',
@@ -87,6 +91,9 @@ export const issues: IssuesMessages = {
     error: '일괄 작업 실패',
     confirmDelete_one: '선택한 이슈 {count}개를 삭제할까요?',
     confirmDelete_other: '선택한 이슈 {count}개를 삭제할까요?',
+    deleteDialog: {
+      title: '선택한 이슈 삭제',
+    },
   },
   detail: {
     back: '이슈 목록으로',
@@ -115,6 +122,9 @@ export const issues: IssuesMessages = {
     ignore: '무시',
     deleteIssue: '이슈 삭제',
     confirmDelete: '이 이슈와 모든 이벤트를 삭제할까요?',
+    deleteDialog: {
+      title: '이슈 삭제',
+    },
     labels: {
       title: '라벨',
       empty: '라벨 없음',
@@ -136,6 +146,9 @@ export const issues: IssuesMessages = {
       empty: '기록된 이벤트가 없습니다.',
       platform: '플랫폼',
       confirmDelete: '이 이벤트를 삭제할까요?',
+      deleteDialog: {
+        title: '이벤트 삭제',
+      },
     },
     tags: {
       title: '태그 분포',

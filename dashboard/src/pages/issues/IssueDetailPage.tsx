@@ -17,6 +17,16 @@ import type {
   Label,
   UpdateIssueRequest,
 } from '../../api/types';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../../components/ui/alert-dialog';
 import { navigate } from '../../router';
 import { useI18n } from '../../i18n';
 import { ErrorState, LoadingState } from '../../ui';
@@ -107,6 +117,10 @@ export function IssueDetailPage({
   const [eventError, setEventError] = useState<InlineError | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [deletingEvent, setDeletingEvent] = useState(false);
+  // Destructive actions open a controlled AlertDialog; the API call only runs
+  // from the dialog's confirm action.
+  const [confirmingIssueDelete, setConfirmingIssueDelete] = useState(false);
+  const [confirmingEventDelete, setConfirmingEventDelete] = useState(false);
   // Selecting events quickly must not let an earlier response win.
   const selectedRequest = useRef(0);
   // Mutations capture this token so a response for the previous issue cannot
@@ -127,6 +141,8 @@ export function IssueDetailPage({
     setEventError(null);
     setLoadingMore(false);
     setDeletingEvent(false);
+    setConfirmingIssueDelete(false);
+    setConfirmingEventDelete(false);
 
     // The issue itself is not project scoped, but the label list is: without
     // an active project the page waits instead of guessing one.
@@ -221,10 +237,6 @@ export function IssueDetailPage({
   );
 
   const handleDeleteIssue = useCallback(async () => {
-    if (!window.confirm(t('issues.detail.confirmDelete'))) {
-      return;
-    }
-
     setActionError(null);
 
     try {
@@ -233,7 +245,7 @@ export function IssueDetailPage({
     } catch (error) {
       setActionError(error);
     }
-  }, [issueId, t]);
+  }, [issueId]);
 
   const toggleLabel = useCallback((name: string, checked: boolean) => {
     setCheckedNames((current) => {
@@ -400,10 +412,6 @@ export function IssueDetailPage({
       return;
     }
 
-    if (!window.confirm(t('issues.detail.eventPanel.confirmDelete'))) {
-      return;
-    }
-
     const token = issueToken.current;
     setDeletingEvent(true);
     setEventError(null);
@@ -462,7 +470,7 @@ export function IssueDetailPage({
         setDeletingEvent(false);
       }
     }
-  }, [issueId, selected, t]);
+  }, [issueId, selected]);
 
   const loaded = state.status === 'ready' ? state.loaded : null;
   const events = loaded?.events ?? [];
@@ -512,7 +520,7 @@ export function IssueDetailPage({
             onResolveNextRelease={() =>
               void changeStatus('resolved', 'next_release')
             }
-            onDelete={() => void handleDeleteIssue()}
+            onDelete={() => setConfirmingIssueDelete(true)}
           />
 
           <LabelsEditor
@@ -553,10 +561,64 @@ export function IssueDetailPage({
               <EventPanel
                 event={selected}
                 deleting={deletingEvent}
-                onDelete={() => void deleteSelectedEvent()}
+                onDelete={() => setConfirmingEventDelete(true)}
               />
             </div>
           </div>
+
+          <AlertDialog
+            open={confirmingIssueDelete}
+            onOpenChange={setConfirmingIssueDelete}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {t('issues.detail.deleteDialog.title')}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t('issues.detail.confirmDelete')}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>
+                  {t('issues.dialog.cancel')}
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  variant="destructive"
+                  onClick={() => void handleDeleteIssue()}
+                >
+                  {t('issues.dialog.delete')}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <AlertDialog
+            open={confirmingEventDelete}
+            onOpenChange={setConfirmingEventDelete}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {t('issues.detail.eventPanel.deleteDialog.title')}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t('issues.detail.eventPanel.confirmDelete')}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>
+                  {t('issues.dialog.cancel')}
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  variant="destructive"
+                  onClick={() => void deleteSelectedEvent()}
+                >
+                  {t('issues.dialog.delete')}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </>
       )}
     </section>

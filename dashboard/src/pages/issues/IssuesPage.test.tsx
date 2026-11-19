@@ -985,7 +985,6 @@ describe('IssuesPage', () => {
 
   it('deletes the selection after confirmation', async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     const fetchMock = stubApi({
       issues: [
         issuePage([makeIssue({ id: 1, title: 'First' })]),
@@ -999,7 +998,18 @@ describe('IssuesPage', () => {
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
     await user.click(screen.getByRole('button', { name: 'Delete' }));
 
-    expect(confirm).toHaveBeenCalledWith('Delete 1 selected issues?');
+    const dialog = await screen.findByRole('alertdialog');
+    expect(
+      within(dialog).getByRole('heading', { name: 'Delete selected issues' }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText('Delete 1 selected issues?'),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Delete' }),
+    ).toHaveAttribute('data-variant', 'destructive');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
 
     expect(await screen.findByRole('link', { name: 'Second' })).toBeInTheDocument();
 
@@ -1015,7 +1025,6 @@ describe('IssuesPage', () => {
 
   it('does not delete when the confirmation is cancelled', async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     const fetchMock = stubApi({ issues: issuePage([makeIssue()]) });
 
     renderPage(<IssuesPage projectId={1} />);
@@ -1024,7 +1033,16 @@ describe('IssuesPage', () => {
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
     await user.click(screen.getByRole('button', { name: 'Delete' }));
 
-    expect(confirm).toHaveBeenCalledWith('Delete 1 selected issues?');
+    const dialog = await screen.findByRole('alertdialog');
+    expect(
+      within(dialog).getByRole('heading', { name: 'Delete selected issues' }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText('Delete 1 selected issues?'),
+    ).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(bulkCalls(fetchMock)).toHaveLength(0);
     expect(issueRequestUrls(fetchMock)).toHaveLength(1);
     expect(screen.getByText('1 selected')).toBeInTheDocument();
@@ -1279,7 +1297,6 @@ describe('IssuesPage', () => {
   it('renders the list, filters, stats and bulk bar in Korean', async () => {
     window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     stubApi({
       issues: issuePage([makeIssue({ id: 7, title: 'Crash on startup' })]),
     });
@@ -1332,7 +1349,19 @@ describe('IssuesPage', () => {
     expect(screen.getByText('1개 선택됨')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '삭제' }));
-    expect(confirm).toHaveBeenCalledWith('선택한 이슈 1개를 삭제할까요?');
+    const dialog = await screen.findByRole('alertdialog');
+    expect(
+      within(dialog).getByRole('heading', { name: '선택한 이슈 삭제' }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText('선택한 이슈 1개를 삭제할까요?'),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: '삭제' }),
+    ).toHaveAttribute('data-variant', 'destructive');
+    await user.click(within(dialog).getByRole('button', { name: '취소' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.getByText('1개 선택됨')).toBeInTheDocument();
   });
 
   it('translates the error prefix but not the server error body', async () => {

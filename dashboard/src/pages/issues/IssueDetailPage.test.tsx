@@ -895,9 +895,8 @@ describe('IssueDetailPage', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('does not delete an event when the confirmation is declined', async () => {
+  it('does not delete an event when the confirmation is cancelled', async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     const onDeleteEvent = vi.fn();
     const { calls } = stubApi({ onDeleteEvent });
 
@@ -907,7 +906,18 @@ describe('IssueDetailPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Delete event' }));
 
-    expect(confirm).toHaveBeenCalledWith('Delete this event?');
+    const dialog = await screen.findByRole('alertdialog');
+    expect(
+      within(dialog).getByRole('heading', { name: 'Delete event' }),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText('Delete this event?')).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Delete' }),
+    ).toHaveAttribute('data-variant', 'destructive');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(onDeleteEvent).not.toHaveBeenCalled();
     expect(calls.some((call) => call.method === 'DELETE')).toBe(false);
     expect(screen.getByText('Latest payload body')).toBeInTheDocument();
@@ -915,7 +925,6 @@ describe('IssueDetailPage', () => {
 
   it('deletes the selected event and selects the new latest event', async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     let deleted = false;
 
     const { calls } = stubApi({
@@ -939,6 +948,8 @@ describe('IssueDetailPage', () => {
     await screen.findByText('Latest payload body');
 
     await user.click(screen.getByRole('button', { name: 'Delete event' }));
+    const dialog = await screen.findByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
 
     expect(await screen.findByText('Second payload body')).toBeInTheDocument();
     expect(callsTo(calls, 'DELETE', '/api/manage/events/event-3')).toHaveLength(
@@ -964,9 +975,8 @@ describe('IssueDetailPage', () => {
     );
   });
 
-  it('does not delete the issue when the confirmation is declined', async () => {
+  it('does not delete the issue when the confirmation is cancelled', async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     const { calls } = stubApi();
 
     renderPage(<IssueDetailPage issueId={42} projectId={1} />);
@@ -975,16 +985,26 @@ describe('IssueDetailPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Delete issue' }));
 
-    expect(confirm).toHaveBeenCalledWith(
-      'Delete this issue and all of its events?',
-    );
+    const dialog = await screen.findByRole('alertdialog');
+    expect(
+      within(dialog).getByRole('heading', { name: 'Delete issue' }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText('Delete this issue and all of its events?'),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Delete' }),
+    ).toHaveAttribute('data-variant', 'destructive');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(calls.some((call) => call.method === 'DELETE')).toBe(false);
     expect(window.location.hash).toBe('#/issues/42');
   });
 
   it('deletes the issue after confirmation and navigates to the issues list', async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     const { calls } = stubApi();
 
     renderPage(<IssueDetailPage issueId={42} projectId={1} />);
@@ -992,6 +1012,8 @@ describe('IssueDetailPage', () => {
     await screen.findByTestId('issue-detail-header');
 
     await user.click(screen.getByRole('button', { name: 'Delete issue' }));
+    const dialog = await screen.findByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
 
     expect(callsTo(calls, 'DELETE', ISSUE_PATH)).toHaveLength(1);
     await waitFor(() => expect(window.location.hash).toBe('#/issues'));
@@ -1052,7 +1074,6 @@ describe('IssueDetailPage', () => {
   it('renders the header, actions, labels and event list in Korean', async () => {
     window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     stubApi();
 
     renderPage(<IssueDetailPage issueId={42} projectId={1} />);
@@ -1121,12 +1142,36 @@ describe('IssueDetailPage', () => {
     expect(within(header).getByText('1.2.0')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '이벤트 삭제' }));
-    expect(confirm).toHaveBeenCalledWith('이 이벤트를 삭제할까요?');
+    const eventDialog = await screen.findByRole('alertdialog');
+    expect(
+      within(eventDialog).getByRole('heading', { name: '이벤트 삭제' }),
+    ).toBeInTheDocument();
+    expect(
+      within(eventDialog).getByText('이 이벤트를 삭제할까요?'),
+    ).toBeInTheDocument();
+    expect(
+      within(eventDialog).getByRole('button', { name: '삭제' }),
+    ).toHaveAttribute('data-variant', 'destructive');
+    await user.click(
+      within(eventDialog).getByRole('button', { name: '취소' }),
+    );
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '이슈 삭제' }));
-    expect(confirm).toHaveBeenCalledWith(
-      '이 이슈와 모든 이벤트를 삭제할까요?',
+    const issueDialog = await screen.findByRole('alertdialog');
+    expect(
+      within(issueDialog).getByRole('heading', { name: '이슈 삭제' }),
+    ).toBeInTheDocument();
+    expect(
+      within(issueDialog).getByText('이 이슈와 모든 이벤트를 삭제할까요?'),
+    ).toBeInTheDocument();
+    expect(
+      within(issueDialog).getByRole('button', { name: '삭제' }),
+    ).toHaveAttribute('data-variant', 'destructive');
+    await user.click(
+      within(issueDialog).getByRole('button', { name: '취소' }),
     );
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
   it('renders the Korean empty label state instead of the English text', async () => {
