@@ -1,9 +1,18 @@
+import { MultiSelectCombobox } from '../../../components/MultiSelectCombobox';
+import { Input } from '../../../components/ui/input';
+import { NativeSelect } from '../../../components/ui/native-select';
+import { Toggle } from '../../../components/ui/toggle';
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from '../../../components/ui/toggle-group';
 import { useI18n } from '../../../i18n';
 import {
   LEVEL_OPTIONS,
   SORT_OPTIONS,
   STATUS_TABS,
   parseIssueSortFilter,
+  parseIssueStatusFilter,
 } from './filters';
 import type { IssueFilters } from './filters';
 
@@ -20,7 +29,7 @@ export interface IssueFilterBarProps {
 }
 
 /**
- * Status tabs, the debounced search box and the select filters. The values are
+ * Status tabs, the debounced search box and the filter controls. The values are
  * owned by the URL query; this component only reports changes.
  */
 export function IssueFilterBar({
@@ -45,35 +54,48 @@ export function IssueFilterBar({
   }
 
   return (
-    <div className="issues-filters">
-      <div
-        className="issues-status-tabs"
+    <div className="flex flex-col gap-3">
+      <ToggleGroup
+        type="single"
+        value={filters.status}
+        // Pressing the active tab is a no-op instead of clearing the status.
+        onValueChange={(value) => {
+          if (value !== '') {
+            onFilterChange({ status: parseIssueStatusFilter(value) });
+          }
+        }}
         role="group"
         aria-label={t('issues.filters.status')}
+        className="flex flex-wrap justify-start gap-1"
       >
         {STATUS_TABS.map((tab) => (
-          <button
+          <ToggleGroupItem
             key={tab.value}
-            type="button"
+            value={tab.value}
+            /* The tab strip behaves as a group of toggle buttons, not radios. */
+            role="button"
+            aria-checked={undefined}
             aria-pressed={filters.status === tab.value}
-            onClick={() => onFilterChange({ status: tab.value })}
+            variant="outline"
+            size="sm"
+            className="data-[state=on]:border-primary data-[state=on]:bg-secondary data-[state=on]:font-semibold"
           >
             {t(tab.labelKey)}
-          </button>
+          </ToggleGroupItem>
         ))}
-      </div>
+      </ToggleGroup>
 
-      <div className="issues-filter-controls">
-        <input
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
           type="search"
-          className="issues-search"
           aria-label={t('issues.filters.search')}
           placeholder={t('issues.filters.searchPlaceholder')}
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
+          className="min-w-56 flex-1 basis-56"
         />
 
-        <select
+        <NativeSelect
           aria-label={t('issues.filters.level')}
           value={filters.level}
           onChange={(event) => onFilterChange({ level: event.target.value })}
@@ -83,9 +105,9 @@ export function IssueFilterBar({
               {t(option.labelKey)}
             </option>
           ))}
-        </select>
+        </NativeSelect>
 
-        <select
+        <NativeSelect
           aria-label={t('issues.filters.environment')}
           value={filters.environment}
           onChange={(event) =>
@@ -98,9 +120,9 @@ export function IssueFilterBar({
               {value}
             </option>
           ))}
-        </select>
+        </NativeSelect>
 
-        <select
+        <NativeSelect
           aria-label={t('issues.filters.release')}
           value={filters.release}
           onChange={(event) => onFilterChange({ release: event.target.value })}
@@ -111,20 +133,20 @@ export function IssueFilterBar({
               {value}
             </option>
           ))}
-        </select>
+        </NativeSelect>
 
-        <input
+        <Input
           type="search"
-          className="issues-first-release"
           aria-label={t('issues.filters.firstRelease')}
           placeholder={t('issues.filters.firstReleasePlaceholder')}
           value={filters.first_release}
           onChange={(event) =>
             onFilterChange({ first_release: event.target.value })
           }
+          className="min-w-48 flex-1 basis-48"
         />
 
-        <select
+        <NativeSelect
           aria-label={t('issues.filters.label')}
           value={filters.label}
           onChange={(event) => onFilterChange({ label: event.target.value })}
@@ -135,33 +157,26 @@ export function IssueFilterBar({
               {name}
             </option>
           ))}
-        </select>
+        </NativeSelect>
 
         {platformChoices.length > 0 && (
-          <select
-            aria-label={t('issues.filters.platform')}
-            className="issues-platform-filter"
-            multiple
-            size={Math.min(platformChoices.length, 3)}
+          <MultiSelectCombobox
+            options={platformChoices}
             value={filters.platform}
-            onChange={(event) =>
-              onFilterChange({
-                platform: Array.from(
-                  event.target.selectedOptions,
-                  (option) => option.value,
-                ),
-              })
+            onChange={(platform) => onFilterChange({ platform })}
+            ariaLabel={t('issues.filters.platform')}
+            placeholder={t('issues.filters.allPlatforms')}
+            searchPlaceholder={t('issues.filters.platformSearch')}
+            emptyText={t('issues.filters.platformEmpty')}
+            clearLabel={t('issues.filters.platformClear')}
+            selectedCountLabel={(count) =>
+              t('issues.filters.platformCount', { count })
             }
-          >
-            {platformChoices.map((platform) => (
-              <option key={platform} value={platform}>
-                {platform}
-              </option>
-            ))}
-          </select>
+            className="w-56"
+          />
         )}
 
-        <select
+        <NativeSelect
           aria-label={t('issues.filters.sort')}
           value={filters.sort}
           onChange={(event) =>
@@ -173,16 +188,18 @@ export function IssueFilterBar({
               {t(option.labelKey)}
             </option>
           ))}
-        </select>
+        </NativeSelect>
 
-        <button
-          type="button"
-          className="issues-regressed-filter"
-          aria-pressed={filters.regressed}
-          onClick={() => onFilterChange({ regressed: !filters.regressed })}
+        <Toggle
+          pressed={filters.regressed}
+          onPressedChange={(pressed) => onFilterChange({ regressed: pressed })}
+          aria-label={t('issues.filters.regressed')}
+          variant="outline"
+          size="sm"
+          className="border-warning/60 data-[state=on]:border-warning data-[state=on]:bg-warning/15 data-[state=on]:text-warning"
         >
           {t('issues.filters.regressed')}
-        </button>
+        </Toggle>
       </div>
     </div>
   );

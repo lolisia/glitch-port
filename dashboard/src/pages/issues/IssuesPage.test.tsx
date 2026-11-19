@@ -555,6 +555,8 @@ describe('IssuesPage', () => {
     renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('table');
 
+    expect(screen.getByRole('group', { name: 'Status' })).toBeInTheDocument();
+
     expect(optionValues(screen.getByLabelText('Level'))).toEqual([
       '',
       'debug',
@@ -649,16 +651,14 @@ describe('IssuesPage', () => {
     );
     await screen.findByRole('table');
 
-    await waitFor(() =>
-      expect(optionValues(screen.getByLabelText('Platform'))).toEqual([
-        'unreal',
-        'unity',
-      ]),
-    );
-    await user.selectOptions(screen.getByLabelText('Platform'), [
-      'unreal',
-      'unity',
-    ]);
+    const platformTrigger = await screen.findByLabelText('Platform');
+    expect(platformTrigger).toHaveTextContent('All platforms');
+    await user.click(platformTrigger);
+    await user.click(await screen.findByRole('option', { name: 'unreal' }));
+    await user.click(screen.getByRole('option', { name: 'unity' }));
+    expect(platformTrigger).toHaveTextContent('2 platforms');
+    expect(platformTrigger).toHaveAttribute('aria-expanded', 'true');
+
     await waitFor(() =>
       expect(hashParams().get('platform')).toBe('unreal,unity'),
     );
@@ -1129,6 +1129,8 @@ describe('IssuesPage', () => {
   });
 
   it('restores the selected platforms from the hash and sends them together', async () => {
+    const user = userEvent.setup();
+
     window.history.replaceState(
       null,
       '',
@@ -1144,12 +1146,16 @@ describe('IssuesPage', () => {
 
     renderPage(<IssuesPage projectId={1} />);
 
-    const select = await screen.findByLabelText('Platform');
+    const trigger = await screen.findByLabelText('Platform');
+    expect(trigger).toHaveTextContent('2 platforms');
+
+    await user.click(trigger);
     expect(
-      Array.from((select as HTMLSelectElement).selectedOptions).map(
-        (option) => option.value,
-      ),
-    ).toEqual(['unity', 'dotnet']);
+      await screen.findByRole('option', { name: 'unity' }),
+    ).toHaveAttribute('aria-selected', 'true');
+    expect(
+      screen.getByRole('option', { name: 'dotnet' }),
+    ).toHaveAttribute('aria-selected', 'true');
 
     await waitFor(() =>
       expect(lastIssueRequest(fetchMock).searchParams.get('platform')).toBe(
@@ -1159,6 +1165,50 @@ describe('IssuesPage', () => {
     expect(
       lastIssueRequest(fetchMock).searchParams.get('platform'),
     ).toBe('unity,dotnet');
+  });
+
+  it('searches, toggles and clears the platform combobox', async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubApi({ issues: issuePage([makeIssue()]) });
+
+    renderPage(<IssuesPage projectId={1} />);
+
+    const trigger = await screen.findByLabelText('Platform');
+    expect(trigger).toHaveTextContent('All platforms');
+
+    await user.click(trigger);
+    await user.type(
+      screen.getByPlaceholderText('Search platforms...'),
+      'uni',
+    );
+
+    const unity = screen.getByRole('option', { name: 'unity' });
+    expect(
+      screen.queryByRole('option', { name: 'unreal' }),
+    ).not.toBeInTheDocument();
+
+    await user.click(unity);
+
+    // Selecting keeps the popover open and shows the single value.
+    expect(trigger).toHaveTextContent('unity');
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('option', { name: 'unity' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await waitFor(() => expect(hashParams().get('platform')).toBe('unity'));
+
+    await user.click(
+      screen.getByRole('option', { name: 'Clear platforms' }),
+    );
+
+    expect(trigger).toHaveTextContent('All platforms');
+    await waitFor(() => expect(hashParams().has('platform')).toBe(false));
+    await waitFor(() =>
+      expect(
+        lastIssueRequest(fetchMock).searchParams.has('platform'),
+      ).toBe(false),
+    );
   });
 
   it('keeps the active environment and release in the options', async () => {

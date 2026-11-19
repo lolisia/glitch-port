@@ -11,6 +11,7 @@ import type {
   Issue,
   StatsResponse,
 } from '../../api/types';
+import { Button } from '../../components/ui/button';
 import { navigate, useHashRoute } from '../../router';
 import { useI18n } from '../../i18n';
 import { EmptyState, ErrorState, LoadingState } from '../../ui';
@@ -27,7 +28,6 @@ import {
   readIssueFilters,
 } from './components/filters';
 import type { IssueFilters } from './components/filters';
-import './issues.css';
 
 /**
  * Issue list with URL-driven filters, cursor pagination and bulk actions.
@@ -411,9 +411,14 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
 
   if (projectId === null) {
     return (
-      <section className="issues-page" data-testid="issues-page">
-        <header className="page-header">
-          <h2>{t('issues.title')}</h2>
+      <section
+        className="flex flex-col gap-4"
+        data-testid="issues-page"
+      >
+        <header className="flex items-center justify-between gap-4">
+          <h2 className="m-0 text-xl font-semibold tracking-tight">
+            {t('issues.title')}
+          </h2>
         </header>
 
         <NoProjectState />
@@ -422,9 +427,11 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
   }
 
   return (
-    <section className="issues-page" data-testid="issues-page">
-      <header className="page-header">
-        <h2>{t('issues.title')}</h2>
+    <section className="flex flex-col gap-4" data-testid="issues-page">
+      <header className="flex items-center justify-between gap-4">
+        <h2 className="m-0 text-xl font-semibold tracking-tight">
+          {t('issues.title')}
+        </h2>
       </header>
 
       {stats !== null && <StatsSummary stats={stats} />}
@@ -476,14 +483,15 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
           )}
 
           {nextCursor !== null && (
-            <button
+            <Button
               type="button"
-              className="issues-load-more"
+              variant="outline"
+              className="self-start"
               onClick={() => void loadMore(filters, nextCursor)}
               disabled={loading || loadingMore}
             >
               {t('issues.loadMore')}
-            </button>
+            </Button>
           )}
         </>
       )}
