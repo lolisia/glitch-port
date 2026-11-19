@@ -1,5 +1,6 @@
 import type { IssueStatus } from '../../../api/types';
 import { useI18n } from '../../../i18n';
+import { Button } from '@/components/ui/button';
 
 const STATUS_ACTIONS: ReadonlyArray<{ labelKey: string; status: IssueStatus }> =
   [
@@ -32,21 +33,23 @@ export function IssueActions({
 
   return (
     <div
-      className="issue-actions"
+      className="flex flex-wrap items-center gap-2"
       role="group"
       aria-label={t('issues.detail.actions')}
     >
       {STATUS_ACTIONS.map((action) => (
-        <button
+        <Button
           key={action.status}
           type="button"
+          variant="outline"
           onClick={() => onChangeStatus(action.status)}
         >
           {t(action.labelKey)}
-        </button>
+        </Button>
       ))}
-      <button
+      <Button
         type="button"
+        variant="secondary"
         onClick={onResolveNextRelease}
         disabled={lastRelease === null}
         title={
@@ -56,10 +59,10 @@ export function IssueActions({
         }
       >
         {t('issues.detail.resolveNextRelease')}
-      </button>
-      <button type="button" className="button-danger" onClick={onDelete}>
+      </Button>
+      <Button type="button" variant="destructive" onClick={onDelete}>
         {t('issues.detail.deleteIssue')}
-      </button>
+      </Button>
     </div>
   );
 }

@@ -11,7 +11,17 @@ import type {
 import { useI18n, type Translate } from '../i18n';
 import { LevelBadge } from '../ui/LevelBadge';
 import { formatClockTime } from '../ui/time';
-import './event.css';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 const USER_FIELDS: ReadonlyArray<[keyof EventUser, string]> = [
   ['id', 'event.userFields.id'],
@@ -34,7 +44,11 @@ function hasEntries<T extends object>(value: T | null | undefined): value is T {
 
 function ValueCell({ value }: { value: unknown }) {
   if (value !== null && typeof value === 'object') {
-    return <pre>{JSON.stringify(value, null, 2)}</pre>;
+    return (
+      <pre className="m-0 font-mono text-xs whitespace-pre-wrap break-words">
+        {JSON.stringify(value, null, 2)}
+      </pre>
+    );
   }
 
   return <>{String(value)}</>;
@@ -42,30 +56,39 @@ function ValueCell({ value }: { value: unknown }) {
 
 function KeyValueTable({
   entries,
+  showHeader = true,
 }: {
   entries: ReadonlyArray<readonly [string, unknown]>;
+  showHeader?: boolean;
 }) {
   const { t } = useI18n();
 
   return (
-    <table className="key-value-table">
-      <thead>
-        <tr>
-          <th scope="col">{t('event.key')}</th>
-          <th scope="col">{t('event.value')}</th>
-        </tr>
-      </thead>
-      <tbody>
+    <Table className="key-value-table">
+      {showHeader && (
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t('event.key')}</TableHead>
+            <TableHead>{t('event.value')}</TableHead>
+          </TableRow>
+        </TableHeader>
+      )}
+      <TableBody>
         {entries.map(([key, value]) => (
-          <tr key={key}>
-            <th scope="row">{key}</th>
-            <td>
+          <TableRow key={key}>
+            <TableHead
+              scope="row"
+              className="font-mono font-normal text-muted-foreground"
+            >
+              {key}
+            </TableHead>
+            <TableCell className="whitespace-normal">
               <ValueCell value={value} />
-            </td>
-          </tr>
+            </TableCell>
+          </TableRow>
         ))}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
   );
 }
 
@@ -98,32 +121,44 @@ function frameLocation(frame: StackFrame): string | null {
     : frame.filename;
 }
 
+/** Token-based tones: application frames keep the destructive accent. */
 function frameClassName(frame: StackFrame): string {
+  const base =
+    'frame mt-1 rounded-sm border-l-[3px] px-3 py-2 font-mono text-xs first:mt-0';
+
   if (frame.in_app === true) {
-    return 'frame frame-in-app';
+    return `${base} frame-in-app border-l-destructive bg-destructive/10`;
   }
 
   if (frame.in_app === false) {
-    return 'frame frame-system';
+    return `${base} frame-system border-l-border bg-muted text-muted-foreground`;
   }
 
   // A frame without an explicit in_app flag is treated as an application
   // frame, but without the in-app emphasis.
-  return 'frame';
+  return `${base} border-l-transparent`;
 }
 
 function Frame({ frame }: { frame: StackFrame }) {
   const { t } = useI18n();
   const location = frameLocation(frame);
+  const titleClassName =
+    frame.in_app === false
+      ? 'frame-title font-normal text-muted-foreground'
+      : 'frame-title font-semibold text-foreground';
 
   return (
     <div className={frameClassName(frame)} data-testid="frame">
-      <div className="frame-title">
+      <div className={titleClassName}>
         {frameLabel(frame, t('event.unknownFrame'))}
       </div>
-      {location !== null && <div className="frame-location">{location}</div>}
+      {location !== null && (
+        <div className="frame-location text-muted-foreground">{location}</div>
+      )}
       {isNonEmptyString(frame.context_line) && (
-        <code className="frame-context">{frame.context_line}</code>
+        <code className="frame-context mt-1 block rounded-sm bg-muted px-2 py-1 text-foreground whitespace-pre-wrap">
+          {frame.context_line}
+        </code>
       )}
     </div>
   );
@@ -150,29 +185,40 @@ function ExceptionBlock({ exception }: { exception: ExceptionValue }) {
     : frames.filter((frame) => frame.in_app !== false);
 
   return (
-    <section className="exception" data-testid="exception">
-      <h4>{exceptionTitle(exception)}</h4>
+    <Card
+      className="exception gap-2 border-border/60 p-3 shadow-none"
+      data-testid="exception"
+    >
+      <h4 className="m-0 text-sm font-semibold">{exceptionTitle(exception)}</h4>
 
-      {visibleFrames.map((frame, index) => (
-        <Frame
-          key={`${frame.filename ?? ''}:${frame.lineno ?? ''}:${index}`}
-          frame={frame}
-        />
-      ))}
+      {visibleFrames.length > 0 && (
+        <ScrollArea className="max-h-96">
+          <div className="flex flex-col">
+            {visibleFrames.map((frame, index) => (
+              <Frame
+                key={`${frame.filename ?? ''}:${frame.lineno ?? ''}:${index}`}
+                frame={frame}
+              />
+            ))}
+          </div>
+        </ScrollArea>
+      )}
 
       {systemFrameCount > 0 && (
-        <button
+        <Button
           type="button"
-          className="frame-toggle"
+          variant="outline"
+          size="xs"
+          className="frame-toggle self-start"
           aria-expanded={showSystemFrames}
           onClick={() => setShowSystemFrames((value) => !value)}
         >
           {showSystemFrames
             ? t('event.hideSystemFrames', { count: systemFrameCount })
             : t('event.showSystemFrames', { count: systemFrameCount })}
-        </button>
+        </Button>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -218,25 +264,32 @@ function BreadcrumbItem({ breadcrumb }: { breadcrumb: Breadcrumb }) {
   const showData = hasEntries(data);
 
   return (
-    <li className="breadcrumb">
+    <li className="breadcrumb flex flex-wrap items-baseline gap-2 border-b border-border/60 py-2 last:border-b-0">
       {isNonEmptyString(breadcrumb.timestamp) && (
-        <time dateTime={breadcrumb.timestamp}>
+        <time
+          className="font-mono text-xs text-muted-foreground"
+          dateTime={breadcrumb.timestamp}
+        >
           {formatClockTime(breadcrumb.timestamp, locale)}
         </time>
       )}
       {isNonEmptyString(breadcrumb.category) && (
-        <span className="breadcrumb-category">{breadcrumb.category}</span>
+        <span className="breadcrumb-category text-xs font-semibold text-muted-foreground">
+          {breadcrumb.category}
+        </span>
       )}
       {isNonEmptyString(breadcrumb.message) && (
-        <span className="breadcrumb-message">{breadcrumb.message}</span>
+        <span className="breadcrumb-message text-sm">{breadcrumb.message}</span>
       )}
       {isNonEmptyString(breadcrumb.level) && (
         <LevelBadge level={breadcrumb.level} />
       )}
       {showData && (
-        <details className="breadcrumb-data">
-          <summary>{t('event.data')}</summary>
-          <pre>{JSON.stringify(data, null, 2)}</pre>
+        <details className="breadcrumb-data basis-full">
+          <summary className="cursor-pointer text-sm text-primary">
+            {t('event.data')}
+          </summary>
+          <pre className="mt-2 rounded-md bg-muted p-3 font-mono text-xs whitespace-pre-wrap break-words">{JSON.stringify(data, null, 2)}</pre>
         </details>
       )}
     </li>
@@ -258,10 +311,10 @@ export function EventView({ event }: { event: EventDetail }) {
   const rows = user ? userRows(user, t) : [];
 
   return (
-    <div className="event-view">
+    <div className="event-view flex flex-col gap-6">
       {exceptions.length > 0 && (
-        <section className="event-section">
-          <h3>{t('event.exceptions')}</h3>
+        <section className="event-section flex flex-col gap-3">
+          <h3 className="m-0 text-base font-semibold">{t('event.exceptions')}</h3>
           {[...exceptions].reverse().map((exception, index) => (
             <ExceptionBlock
               key={`${exception.type}:${index}`}
@@ -272,51 +325,56 @@ export function EventView({ event }: { event: EventDetail }) {
       )}
 
       {isNonEmptyString(payload.message) && (
-        <section className="event-section">
-          <h3>{t('event.message')}</h3>
-          <pre className="event-message">{payload.message}</pre>
+        <section className="event-section flex flex-col gap-2">
+          <h3 className="m-0 text-base font-semibold">{t('event.message')}</h3>
+          <pre className="event-message m-0 rounded-md bg-muted p-3 font-mono text-sm whitespace-pre-wrap break-words">
+            {payload.message}
+          </pre>
         </section>
       )}
 
       {hasEntries(tags) && (
-        <section className="event-section">
-          <h3>{t('event.tags')}</h3>
+        <section className="event-section flex flex-col gap-2">
+          <h3 className="m-0 text-base font-semibold">{t('event.tags')}</h3>
           <KeyValueTable entries={Object.entries(tags)} />
         </section>
       )}
 
       {rows.length > 0 && (
-        <section className="event-section">
-          <h3>{t('event.user')}</h3>
-          <table className="key-value-table">
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.label}>
-                  <th scope="row">{row.label}</th>
-                  <td>{row.value}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <section className="event-section flex flex-col gap-2">
+          <h3 className="m-0 text-base font-semibold">{t('event.user')}</h3>
+          <KeyValueTable
+            entries={rows.map((row) => [row.label, row.value] as const)}
+            showHeader={false}
+          />
         </section>
       )}
 
       {hasEntries(contexts) && (
-        <section className="event-section">
-          <h3>{t('event.contexts')}</h3>
-          {Object.entries(contexts).map(([name, value]) => (
-            <div className="context" key={name}>
-              <h4>{name}</h4>
-              <KeyValueTable entries={contextEntries(value)} />
+        <section className="event-section flex flex-col gap-2">
+          <h3 className="m-0 text-base font-semibold">{t('event.contexts')}</h3>
+          <ScrollArea className="max-h-96">
+            <div className="flex flex-col gap-4">
+              {Object.entries(contexts).map(([name, value]) => (
+                <div
+                  className="context flex flex-col gap-2 rounded-md border border-border/60 p-3"
+                  key={name}
+                >
+                  <h4 className="m-0 text-sm font-semibold">{name}</h4>
+                  <KeyValueTable entries={contextEntries(value)} />
+                </div>
+              ))}
             </div>
-          ))}
+          </ScrollArea>
         </section>
       )}
 
       {breadcrumbs.length > 0 && (
-        <section className="event-section">
-          <h3>{t('event.breadcrumbs')}</h3>
-          <ol className="breadcrumbs">
+        <section className="event-section flex flex-col gap-2">
+          <h3 className="m-0 text-base font-semibold">
+            {t('event.breadcrumbs')}
+          </h3>
+          <ol className="breadcrumbs m-0 list-none p-0">
             {breadcrumbs.map((breadcrumb, index) => (
               <BreadcrumbItem
                 key={`${breadcrumb.timestamp ?? ''}:${index}`}
@@ -328,15 +386,17 @@ export function EventView({ event }: { event: EventDetail }) {
       )}
 
       {sdk != null && (
-        <section className="event-section">
-          <h3>{t('event.sdk')}</h3>
-          <p className="event-sdk">{sdkText(sdk, t('event.unknownSdk'))}</p>
+        <section className="event-section flex flex-col gap-2">
+          <h3 className="m-0 text-base font-semibold">{t('event.sdk')}</h3>
+          <p className="event-sdk m-0 font-mono text-sm">
+            {sdkText(sdk, t('event.unknownSdk'))}
+          </p>
         </section>
       )}
 
       {hasEntries(extra) && (
-        <section className="event-section">
-          <h3>{t('event.extra')}</h3>
+        <section className="event-section flex flex-col gap-2">
+          <h3 className="m-0 text-base font-semibold">{t('event.extra')}</h3>
           <KeyValueTable entries={Object.entries(extra)} />
         </section>
       )}
@@ -345,8 +405,10 @@ export function EventView({ event }: { event: EventDetail }) {
           section heading. */}
       <section className="event-section raw-json">
         <details>
-          <summary>{t('event.rawJson')}</summary>
-          <pre>{JSON.stringify(event.payload, null, 2)}</pre>
+          <summary className="cursor-pointer text-sm text-primary">
+            {t('event.rawJson')}
+          </summary>
+          <pre className="mt-2 max-h-96 overflow-auto rounded-md bg-muted p-3 font-mono text-xs whitespace-pre-wrap break-words">{JSON.stringify(event.payload, null, 2)}</pre>
         </details>
       </section>
     </div>

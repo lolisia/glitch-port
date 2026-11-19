@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { StatsBucket, StatsResponse } from '../../../api/types';
+import { Card } from '../../../components/ui/card';
 import { formatNumber, useI18n } from '../../../i18n';
 import { formatAbsoluteTime, formatClockTime } from '../../../ui/time';
 import { PlatformChip } from '../../platform/PlatformChip';
@@ -86,17 +87,26 @@ export function StatsSummary({ stats }: { stats: StatsResponse }) {
         : active > buckets.length - 3
           ? 'end'
           : 'center';
+  const tooltipTransform =
+    tooltipAlign === 'center'
+      ? 'translateX(-50%)'
+      : tooltipAlign === 'start'
+        ? 'translateX(-1rem)'
+        : 'translateX(calc(-100% + 1rem))';
 
   return (
-    <section className="issues-stats">
-      <h3>{t('issues.stats.heading')}</h3>
+    <Card className="gap-3 p-4">
+      <h3 className="text-base font-semibold">{t('issues.stats.heading')}</h3>
       {buckets.length > 0 && (
-        <div className="stats-chart" data-testid="stats-chart">
-          <div className="stats-y-axis" aria-hidden="true">
+        <div
+          className="grid grid-cols-[auto_1fr] grid-rows-[8rem_auto] gap-x-2 gap-y-1"
+          data-testid="stats-chart"
+        >
+          <div className="relative min-w-6" aria-hidden="true">
             {axis.ticks.map((tick) => (
               <span
                 key={tick}
-                className="stats-y-tick"
+                className="absolute right-0 translate-y-1/2 text-xs leading-none text-muted-foreground tabular-nums"
                 style={{ bottom: `${(tick / axis.max) * 100}%` }}
               >
                 {formatNumber(tick, locale)}
@@ -104,17 +114,17 @@ export function StatsSummary({ stats }: { stats: StatsResponse }) {
             ))}
           </div>
 
-          <div className="stats-plot" onMouseLeave={() => setActive(null)}>
+          <div className="stats-plot relative" onMouseLeave={() => setActive(null)}>
             {axis.ticks.map((tick) => (
               <div
                 key={tick}
-                className="stats-gridline"
+                className="absolute inset-x-0 border-t border-border"
                 aria-hidden="true"
                 style={{ bottom: `${(tick / axis.max) * 100}%` }}
               />
             ))}
 
-            <div className="stats-bars">
+            <div className="absolute inset-0 flex">
               {buckets.map((bucket, index) => {
                 const label = t('issues.stats.bucketTitle', {
                   bucket: rangeLabel(bucket),
@@ -124,7 +134,9 @@ export function StatsSummary({ stats }: { stats: StatsResponse }) {
                   <div
                     key={`${bucket.bucket}-${index}`}
                     className={
-                      index === active ? 'stats-slot stats-slot-active' : 'stats-slot'
+                      index === active
+                        ? 'flex min-w-0 flex-1 basis-0 cursor-default items-end justify-center rounded-t bg-accent/60 px-px outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset'
+                        : 'flex min-w-0 flex-1 basis-0 cursor-default items-end justify-center rounded-t px-px outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset'
                     }
                     tabIndex={0}
                     role="img"
@@ -134,7 +146,11 @@ export function StatsSummary({ stats }: { stats: StatsResponse }) {
                     onBlur={() => setActive(null)}
                   >
                     <div
-                      className="stats-bar"
+                      className={
+                        index === active
+                          ? 'w-full max-w-6 rounded-t bg-chart-1 brightness-125'
+                          : 'w-full max-w-6 rounded-t bg-chart-1'
+                      }
                       data-testid="stats-bar"
                       style={{ height: `${(bucket.count / axis.max) * 100}%` }}
                     />
@@ -145,41 +161,54 @@ export function StatsSummary({ stats }: { stats: StatsResponse }) {
 
             {activeBucket !== undefined && active !== null && (
               <div
-                className={`stats-tooltip stats-tooltip-${tooltipAlign}`}
+                className="pointer-events-none absolute z-10 mb-2 flex flex-col gap-0.5 rounded-md border border-border bg-popover px-2.5 py-1.5 whitespace-nowrap shadow-md"
                 role="tooltip"
                 data-testid="stats-tooltip"
                 style={{
                   left: `${((active + 0.5) / buckets.length) * 100}%`,
                   bottom: `${(activeBucket.count / axis.max) * 100}%`,
+                  transform: tooltipTransform,
                 }}
               >
-                <strong className="stats-tooltip-value">
+                <strong className="stats-tooltip-value text-sm">
                   {t('issues.stats.bucketCount', { count: activeBucket.count })}
                 </strong>
-                <span className="stats-tooltip-label">{rangeLabel(activeBucket)}</span>
+                <span className="stats-tooltip-label text-xs text-muted-foreground tabular-nums">
+                  {rangeLabel(activeBucket)}
+                </span>
               </div>
             )}
           </div>
 
-          <div className="stats-x-axis" aria-hidden="true">
+          <div className="col-start-2 flex" aria-hidden="true">
             {buckets.map((bucket, index) => (
-              <span key={`${bucket.bucket}-${index}`} className="stats-x-tick">
+              <span
+                key={`${bucket.bucket}-${index}`}
+                className="min-w-0 flex-1 basis-0 overflow-visible text-center text-xs leading-none text-muted-foreground whitespace-nowrap tabular-nums"
+              >
                 {xLabel(bucket)}
               </span>
             ))}
           </div>
         </div>
       )}
-      <p className="stats-total">{t('issues.stats.total', { count: total })}</p>
+      <p className="m-0 text-sm text-muted-foreground">
+        {t('issues.stats.total', { count: total })}
+      </p>
 
       {byPlatform.length > 0 && (
         <div className="stats-platforms" data-testid="stats-platforms">
-          <h4>{t('issues.stats.byPlatform')}</h4>
-          <ul className="stats-platform-list">
+          <h4 className="mb-1.5 text-sm font-semibold">
+            {t('issues.stats.byPlatform')}
+          </h4>
+          <ul className="m-0 flex list-none flex-wrap gap-x-4 gap-y-2 p-0">
             {byPlatform.map((entry) => (
-              <li key={entry.platform} className="stats-platform-row">
+              <li
+                key={entry.platform}
+                className="flex items-center gap-1.5 text-sm"
+              >
                 <PlatformChip platform={entry.platform} />
-                <span className="stats-platform-count">
+                <span className="stats-platform-count text-muted-foreground tabular-nums">
                   {t('issues.stats.issueCount', { count: entry.issue_count })}
                 </span>
               </li>
@@ -187,6 +216,6 @@ export function StatsSummary({ stats }: { stats: StatsResponse }) {
           </ul>
         </div>
       )}
-    </section>
+    </Card>
   );
 }

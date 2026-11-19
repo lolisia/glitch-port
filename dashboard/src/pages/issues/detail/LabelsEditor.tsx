@@ -1,6 +1,11 @@
 import type { Label } from '../../../api/types';
 import { useI18n } from '../../../i18n';
 import { LabelChip } from '../../../ui';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Label as FieldLabel } from '@/components/ui/label';
 
 interface LabelsEditorProps {
   /** Labels available in the project, one checkbox is rendered per entry. */
@@ -28,16 +33,17 @@ export function LabelsEditor({
   const { t } = useI18n();
 
   return (
-    <section
-      className="issue-labels"
-      data-testid="issue-labels"
-      aria-labelledby="issue-labels-heading"
-    >
-      <h3 id="issue-labels-heading">{t('issues.detail.labels.title')}</h3>
+    <Card className="gap-3 p-6" data-testid="issue-labels">
+      <h3 id="issue-labels-heading" className="m-0 text-base font-semibold">
+        {t('issues.detail.labels.title')}
+      </h3>
 
-      <div className="label-chips" data-testid="issue-label-chips">
+      <div
+        className="flex flex-wrap items-center gap-1.5"
+        data-testid="issue-label-chips"
+      >
         {issueLabels.length === 0 ? (
-          <span className="label-chips-empty">
+          <span className="text-sm text-muted-foreground">
             {t('issues.detail.labels.empty')}
           </span>
         ) : (
@@ -46,35 +52,47 @@ export function LabelsEditor({
       </div>
 
       <div
-        className="label-options"
+        className="flex flex-wrap gap-x-4 gap-y-2"
         role="group"
         aria-label={t('issues.detail.labels.projectLabels')}
       >
-        {projectLabels.map((label) => (
-          <label className="label-option" key={label.id}>
-            <input
-              type="checkbox"
-              aria-label={label.name}
-              checked={checkedNames.includes(label.name)}
-              onChange={(event) => onToggle(label.name, event.target.checked)}
-            />
-            <span>{label.name}</span>
-          </label>
-        ))}
+        {projectLabels.map((label) => {
+          const checkboxId = `issue-label-${label.id}`;
+
+          return (
+            <div className="flex items-center gap-2" key={label.id}>
+              <Checkbox
+                id={checkboxId}
+                aria-label={label.name}
+                checked={checkedNames.includes(label.name)}
+                onCheckedChange={(checked) =>
+                  onToggle(label.name, checked === true)
+                }
+              />
+              <FieldLabel
+                htmlFor={checkboxId}
+                className="text-sm font-normal text-foreground"
+              >
+                {label.name}
+              </FieldLabel>
+            </div>
+          );
+        })}
       </div>
 
-      <div className="label-new">
-        <input
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
           type="text"
           aria-label={t('issues.detail.labels.newNames')}
           placeholder={t('issues.detail.labels.newPlaceholder')}
           value={newNames}
           onChange={(event) => onNewNamesChange(event.target.value)}
+          className="max-w-sm flex-1"
         />
-        <button type="button" onClick={onSave} disabled={saving}>
+        <Button type="button" onClick={onSave} disabled={saving}>
           {t('issues.detail.labels.save')}
-        </button>
+        </Button>
       </div>
-    </section>
+    </Card>
   );
 }

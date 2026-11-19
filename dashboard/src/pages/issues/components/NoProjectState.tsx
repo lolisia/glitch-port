@@ -1,3 +1,4 @@
+import { Card } from '../../../components/ui/card';
 import { useI18n } from '../../../i18n';
 import { EmptyState } from '../../../ui';
 
@@ -10,10 +11,17 @@ export function NoProjectState() {
   const { t } = useI18n();
 
   return (
-    <EmptyState>
-      {t('issues.noProject')} —{' '}
-      <a href="#/projects">{t('issues.chooseProject')}</a>{' '}
-      {t('issues.noProjectSuffix')}
-    </EmptyState>
+    <Card className="p-4">
+      <EmptyState>
+        {t('issues.noProject')} —{' '}
+        <a
+          href="#/projects"
+          className="font-medium text-primary underline underline-offset-4"
+        >
+          {t('issues.chooseProject')}
+        </a>{' '}
+        {t('issues.noProjectSuffix')}
+      </EmptyState>
+    </Card>
   );
 }

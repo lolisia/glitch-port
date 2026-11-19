@@ -555,6 +555,8 @@ describe('IssuesPage', () => {
     renderPage(<IssuesPage projectId={1} />);
     await screen.findByRole('table');
 
+    expect(screen.getByRole('group', { name: 'Status' })).toBeInTheDocument();
+
     expect(optionValues(screen.getByLabelText('Level'))).toEqual([
       '',
       'debug',
@@ -649,16 +651,14 @@ describe('IssuesPage', () => {
     );
     await screen.findByRole('table');
 
-    await waitFor(() =>
-      expect(optionValues(screen.getByLabelText('Platform'))).toEqual([
-        'unreal',
-        'unity',
-      ]),
-    );
-    await user.selectOptions(screen.getByLabelText('Platform'), [
-      'unreal',
-      'unity',
-    ]);
+    const platformTrigger = await screen.findByLabelText('Platform');
+    expect(platformTrigger).toHaveTextContent('All platforms');
+    await user.click(platformTrigger);
+    await user.click(await screen.findByRole('option', { name: 'unreal' }));
+    await user.click(screen.getByRole('option', { name: 'unity' }));
+    expect(platformTrigger).toHaveTextContent('2 platforms');
+    expect(platformTrigger).toHaveAttribute('aria-expanded', 'true');
+
     await waitFor(() =>
       expect(hashParams().get('platform')).toBe('unreal,unity'),
     );
@@ -985,7 +985,6 @@ describe('IssuesPage', () => {
 
   it('deletes the selection after confirmation', async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     const fetchMock = stubApi({
       issues: [
         issuePage([makeIssue({ id: 1, title: 'First' })]),
@@ -999,7 +998,18 @@ describe('IssuesPage', () => {
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
     await user.click(screen.getByRole('button', { name: 'Delete' }));
 
-    expect(confirm).toHaveBeenCalledWith('Delete 1 selected issues?');
+    const dialog = await screen.findByRole('alertdialog');
+    expect(
+      within(dialog).getByRole('heading', { name: 'Delete selected issues' }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText('Delete 1 selected issues?'),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Delete' }),
+    ).toHaveAttribute('data-variant', 'destructive');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
 
     expect(await screen.findByRole('link', { name: 'Second' })).toBeInTheDocument();
 
@@ -1015,7 +1025,6 @@ describe('IssuesPage', () => {
 
   it('does not delete when the confirmation is cancelled', async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     const fetchMock = stubApi({ issues: issuePage([makeIssue()]) });
 
     renderPage(<IssuesPage projectId={1} />);
@@ -1024,7 +1033,16 @@ describe('IssuesPage', () => {
     await user.click(screen.getByRole('checkbox', { name: 'Select issue 1' }));
     await user.click(screen.getByRole('button', { name: 'Delete' }));
 
-    expect(confirm).toHaveBeenCalledWith('Delete 1 selected issues?');
+    const dialog = await screen.findByRole('alertdialog');
+    expect(
+      within(dialog).getByRole('heading', { name: 'Delete selected issues' }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText('Delete 1 selected issues?'),
+    ).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(bulkCalls(fetchMock)).toHaveLength(0);
     expect(issueRequestUrls(fetchMock)).toHaveLength(1);
     expect(screen.getByText('1 selected')).toBeInTheDocument();
@@ -1129,6 +1147,8 @@ describe('IssuesPage', () => {
   });
 
   it('restores the selected platforms from the hash and sends them together', async () => {
+    const user = userEvent.setup();
+
     window.history.replaceState(
       null,
       '',
@@ -1144,12 +1164,16 @@ describe('IssuesPage', () => {
 
     renderPage(<IssuesPage projectId={1} />);
 
-    const select = await screen.findByLabelText('Platform');
+    const trigger = await screen.findByLabelText('Platform');
+    expect(trigger).toHaveTextContent('2 platforms');
+
+    await user.click(trigger);
     expect(
-      Array.from((select as HTMLSelectElement).selectedOptions).map(
-        (option) => option.value,
-      ),
-    ).toEqual(['unity', 'dotnet']);
+      await screen.findByRole('option', { name: 'unity' }),
+    ).toHaveAttribute('aria-selected', 'true');
+    expect(
+      screen.getByRole('option', { name: 'dotnet' }),
+    ).toHaveAttribute('aria-selected', 'true');
 
     await waitFor(() =>
       expect(lastIssueRequest(fetchMock).searchParams.get('platform')).toBe(
@@ -1159,6 +1183,50 @@ describe('IssuesPage', () => {
     expect(
       lastIssueRequest(fetchMock).searchParams.get('platform'),
     ).toBe('unity,dotnet');
+  });
+
+  it('searches, toggles and clears the platform combobox', async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubApi({ issues: issuePage([makeIssue()]) });
+
+    renderPage(<IssuesPage projectId={1} />);
+
+    const trigger = await screen.findByLabelText('Platform');
+    expect(trigger).toHaveTextContent('All platforms');
+
+    await user.click(trigger);
+    await user.type(
+      screen.getByPlaceholderText('Search platforms...'),
+      'uni',
+    );
+
+    const unity = screen.getByRole('option', { name: 'unity' });
+    expect(
+      screen.queryByRole('option', { name: 'unreal' }),
+    ).not.toBeInTheDocument();
+
+    await user.click(unity);
+
+    // Selecting keeps the popover open and shows the single value.
+    expect(trigger).toHaveTextContent('unity');
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('option', { name: 'unity' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await waitFor(() => expect(hashParams().get('platform')).toBe('unity'));
+
+    await user.click(
+      screen.getByRole('option', { name: 'Clear platforms' }),
+    );
+
+    expect(trigger).toHaveTextContent('All platforms');
+    await waitFor(() => expect(hashParams().has('platform')).toBe(false));
+    await waitFor(() =>
+      expect(
+        lastIssueRequest(fetchMock).searchParams.has('platform'),
+      ).toBe(false),
+    );
   });
 
   it('keeps the active environment and release in the options', async () => {
@@ -1229,7 +1297,6 @@ describe('IssuesPage', () => {
   it('renders the list, filters, stats and bulk bar in Korean', async () => {
     window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     stubApi({
       issues: issuePage([makeIssue({ id: 7, title: 'Crash on startup' })]),
     });
@@ -1282,7 +1349,19 @@ describe('IssuesPage', () => {
     expect(screen.getByText('1개 선택됨')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '삭제' }));
-    expect(confirm).toHaveBeenCalledWith('선택한 이슈 1개를 삭제할까요?');
+    const dialog = await screen.findByRole('alertdialog');
+    expect(
+      within(dialog).getByRole('heading', { name: '선택한 이슈 삭제' }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText('선택한 이슈 1개를 삭제할까요?'),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: '삭제' }),
+    ).toHaveAttribute('data-variant', 'destructive');
+    await user.click(within(dialog).getByRole('button', { name: '취소' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.getByText('1개 선택됨')).toBeInTheDocument();
   });
 
   it('translates the error prefix but not the server error body', async () => {

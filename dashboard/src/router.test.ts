@@ -32,6 +32,9 @@ describe('parseHash', () => {
     expect(parseHash('#/projects').name).toBe('projects');
     expect(parseHash('#/projects').projectId).toBeNull();
     expect(parseHash('#/projects').issueId).toBeNull();
+    expect(parseHash('#/settings').name).toBe('settings');
+    expect(parseHash('#/settings').projectId).toBeNull();
+    expect(parseHash('#/settings').issueId).toBeNull();
 
     const detail = parseHash('#/issues/42');
     expect(detail.name).toBe('issue');
@@ -50,6 +53,7 @@ describe('parseHash', () => {
     expect(parseHash('#/project/7').name).toBe('unknown');
     expect(parseHash('#/messages/extra').name).toBe('unknown');
     expect(parseHash('#/releases/extra').name).toBe('unknown');
+    expect(parseHash('#/settings/extra').name).toBe('unknown');
     expect(parseHash('#/issues/7/events').name).toBe('unknown');
   });
 

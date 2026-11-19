@@ -1,8 +1,12 @@
-import './platform-chip.css';
+import { Badge } from '@/components/ui/badge';
 
-/** A neutral chip for one observed platform name. */
+/** A neutral, outlined chip for one observed platform name. */
 export function PlatformChip({ platform }: { platform: string }) {
-  return <span className="platform-chip">{platform}</span>;
+  return (
+    <Badge variant="outline" className="platform-chip">
+      {platform}
+    </Badge>
+  );
 }
 
 /**
@@ -11,11 +15,13 @@ export function PlatformChip({ platform }: { platform: string }) {
  */
 export function PlatformChips({ platforms }: { platforms: string[] }) {
   if (platforms.length === 0) {
-    return <span className="platform-chips-empty">—</span>;
+    return (
+      <span className="platform-chips-empty text-muted-foreground">—</span>
+    );
   }
 
   return (
-    <span className="platform-chips">
+    <span className="platform-chips flex flex-wrap gap-1">
       {platforms.map((platform) => (
         <PlatformChip key={platform} platform={platform} />
       ))}

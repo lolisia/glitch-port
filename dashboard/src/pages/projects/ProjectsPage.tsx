@@ -1,12 +1,28 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
+import { Copy, RefreshCw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+} from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { createProject, listProjects } from '../../api/client';
 import type { CreatedProject, ProjectListItem } from '../../api/types';
 import { formatNumber, useI18n } from '../../i18n';
 import { EmptyState, ErrorState, LoadingState } from '../../ui';
 import { PlatformChips } from '../platform/PlatformChip';
 import { copyToClipboard } from './copy';
-import './projects.css';
 
 type ListState =
   | { status: 'loading' }
@@ -92,12 +108,21 @@ export function ProjectsPage({ onProjectsChanged }: ProjectsPageProps) {
   const loading = state.status === 'loading';
 
   return (
-    <section className="projects-page" data-testid="projects-page">
-      <header className="page-header">
-        <h2>{t('projects.title')}</h2>
-        <button type="button" onClick={() => void load()} disabled={loading}>
+    <section className="flex flex-col gap-6" data-testid="projects-page">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-xl font-semibold tracking-tight">
+          {t('projects.title')}
+        </h2>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => void load()}
+          disabled={loading}
+        >
+          <RefreshCw aria-hidden="true" />
           {t('common.refresh')}
-        </button>
+        </Button>
       </header>
 
       {loading && <LoadingState />}
@@ -107,103 +132,144 @@ export function ProjectsPage({ onProjectsChanged }: ProjectsPageProps) {
       )}
 
       {state.status === 'ready' && state.projects.length === 0 && (
-        <EmptyState>{t('projects.empty')}</EmptyState>
+        <Card className="border-dashed">
+          <CardContent className="py-2">
+            <EmptyState>{t('projects.empty')}</EmptyState>
+          </CardContent>
+        </Card>
       )}
 
       {state.status === 'ready' && state.projects.length > 0 && (
-        <table className="projects-table">
-          <thead>
-            <tr>
-              <th scope="col">{t('projects.table.name')}</th>
-              <th scope="col">{t('projects.table.slug')}</th>
-              <th scope="col">{t('projects.table.platforms')}</th>
-              <th scope="col">{t('projects.table.unresolvedIssues')}</th>
-              <th scope="col">{t('projects.table.activeKeys')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {state.projects.map((project) => (
-              <tr key={project.id}>
-                <td>
-                  <a href={`#/projects/${project.id}`}>{project.name}</a>
-                </td>
-                <td className="projects-slug">{project.slug}</td>
-                <td>
-                  <PlatformChips platforms={project.platforms} />
-                </td>
-                <td className="projects-number">
-                  {formatNumber(project.issue_count, locale)}
-                </td>
-                <td className="projects-number">
-                  {formatNumber(project.key_count, locale)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Card className="gap-0 overflow-hidden py-0">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/50 hover:bg-muted/50">
+                <TableHead>{t('projects.table.name')}</TableHead>
+                <TableHead>{t('projects.table.slug')}</TableHead>
+                <TableHead>{t('projects.table.platforms')}</TableHead>
+                <TableHead className="text-right">
+                  {t('projects.table.unresolvedIssues')}
+                </TableHead>
+                <TableHead className="text-right">
+                  {t('projects.table.activeKeys')}
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {state.projects.map((project) => (
+                <TableRow key={project.id}>
+                  <TableCell>
+                    <a
+                      className="font-medium underline-offset-4 hover:underline"
+                      href={`#/projects/${project.id}`}
+                    >
+                      {project.name}
+                    </a>
+                  </TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">
+                    {project.slug}
+                  </TableCell>
+                  <TableCell>
+                    <PlatformChips platforms={project.platforms} />
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {formatNumber(project.issue_count, locale)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {formatNumber(project.key_count, locale)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
       )}
 
-      <form
-        className="project-form"
-        onSubmit={(event) => void handleSubmit(event)}
-      >
-        <h2>{t('projects.create.heading')}</h2>
+      <Card>
+        <CardHeader>
+          <h2 className="text-base leading-none font-semibold">
+            {t('projects.create.heading')}
+          </h2>
+        </CardHeader>
+        <CardContent>
+          <form
+            className="flex flex-col gap-4 sm:flex-row sm:items-end"
+            onSubmit={(event) => void handleSubmit(event)}
+          >
+            <div className="flex flex-1 flex-col gap-2">
+              <Label htmlFor="project-name">{t('projects.create.name')}</Label>
+              <Input
+                id="project-name"
+                name="name"
+                required
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </div>
 
-        <div className="project-field">
-          <label htmlFor="project-name">{t('projects.create.name')}</label>
-          <input
-            id="project-name"
-            name="name"
-            required
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </div>
-
-        <button type="submit" disabled={creating || name.trim() === ''}>
-          {t('projects.create.submit')}
-        </button>
-      </form>
+            <Button
+              type="submit"
+              disabled={creating || name.trim() === ''}
+            >
+              {t('projects.create.submit')}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
 
       {createError !== null && (
         <ErrorState error={createError} prefix={t('projects.create.error')} />
       )}
 
       {created !== null && (
-        <div className="project-created" data-testid="created-project">
-          <p>
-            {t('projects.create.created', {
-              name: created.name,
-              slug: created.slug,
-            })}
-          </p>
+        <Card
+          className="border-success/50 bg-success/5"
+          data-testid="created-project"
+        >
+          <CardContent className="flex flex-col gap-4">
+            <p className="text-sm">
+              {t('projects.create.created', {
+                name: created.name,
+                slug: created.slug,
+              })}
+            </p>
 
-          <label htmlFor="created-project-dsn">{t('projects.dsn')}</label>
-          <input
-            id="created-project-dsn"
-            className="project-dsn"
-            readOnly
-            value={created.dsn}
-            onFocus={(event) => event.currentTarget.select()}
-          />
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="created-project-dsn">{t('projects.dsn')}</Label>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  id="created-project-dsn"
+                  className="min-w-0 flex-1 font-mono text-xs"
+                  readOnly
+                  value={created.dsn}
+                  onFocus={(event) => event.currentTarget.select()}
+                />
+                <Button type="button" variant="outline" onClick={() => void handleCopy()}>
+                  <Copy aria-hidden="true" />
+                  {t('projects.copyDsn')}
+                </Button>
 
-          <button type="button" onClick={() => void handleCopy()}>
-            {t('projects.copyDsn')}
-          </button>
+                {copyState === 'copied' && (
+                  <span className="text-sm font-medium text-success" role="status">
+                    {t('projects.copied')}
+                  </span>
+                )}
+                {copyState === 'failed' && (
+                  <span className="text-sm font-medium text-destructive" role="status">
+                    {t('projects.copyFailed')}
+                  </span>
+                )}
+              </div>
+            </div>
 
-          {copyState === 'copied' && (
-            <span className="project-copied" role="status">
-              {t('projects.copied')}
-            </span>
-          )}
-          {copyState === 'failed' && (
-            <span className="project-copy-failed" role="status">
-              {t('projects.copyFailed')}
-            </span>
-          )}
-
-          <a href={`#/projects/${created.id}`}>{t('projects.open')}</a>
-        </div>
+            <a
+              className="w-fit text-sm font-medium underline-offset-4 hover:underline"
+              href={`#/projects/${created.id}`}
+            >
+              {t('projects.open')}
+            </a>
+          </CardContent>
+        </Card>
       )}
     </section>
   );

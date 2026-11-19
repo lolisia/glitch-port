@@ -8,6 +8,7 @@ export interface AppRoute {
     | 'messages'
     | 'projects'
     | 'project'
+    | 'settings'
     | 'unknown';
   issueId: number | null;
   /** Set for `#/projects/<id>`; null for every other route. */
@@ -57,6 +58,10 @@ export function parseHash(hash: string): AppRoute {
 
   if (path === 'projects') {
     return { name: 'projects', issueId: null, projectId: null, query };
+  }
+
+  if (path === 'settings') {
+    return { name: 'settings', issueId: null, projectId: null, query };
   }
 
   const projectMatch = PROJECT_PATH.exec(path);

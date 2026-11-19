@@ -11,6 +11,17 @@ import type {
   Issue,
   StatsResponse,
 } from '../../api/types';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../../components/ui/alert-dialog';
+import { Button } from '../../components/ui/button';
 import { navigate, useHashRoute } from '../../router';
 import { useI18n } from '../../i18n';
 import { EmptyState, ErrorState, LoadingState } from '../../ui';
@@ -27,7 +38,6 @@ import {
   readIssueFilters,
 } from './components/filters';
 import type { IssueFilters } from './components/filters';
-import './issues.css';
 
 /**
  * Issue list with URL-driven filters, cursor pagination and bulk actions.
@@ -74,6 +84,7 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
   const [labelName, setLabelName] = useState('');
   const [bulkError, setBulkError] = useState<unknown>(null);
   const [bulkPending, setBulkPending] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [stats, setStats] = useState<StatsResponse | null>(null);
 
   // The counter discards responses that belong to a superseded filter set.
@@ -188,6 +199,7 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
       setListError(null);
       setMoreError(null);
       setBulkError(null);
+      setConfirmingDelete(false);
 
       try {
         const response = await listIssues(
@@ -323,13 +335,10 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
 
   const handleBulkAction = (action: BulkAction) => {
     if (action === 'delete') {
-      const confirmed = window.confirm(
-        t('issues.bulk.confirmDelete', { count: selection.size }),
-      );
-
-      if (!confirmed) {
-        return;
-      }
+      // Deletion is destructive, so it waits for the dialog's confirm action;
+      // every other action runs immediately.
+      setConfirmingDelete(true);
+      return;
     }
 
     void runBulk(action);
@@ -411,9 +420,14 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
 
   if (projectId === null) {
     return (
-      <section className="issues-page" data-testid="issues-page">
-        <header className="page-header">
-          <h2>{t('issues.title')}</h2>
+      <section
+        className="flex flex-col gap-4"
+        data-testid="issues-page"
+      >
+        <header className="flex items-center justify-between gap-4">
+          <h2 className="m-0 text-xl font-semibold tracking-tight">
+            {t('issues.title')}
+          </h2>
         </header>
 
         <NoProjectState />
@@ -422,9 +436,11 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
   }
 
   return (
-    <section className="issues-page" data-testid="issues-page">
-      <header className="page-header">
-        <h2>{t('issues.title')}</h2>
+    <section className="flex flex-col gap-4" data-testid="issues-page">
+      <header className="flex items-center justify-between gap-4">
+        <h2 className="m-0 text-xl font-semibold tracking-tight">
+          {t('issues.title')}
+        </h2>
       </header>
 
       {stats !== null && <StatsSummary stats={stats} />}
@@ -476,17 +492,40 @@ export function IssuesPage({ projectId }: { projectId: number | null }) {
           )}
 
           {nextCursor !== null && (
-            <button
+            <Button
               type="button"
-              className="issues-load-more"
+              variant="outline"
+              className="self-start"
               onClick={() => void loadMore(filters, nextCursor)}
               disabled={loading || loadingMore}
             >
               {t('issues.loadMore')}
-            </button>
+            </Button>
           )}
         </>
       )}
+
+      <AlertDialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('issues.bulk.deleteDialog.title')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('issues.bulk.confirmDelete', { count: selection.size })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('issues.dialog.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => void runBulk('delete')}
+            >
+              {t('issues.dialog.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

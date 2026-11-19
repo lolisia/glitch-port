@@ -1,5 +1,34 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
+import { Copy } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+} from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import {
   ApiError,
   createProjectKey,
@@ -17,14 +46,13 @@ import type {
   ProjectKey,
   UpdateProjectRequest,
 } from '../../api/types';
-import { navigate } from '../../router';
 import { formatNumber, useI18n } from '../../i18n';
+import { navigate } from '../../router';
 import { ErrorState, LoadingState, formatAbsoluteTime } from '../../ui';
 import { PlatformChips } from '../platform/PlatformChip';
 import { AlertRulesSection } from './alerts/AlertRulesSection';
 import { copyToClipboard } from './copy';
 import { InboundFiltersSection } from './filters/InboundFiltersSection';
-import './project-detail.css';
 
 /** Used when a project payload predates the inbound filter field. */
 const EMPTY_INBOUND_FILTERS: InboundFilters = {
@@ -109,8 +137,21 @@ export function ProjectDetailPage({
   const [createdKey, setCreatedKey] = useState<ProjectKey | null>(null);
   const [createdCopy, setCreatedCopy] = useState<CopyState>('idle');
   const [confirmName, setConfirmName] = useState('');
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<unknown>(null);
+  const projectName =
+    projectState.status === 'ready' ? projectState.data.name : null;
+
+  // Typing the exact project name completes the first gate, so the final
+  // confirmation opens right away: the destructive request stays one explicit
+  // dialog action away. Cancelling keeps the typed name, and the Delete
+  // project button reopens the dialog without another confirmation step.
+  useEffect(() => {
+    if (projectName !== null && confirmName === projectName) {
+      setConfirmDeleteOpen(true);
+    }
+  }, [confirmName, projectName]);
 
   useEffect(() => {
     let cancelled = false;
@@ -120,6 +161,7 @@ export function ProjectDetailPage({
     setCreatedKey(null);
     setCreatedCopy('idle');
     setConfirmName('');
+    setConfirmDeleteOpen(false);
     setDeleteError(null);
 
     // Start both requests together: neither depends on the other, and a key
@@ -248,7 +290,7 @@ export function ProjectDetailPage({
 
   if (projectState.status === 'loading') {
     return (
-      <section className="project-detail-page" data-testid="project-detail-page">
+      <section className="flex flex-col gap-6" data-testid="project-detail-page">
         <LoadingState />
       </section>
     );
@@ -260,13 +302,18 @@ export function ProjectDetailPage({
     projectState.error.status === 404
   ) {
     return (
-      <section className="project-detail-page" data-testid="project-detail-page">
-        <header className="page-header">
-          <h2>{t('projects.detail.notFound')}</h2>
-        </header>
-        <p>
+      <section className="flex flex-col gap-4" data-testid="project-detail-page">
+        <h2 className="text-2xl font-semibold tracking-tight">
+          {t('projects.detail.notFound')}
+        </h2>
+        <p className="text-sm text-muted-foreground">
           {t('projects.detail.notFoundBody', { id: projectId })}{' '}
-          <a href="#/projects">{t('projects.detail.back')}</a>
+          <a
+            className="font-medium underline-offset-4 hover:underline"
+            href="#/projects"
+          >
+            {t('projects.detail.back')}
+          </a>
         </p>
       </section>
     );
@@ -274,10 +321,17 @@ export function ProjectDetailPage({
 
   if (projectState.status === 'error') {
     return (
-      <section className="project-detail-page" data-testid="project-detail-page">
-        <header className="page-header">
-          <h2>{t('projects.detail.title', { id: projectId })}</h2>
-          <a href="#/projects">{t('projects.detail.back')}</a>
+      <section className="flex flex-col gap-6" data-testid="project-detail-page">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-2xl font-semibold tracking-tight">
+            {t('projects.detail.title', { id: projectId })}
+          </h2>
+          <a
+            className="text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+            href="#/projects"
+          >
+            {t('projects.detail.back')}
+          </a>
         </header>
         <ErrorState
           error={projectState.error}
@@ -290,44 +344,67 @@ export function ProjectDetailPage({
   const project = projectState.data;
 
   return (
-    <section className="project-detail-page" data-testid="project-detail-page">
-      <header className="page-header">
-        <h2>{project.name}</h2>
-        <a href="#/projects">{t('projects.detail.back')}</a>
+    <section className="flex flex-col gap-6" data-testid="project-detail-page">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-2xl font-semibold tracking-tight">
+          {project.name}
+        </h2>
+        <a
+          className="text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          href="#/projects"
+        >
+          {t('projects.detail.back')}
+        </a>
       </header>
 
-      <dl className="project-detail-facts" data-testid="project-detail-facts">
-        <div className="project-detail-fact">
-          <dt>{t('projects.detail.slug')}</dt>
-          <dd className="project-detail-mono">{project.slug}</dd>
-        </div>
-        <div className="project-detail-fact">
-          <dt>{t('projects.detail.platformsSeen')}</dt>
-          <dd>
-            <PlatformChips platforms={project.platforms} />
-          </dd>
-        </div>
-        <div className="project-detail-fact">
-          <dt>{t('projects.detail.created')}</dt>
-          <dd>
-            <time dateTime={project.created_at}>
-              {formatAbsoluteTime(project.created_at, locale)}
-            </time>
-          </dd>
-        </div>
-        <div className="project-detail-fact">
-          <dt>{t('projects.detail.unresolvedIssues')}</dt>
-          <dd className="project-detail-number">
-            {formatNumber(project.issue_count, locale)}
-          </dd>
-        </div>
-        <div className="project-detail-fact">
-          <dt>{t('projects.detail.activeKeys')}</dt>
-          <dd className="project-detail-number">
-            {formatNumber(project.key_count, locale)}
-          </dd>
-        </div>
-      </dl>
+      <Card data-testid="project-detail-facts">
+        <CardContent>
+          <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5">
+            <div className="flex flex-col gap-1">
+              <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                {t('projects.detail.slug')}
+              </dt>
+              <dd className="project-detail-mono font-mono text-sm">
+                {project.slug}
+              </dd>
+            </div>
+            <div className="flex flex-col gap-1">
+              <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                {t('projects.detail.platformsSeen')}
+              </dt>
+              <dd>
+                <PlatformChips platforms={project.platforms} />
+              </dd>
+            </div>
+            <div className="flex flex-col gap-1">
+              <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                {t('projects.detail.created')}
+              </dt>
+              <dd className="text-sm">
+                <time dateTime={project.created_at}>
+                  {formatAbsoluteTime(project.created_at, locale)}
+                </time>
+              </dd>
+            </div>
+            <div className="flex flex-col gap-1">
+              <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                {t('projects.detail.unresolvedIssues')}
+              </dt>
+              <dd className="text-sm font-semibold tabular-nums">
+                {formatNumber(project.issue_count, locale)}
+              </dd>
+            </div>
+            <div className="flex flex-col gap-1">
+              <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                {t('projects.detail.activeKeys')}
+              </dt>
+              <dd className="text-sm font-semibold tabular-nums">
+                {formatNumber(project.key_count, locale)}
+              </dd>
+            </div>
+          </dl>
+        </CardContent>
+      </Card>
 
       <ProjectEditForm
         key={project.id}
@@ -335,91 +412,116 @@ export function ProjectDetailPage({
         onSaved={handleProjectSaved}
       />
 
-      <section
-        className="project-detail-section"
-        aria-labelledby="project-keys-heading"
-      >
-        <h3 id="project-keys-heading">{t('projects.detail.keys.heading')}</h3>
+      <Card role="region" aria-labelledby="project-keys-heading">
+        <CardHeader>
+          <h3
+            id="project-keys-heading"
+            className="text-base leading-none font-semibold"
+          >
+            {t('projects.detail.keys.heading')}
+          </h3>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {keysState.status === 'loading' && <LoadingState />}
 
-        {keysState.status === 'loading' && <LoadingState />}
+          {keysState.status === 'error' && (
+            <ErrorState
+              error={keysState.error}
+              prefix={t('projects.detail.keys.loadError')}
+            />
+          )}
 
-        {keysState.status === 'error' && (
-          <ErrorState
-            error={keysState.error}
-            prefix={t('projects.detail.keys.loadError')}
-          />
-        )}
+          {keysState.status === 'ready' && keysState.data.length === 0 && (
+            <p className="state state-empty">{t('projects.detail.keys.empty')}</p>
+          )}
 
-        {keysState.status === 'ready' && keysState.data.length === 0 && (
-          <p className="state state-empty">{t('projects.detail.keys.empty')}</p>
-        )}
-
-        {keysState.status === 'ready' && keysState.data.length > 0 && (
-          <>
-            <table className="project-detail-keys">
-              <thead>
-                <tr>
-                  <th scope="col">{t('projects.detail.keys.publicKey')}</th>
-                  <th scope="col">{t('projects.detail.keys.label')}</th>
-                  <th scope="col">{t('projects.detail.keys.status')}</th>
-                  <th scope="col">{t('projects.detail.keys.rateLimit')}</th>
-                  <th scope="col">{t('projects.detail.keys.dsn')}</th>
-                  <th scope="col">{t('projects.detail.keys.actions')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {keysState.data.map((key) => (
-                  <KeyRow
-                    key={key.id}
-                    projectKey={key}
-                    onUpdated={handleKeyUpdated}
-                    onRevoke={handleKeyRevoked}
-                  />
-                ))}
-              </tbody>
-            </table>
-            <p className="project-detail-hint">
-              {t('projects.detail.keys.hint')}
-            </p>
-          </>
-        )}
-      </section>
+          {keysState.status === 'ready' && keysState.data.length > 0 && (
+            <>
+              <div className="overflow-hidden rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/50 hover:bg-muted/50">
+                      <TableHead>{t('projects.detail.keys.publicKey')}</TableHead>
+                      <TableHead>{t('projects.detail.keys.label')}</TableHead>
+                      <TableHead>{t('projects.detail.keys.status')}</TableHead>
+                      <TableHead>{t('projects.detail.keys.rateLimit')}</TableHead>
+                      <TableHead>{t('projects.detail.keys.dsn')}</TableHead>
+                      <TableHead>{t('projects.detail.keys.actions')}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {keysState.data.map((key) => (
+                      <KeyRow
+                        key={key.id}
+                        projectKey={key}
+                        onUpdated={handleKeyUpdated}
+                        onRevoke={handleKeyRevoked}
+                      />
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t('projects.detail.keys.hint')}
+              </p>
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       <CreateKeyForm projectId={projectId} onCreated={handleKeyCreated} />
 
       {createdKey !== null && (
-        <div className="project-detail-created" data-testid="created-key">
-          <p>
-            {t('projects.detail.createdKey.message', {
-              name: createdKey.label ?? createdKey.public_key,
-            })}
-          </p>
+        <Card
+          className="border-success/50 bg-success/5"
+          data-testid="created-key"
+        >
+          <CardContent className="flex flex-col gap-3">
+            <p className="text-sm">
+              {t('projects.detail.createdKey.message', {
+                name: createdKey.label ?? createdKey.public_key,
+              })}
+            </p>
 
-          <div className="project-detail-created-row">
-            <label htmlFor="created-key-dsn">{t('projects.dsn')}</label>
-            <input
-              id="created-key-dsn"
-              className="project-detail-dsn-input"
-              readOnly
-              value={createdKey.dsn}
-              onFocus={(event) => event.currentTarget.select()}
-            />
-            <button type="button" onClick={() => void handleCreatedCopy()}>
-              {t('projects.detail.createdKey.copy')}
-            </button>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="created-key-dsn">{t('projects.dsn')}</Label>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  id="created-key-dsn"
+                  className="min-w-0 flex-1 font-mono text-xs"
+                  readOnly
+                  value={createdKey.dsn}
+                  onFocus={(event) => event.currentTarget.select()}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void handleCreatedCopy()}
+                >
+                  <Copy aria-hidden="true" />
+                  {t('projects.detail.createdKey.copy')}
+                </Button>
 
-            {createdCopy === 'copied' && (
-              <span className="project-detail-copied" role="status">
-                {t('projects.copied')}
-              </span>
-            )}
-            {createdCopy === 'failed' && (
-              <span className="project-detail-copy-failed" role="status">
-                {t('projects.copyFailed')}
-              </span>
-            )}
-          </div>
-        </div>
+                {createdCopy === 'copied' && (
+                  <span
+                    className="text-sm font-medium text-success"
+                    role="status"
+                  >
+                    {t('projects.copied')}
+                  </span>
+                )}
+                {createdCopy === 'failed' && (
+                  <span
+                    className="text-sm font-medium text-destructive"
+                    role="status"
+                  >
+                    {t('projects.copyFailed')}
+                  </span>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       <AlertRulesSection projectId={projectId} />
@@ -430,41 +532,84 @@ export function ProjectDetailPage({
         onSaved={handleProjectUpdated}
       />
 
-      <section
-        className="project-detail-danger"
+      <Card
+        role="region"
         aria-labelledby="project-danger-heading"
+        className="border-destructive/40"
       >
-        <h3 id="project-danger-heading">{t('projects.detail.danger.heading')}</h3>
-        <p>{t('projects.detail.danger.warning', { name: project.name })}</p>
+        <CardHeader>
+          <h3
+            id="project-danger-heading"
+            className="text-base leading-none font-semibold text-destructive"
+          >
+            {t('projects.detail.danger.heading')}
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            {t('projects.detail.danger.warning', { name: project.name })}
+          </p>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <div className="flex max-w-sm flex-col gap-2">
+            <Label htmlFor="project-delete-confirmation">
+              {t('projects.detail.danger.confirm')}
+            </Label>
+            <Input
+              id="project-delete-confirmation"
+              autoComplete="off"
+              value={confirmName}
+              onChange={(event) => setConfirmName(event.target.value)}
+            />
+          </div>
 
-        <div className="project-detail-field">
-          <label htmlFor="project-delete-confirmation">
-            {t('projects.detail.danger.confirm')}
-          </label>
-          <input
-            id="project-delete-confirmation"
-            autoComplete="off"
-            value={confirmName}
-            onChange={(event) => setConfirmName(event.target.value)}
-          />
-        </div>
+          <div>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={confirmName !== project.name || deleting}
+              onClick={() => setConfirmDeleteOpen(true)}
+            >
+              {t('projects.detail.danger.submit')}
+            </Button>
+          </div>
 
-        <button
-          type="button"
-          className="project-detail-delete"
-          disabled={confirmName !== project.name || deleting}
-          onClick={() => void handleDelete(project)}
-        >
-          {t('projects.detail.danger.submit')}
-        </button>
+          <AlertDialog
+            open={confirmDeleteOpen}
+            onOpenChange={setConfirmDeleteOpen}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {t('projects.detail.danger.dialog.title')}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t('projects.detail.danger.dialog.description', {
+                    name: project.name,
+                  })}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>
+                  {t('projects.detail.danger.dialog.cancel')}
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  variant="destructive"
+                  disabled={deleting}
+                  onClick={() => void handleDelete(project)}
+                >
+                  {t('projects.detail.danger.dialog.confirm')}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
-        {deleteError !== null && (
-          <ErrorState
-            error={deleteError}
-            prefix={t('projects.detail.danger.error')}
-          />
-        )}
-      </section>
+          {deleteError !== null && (
+            <ErrorState
+              error={deleteError}
+              prefix={t('projects.detail.danger.error')}
+            />
+          )}
+        </CardContent>
+      </Card>
     </section>
   );
 }
@@ -519,50 +664,54 @@ function ProjectEditForm({
   };
 
   return (
-    <>
-      <form
-        className="project-detail-form"
-        onSubmit={(event) => void handleSubmit(event)}
-      >
-        <h3>{t('projects.detail.edit.heading')}</h3>
-
-        <div className="project-detail-field">
-          <label htmlFor="project-detail-name">
-            {t('projects.detail.edit.name')}
-          </label>
-          <input
-            id="project-detail-name"
-            required
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </div>
-
-        <button
-          type="submit"
-          disabled={saving || name.trim() === ''}
+    <Card>
+      <CardHeader>
+        <h3 className="text-base leading-none font-semibold">
+          {t('projects.detail.edit.heading')}
+        </h3>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <form
+          className="flex flex-col gap-4 sm:flex-row sm:items-end"
+          onSubmit={(event) => void handleSubmit(event)}
         >
-          {t('projects.detail.edit.save')}
-        </button>
+          <div className="flex flex-1 flex-col gap-2">
+            <Label htmlFor="project-detail-name">
+              {t('projects.detail.edit.name')}
+            </Label>
+            <Input
+              id="project-detail-name"
+              required
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </div>
 
-        {message !== null && (
-          <span className="project-detail-saved" role="status">
-            {t(
-              message === 'saved'
-                ? 'projects.detail.edit.saved'
-                : 'projects.detail.edit.noChanges',
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="submit" disabled={saving || name.trim() === ''}>
+              {t('projects.detail.edit.save')}
+            </Button>
+
+            {message !== null && (
+              <span className="text-sm font-medium text-success" role="status">
+                {t(
+                  message === 'saved'
+                    ? 'projects.detail.edit.saved'
+                    : 'projects.detail.edit.noChanges',
+                )}
+              </span>
             )}
-          </span>
-        )}
-      </form>
+          </div>
+        </form>
 
-      {error !== null && (
-        <ErrorState
-          error={error}
-          prefix={t('projects.detail.edit.error')}
-        />
-      )}
-    </>
+        {error !== null && (
+          <ErrorState
+            error={error}
+            prefix={t('projects.detail.edit.error')}
+          />
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -638,24 +787,29 @@ function KeyRow({
 
   return (
     <Fragment>
-      <tr>
-        <td>
-          <code className="project-detail-key">{projectKey.public_key}</code>
-        </td>
-        <td>
+      <TableRow>
+        <TableCell>
+          <code className="project-detail-key font-mono text-xs">
+            {projectKey.public_key}
+          </code>
+        </TableCell>
+        <TableCell>
           {projectKey.label ?? (
-            <span className="project-detail-muted">
+            <span className="text-muted-foreground">
               {t('projects.detail.keys.noLabel')}
             </span>
           )}
-        </td>
-        <td>
+        </TableCell>
+        <TableCell>
           {projectKey.is_active ? (
-            <span className="project-key-status project-key-status-active">
+            <Badge className="border-transparent bg-success/15 text-success">
               {t('projects.detail.keys.active')}
-            </span>
+            </Badge>
           ) : (
-            <span className="project-key-status project-key-status-revoked">
+            <Badge
+              variant="outline"
+              className="border-transparent bg-destructive/10 text-destructive"
+            >
               {t('projects.detail.keys.revoked')}
               {projectKey.revoked_at !== null && (
                 <>
@@ -665,12 +819,13 @@ function KeyRow({
                   </time>
                 </>
               )}
-            </span>
+            </Badge>
           )}
-        </td>
-        <td>
-          <div className="project-detail-rate">
-            <input
+        </TableCell>
+        <TableCell>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              className="h-8 w-24"
               aria-label={t('projects.detail.keys.rateLimitForKey', {
                 id: projectKey.id,
               })}
@@ -682,71 +837,110 @@ function KeyRow({
                 setRateSaved(false);
               }}
             />
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
               disabled={savingRate}
               onClick={() => void handleRateSave()}
             >
               {t('projects.detail.keys.save')}
-            </button>
+            </Button>
             {rateSaved && (
-              <span className="project-detail-saved" role="status">
+              <span className="text-sm font-medium text-success" role="status">
                 {t('projects.detail.keys.saved')}
               </span>
             )}
           </div>
-        </td>
-        <td>
-          <code className="project-detail-dsn">{projectKey.dsn}</code>
-          <div className="project-detail-dsn-actions">
-            <button type="button" onClick={() => void handleCopy()}>
+        </TableCell>
+        <TableCell>
+          <code className="project-detail-dsn block max-w-80 font-mono text-xs break-all text-muted-foreground">
+            {projectKey.dsn}
+          </code>
+          <div className="mt-1 flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void handleCopy()}
+            >
+              <Copy aria-hidden="true" />
               {t('projects.copyDsn')}
-            </button>
+            </Button>
             {copyState === 'copied' && (
-              <span className="project-detail-copied" role="status">
+              <span className="text-sm font-medium text-success" role="status">
                 {t('projects.copied')}
               </span>
             )}
             {copyState === 'failed' && (
-              <span className="project-detail-copy-failed" role="status">
+              <span className="text-sm font-medium text-destructive" role="status">
                 {t('projects.copyFailed')}
               </span>
             )}
           </div>
-        </td>
-        <td>
+        </TableCell>
+        <TableCell>
           {projectKey.is_active && (
-            <button
-              type="button"
-              disabled={revoking}
-              onClick={() => void handleRevoke()}
-            >
-              {t('projects.detail.keys.revoke')}
-            </button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={revoking}
+                >
+                  {t('projects.detail.keys.revoke')}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {t('projects.detail.keys.revokeDialog.title')}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {t('projects.detail.keys.revokeDialog.description', {
+                      name: projectKey.label ?? projectKey.public_key,
+                    })}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>
+                    {t('projects.detail.keys.revokeDialog.cancel')}
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    variant="destructive"
+                    disabled={revoking}
+                    onClick={() => void handleRevoke()}
+                  >
+                    {t('projects.detail.keys.revokeDialog.confirm')}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
-        </td>
-      </tr>
+        </TableCell>
+      </TableRow>
 
       {rateErrorValue !== null && (
-        <tr>
-          <td colSpan={6}>
+        <TableRow>
+          <TableCell colSpan={6}>
             <ErrorState
               error={rateErrorValue}
               prefix={t('projects.detail.keys.rateError')}
             />
-          </td>
-        </tr>
+          </TableCell>
+        </TableRow>
       )}
 
       {revokeError !== null && (
-        <tr>
-          <td colSpan={6}>
+        <TableRow>
+          <TableCell colSpan={6}>
             <ErrorState
               error={revokeError}
               prefix={t('projects.detail.keys.revokeError')}
             />
-          </td>
-        </tr>
+          </TableCell>
+        </TableRow>
       )}
     </Fragment>
   );
@@ -811,52 +1005,59 @@ function CreateKeyForm({
       : error;
 
   return (
-    <>
-      <form
-        className="project-detail-form"
-        onSubmit={(event) => void handleSubmit(event)}
-      >
-        <h3>{t('projects.detail.createKey.heading')}</h3>
+    <Card>
+      <CardHeader>
+        <h3 className="text-base leading-none font-semibold">
+          {t('projects.detail.createKey.heading')}
+        </h3>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <form
+          className="grid gap-4 sm:grid-cols-2"
+          onSubmit={(event) => void handleSubmit(event)}
+        >
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="create-key-label">
+              {t('projects.detail.createKey.label')}
+            </Label>
+            <Input
+              id="create-key-label"
+              placeholder={t('projects.detail.createKey.labelPlaceholder')}
+              value={label}
+              onChange={(event) => setLabel(event.target.value)}
+            />
+          </div>
 
-        <div className="project-detail-field">
-          <label htmlFor="create-key-label">
-            {t('projects.detail.createKey.label')}
-          </label>
-          <input
-            id="create-key-label"
-            placeholder={t('projects.detail.createKey.labelPlaceholder')}
-            value={label}
-            onChange={(event) => setLabel(event.target.value)}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="create-key-rate-limit">
+              {t('projects.detail.createKey.rateLimit')}
+            </Label>
+            <Input
+              id="create-key-rate-limit"
+              inputMode="numeric"
+              placeholder={t('projects.detail.createKey.rateLimitPlaceholder')}
+              value={rate}
+              onChange={(event) => setRate(event.target.value)}
+            />
+            <span className="text-xs text-muted-foreground">
+              {t('projects.detail.createKey.hint')}
+            </span>
+          </div>
+
+          <div className="sm:col-span-2">
+            <Button type="submit" disabled={creating}>
+              {t('projects.detail.createKey.submit')}
+            </Button>
+          </div>
+        </form>
+
+        {errorValue !== null && (
+          <ErrorState
+            error={errorValue}
+            prefix={t('projects.detail.createKey.error')}
           />
-        </div>
-
-        <div className="project-detail-field">
-          <label htmlFor="create-key-rate-limit">
-            {t('projects.detail.createKey.rateLimit')}
-          </label>
-          <input
-            id="create-key-rate-limit"
-            inputMode="numeric"
-            placeholder={t('projects.detail.createKey.rateLimitPlaceholder')}
-            value={rate}
-            onChange={(event) => setRate(event.target.value)}
-          />
-          <span className="project-detail-hint">
-            {t('projects.detail.createKey.hint')}
-          </span>
-        </div>
-
-        <button type="submit" disabled={creating}>
-          {t('projects.detail.createKey.submit')}
-        </button>
-      </form>
-
-      {errorValue !== null && (
-        <ErrorState
-          error={errorValue}
-          prefix={t('projects.detail.createKey.error')}
-        />
-      )}
-    </>
+        )}
+      </CardContent>
+    </Card>
   );
 }

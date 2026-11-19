@@ -3,6 +3,7 @@ import { event } from './ko/event';
 import { issues } from './ko/issues';
 import { projects } from './ko/projects';
 import { releases } from './ko/releases';
+import { settings } from './ko/settings';
 
 /**
  * Korean messages. Declaring the object as {@link Messages} makes `tsc` fail
@@ -18,6 +19,7 @@ export const ko: Messages = {
     releases: '릴리스',
     messages: '메시지',
     projects: '프로젝트',
+    settings: '설정',
   },
   common: {
     language: '언어',
@@ -67,4 +69,5 @@ export const ko: Messages = {
   event,
   projects,
   releases,
+  settings,
 };

@@ -1,6 +1,6 @@
 /**
- * Theme preference handling shared by the provider, the top-bar control and
- * the bootstrap script in index.html.
+ * Theme preference handling shared by the provider, the settings page and the
+ * bootstrap script in index.html.
  */
 
 export type ThemePreference = 'system' | 'light' | 'dark';

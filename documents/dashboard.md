@@ -9,10 +9,12 @@ secondary **messages** screen keeps the raw ingest-queue view that predates
 issue grouping.
 
 The dashboard is a React 19 single-page application built with Vite and written
-in TypeScript. It adds no runtime dependencies beyond `react` and `react-dom`:
-there is no router, UI kit, state manager or chart library. Navigation is a
-small `location.hash` router in `src/router.ts`, the 24-hour chart is drawn
-with plain elements, and the API client is a thin `fetch` wrapper in
+in TypeScript. It is styled with Tailwind CSS v4 through the
+`@tailwindcss/vite` plugin and uses shadcn/ui new-york components copied into
+`src/components/ui`; [`dashboard/README.md`](../dashboard/README.md) documents
+that stack and how to add more components. Navigation is a small
+`location.hash` router in `src/router.ts`, the 24-hour chart is drawn with
+plain elements, and the API client is a thin `fetch` wrapper in
 `src/api/client.ts`. The screens only talk to the collector Processor's
 Management API.
 
@@ -94,7 +96,8 @@ header.
 
 ## Theme
 
-The **Theme** select in the top bar chooses how the dashboard is coloured:
+The **Appearance** control on the settings screen (`#/settings`) chooses how
+the dashboard is coloured:
 
 | Preference        | Meaning                                                                 |
 | ----------------- | ----------------------------------------------------------------------- |
@@ -115,20 +118,22 @@ A small inline script in `dashboard/index.html` reads the same key and applies
 the theme before the bundle loads, so reloading in dark mode does not flash the
 light theme.
 
-All colours are defined as CSS custom properties in `src/index.css`: `:root`
-holds the light tokens (`--color-bg`, `--color-bg-subtle`, `--color-surface`,
-`--color-fg`, `--color-fg-muted`, `--color-border`, `--color-accent`,
-`--color-danger`, `--color-warning`, `--color-success`, `--color-code-bg`,
-`--color-stack-bg` and supporting tokens) and `:root[data-theme='dark']`
-overrides them for dark mode. The screen styles only reference the variables,
-so a new colour must be added as a token instead of being hard-coded. Label
-chips compute black or white text from the label colour's relative luminance,
-which keeps them readable against any label colour in either theme.
+All colours come from the shadcn/ui design tokens in `src/index.css`: `:root`
+holds the light values (`--background`, `--foreground`, `--card`, `--primary`,
+`--secondary`, `--muted`, `--muted-foreground`, `--accent`, `--destructive`,
+`--border`, `--ring`, the `--sidebar-*` tokens and the semantic `--success`,
+`--warning` and `--info` states) and `:root[data-theme='dark']` overrides them
+for dark mode. The `@theme inline` block maps each token to a Tailwind colour
+utility (`bg-background`, `text-muted-foreground`, `border-border` and so on),
+and the screens style themselves with those utilities instead of raw colour
+values. A new colour must be added as a token in both blocks. Label chips
+compute black or white text from the label colour's relative luminance, which
+keeps them readable against any label colour in either theme.
 
 ## Language
 
-The **Language** select in the top bar switches the dashboard between English
-and Korean:
+The **Language** select on the settings screen (`#/settings`) switches the
+dashboard between English and Korean:
 
 | Language | Code | Notes                                                          |
 | -------- | ---- | -------------------------------------------------------------- |
@@ -156,7 +161,7 @@ define the same keys, which the `Messages` type and a key-parity test enforce.
 The dictionaries are split into per-screen modules (`messages/en/issues.ts`,
 `messages/en/event.ts` and `messages/en/projects.ts` with their `ko`
 counterparts) and merged into `en.ts`/`ko.ts`, so a screen only owns the keys
-it renders. The navigation tabs, project picker states, loading/empty/error
+it renders. The sidebar navigation, project picker states, loading/empty/error
 states, level and status badges and the 401 token guidance follow the active
 locale, and so do the issues list and detail screens, the event body and the
 project screens: their headings, filter labels and options, table headers,
@@ -183,10 +188,11 @@ the server only ever serves `index.html`.
 | `#/messages`      | Messages        | Legacy queue view.                                                    |
 | `#/projects`      | Projects list   | Project and key management entry point; hosts the create form.        |
 | `#/projects/<id>` | Project detail  | `<id>` is the numeric project id; `<id>` must be a positive integer.  |
+| `#/settings`      | Settings        | Appearance (theme) and language preferences.                          |
 
 Unknown hashes (for example `#/nope`) fall back to the issues list and are
-replaced with `#/issues`. The Issues, Releases, Messages and Projects tabs in
-the top bar change the hash, so browser back and forward navigation work
+replaced with `#/issues`. The Issues, Releases, Messages and Projects links in
+the sidebar change the hash, so browser back and forward navigation work
 normally.
 
 ### Issue-list filters in the URL
@@ -235,12 +241,13 @@ the counts themselves stay as returned by the API.
   only lists issues that reopened after being resolved and have not been
   triaged since. The toggle is a pressed button, and turning it off removes the
   query parameter because the API rejects values other than `true`.
-- **Platform filter** — a multi-select whose options are the active project's
+- **Platform filter** — a searchable multi-select combobox (a popover with a
+  search box and checkable options). Its options are the active project's
   observed `platforms`, loaded with `GET /api/manage/projects/{projectId}`.
   Selecting one or more platforms writes a single comma-separated `platform`
-  hash value and sends `platform=<names>` to the API. The control is hidden
-  when the project has not observed any platform yet or when that request
-  fails.
+  hash value and sends `platform=<names>` to the API; **Clear** empties the
+  selection. The control is hidden when the project has not observed any
+  platform yet or when that request fails.
 - **Sorting** — Last seen (default), First seen or Event count, sent as
   `last_seen`, `first_seen` or `count`.
 - **24-hour summary** — a bar chart of the `buckets` returned by `GET
@@ -372,7 +379,7 @@ and a failed request shows the error above the table. The numbers cover only
 events still inside the retention window; events removed by retention stop
 contributing to a release.
 
-`#/releases` is also a top-bar tab. Because the screen is project-scoped, it
+`#/releases` is also a sidebar link. Because the screen is project-scoped, it
 shows the "No project selected" state when no project is active.
 
 ### Projects (`#/projects`)
@@ -396,8 +403,9 @@ selected language; project names, slugs and platform names stay as stored.
 The detail screen loads `GET /api/manage/projects/{id}` and
 `GET /api/manage/projects/{id}/keys` in parallel. Its facts labels, key table
 headers, form labels and hints, status labels, buttons, copy feedback and the
-danger-zone confirmation follow the selected language; the project name, slug,
-key values, DSNs and the created/revoked times are shown as stored/returned.
+key-revocation, alert-rule deletion and project deletion confirmation dialogs
+follow the selected language; the project name, slug, key values, DSNs and the
+created/revoked times are shown as stored/returned.
 
 - **Header and facts** — the project name, a "Back to projects" link, the slug,
   a **Platforms seen** chip list built from the project's `platforms` (an em
@@ -416,9 +424,10 @@ key values, DSNs and the created/revoked times are shown as stored/returned.
   /api/manage/keys/{keyId}` with `{ "rate_limit_per_minute": <value> }`: a
   blank field sends `null` (no per-key limit), `0` means unlimited, and
   negative or non-integer values are rejected client-side without a request.
-  **Revoke** calls `DELETE /api/manage/keys/{keyId}`, reloads the list and
-  leaves the row in place as revoked. The active key count follows the
-  refreshed list.
+  **Revoke** asks for confirmation in an alert dialog: cancelling closes it
+  without a request, and confirming calls `DELETE /api/manage/keys/{keyId}`,
+  reloads the list and leaves the row in place as revoked. The active key
+  count follows the refreshed list.
 - **Create key** — an optional label and an optional rate limit. `POST
   /api/manage/projects/{id}/keys` creates the key, then the new DSN is shown
   with a **Copy new key DSN** button and the key list is reloaded.
@@ -427,7 +436,9 @@ key values, DSNs and the created/revoked times are shown as stored/returned.
   from `GET /api/manage/projects/{id}/alert-notifications?limit=50` in
   parallel. The rule table shows the rule name, trigger, condition summary,
   channel and an **Enabled** checkbox; **Edit**, **Test send** and **Delete**
-  act on one row, with an inline confirmation for deletion. **New alert rule**
+  act on one row. **Delete** opens an alert dialog with **Cancel** and a
+  destructive **Confirm delete**: cancelling sends no request, confirming calls
+  `DELETE /api/manage/alert-rules/{id}` and removes the row. **New alert rule**
   opens the same form used for editing: name, trigger (`new_issue`,
   `regression` or `event_frequency`), threshold and window (only for
   `event_frequency`), channel (`webhook`, `discord` or `slack`), target URL,
@@ -437,8 +448,7 @@ key values, DSNs and the created/revoked times are shown as stored/returned.
   including explicit `null`s for cleared optional fields. The enabled checkbox
   sends `{"is_enabled": <value>}`. **Test send** calls
   `POST /api/manage/alert-rules/{id}/test` and reports whether the target
-  accepted the sample; nothing is queued. **Delete** calls
-  `DELETE /api/manage/alert-rules/{id}`. The **Recent notifications** table
+  accepted the sample; nothing is queued. The **Recent notifications** table
   under the rules lists queued, sending, sent and failed notifications with
   their rule, trigger, status, attempts, sent time and last error. The rules and
   the notifications have independent loading, empty and error states, and a
@@ -454,11 +464,14 @@ key values, DSNs and the created/revoked times are shown as stored/returned.
   [Inbound filters](management-api.md#inbound-filters) for the matching rules
   and the filtered ingest response.
 - **Danger zone** — deleting a project requires typing its exact name; the
-  **Delete project** button stays disabled until the text matches. `DELETE
-  /api/manage/projects/{id}` removes the project with its issues, events,
-  labels, keys, alert rules and notifications, navigates to `#/projects` and
-  reloads the project list. When the deleted project was the active one, the
-  selector falls back to the first remaining project.
+  **Delete project** button stays disabled until the text matches. Typing the
+  exact name opens the final alert dialog with **Cancel** and a destructive
+  **Delete project** action (the button reopens it after a dismissal):
+  cancelling leaves the project untouched, while confirming
+  calls `DELETE /api/manage/projects/{id}`, which removes the project with its
+  issues, events, labels, keys, alert rules and notifications, navigates to
+  `#/projects` and reloads the project list. When the deleted project was the
+  active one, the selector falls back to the first remaining project.
 
 ### Messages (`#/messages`)
 

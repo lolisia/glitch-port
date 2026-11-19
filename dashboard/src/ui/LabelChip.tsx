@@ -1,3 +1,4 @@
+import { Badge } from '@/components/ui/badge';
 import type { Label } from '../api/types';
 
 const FALLBACK_COLOUR = '#888888';
@@ -102,7 +103,7 @@ export function LabelChip({ label }: { label: Label }) {
   const background = label.color || FALLBACK_COLOUR;
 
   return (
-    <span
+    <Badge
       className="label-chip"
       style={{
         backgroundColor: background,
@@ -110,6 +111,6 @@ export function LabelChip({ label }: { label: Label }) {
       }}
     >
       {label.name}
-    </span>
+    </Badge>
   );
 }

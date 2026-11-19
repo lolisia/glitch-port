@@ -1,12 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { listReleases } from '../../api/client';
 import type { Release } from '../../api/types';
 import { formatNumber, useI18n } from '../../i18n';
 import { buildHash } from '../../router';
 import { EmptyState, ErrorState, LoadingState, RelativeTime } from '../../ui';
 import { NoProjectState } from '../issues/components/NoProjectState';
-import './releases.css';
 
 const RELEASES_PAGE_SIZE = 50;
 
@@ -137,108 +147,138 @@ export function ReleasesPage({ projectId }: { projectId: number | null }) {
 
   if (projectId === null) {
     return (
-      <section className="releases-page" data-testid="releases-page">
-        <header className="page-header">
-          <h2>{t('releases.title')}</h2>
-        </header>
+      <section className="flex flex-col gap-4" data-testid="releases-page">
+        <h2 className="text-xl font-semibold tracking-tight">
+          {t('releases.title')}
+        </h2>
 
-        <NoProjectState />
+        <Card>
+          <CardContent>
+            <NoProjectState />
+          </CardContent>
+        </Card>
       </section>
     );
   }
 
   return (
-    <section className="releases-page" data-testid="releases-page">
-      <header className="page-header">
-        <h2>{t('releases.title')}</h2>
-      </header>
+    <section className="flex flex-col gap-4" data-testid="releases-page">
+      <h2 className="text-xl font-semibold tracking-tight">
+        {t('releases.title')}
+      </h2>
 
-      <form className="releases-filter" onSubmit={applyEnvironment}>
-        <input
-          type="search"
-          aria-label={t('releases.environment')}
-          placeholder={t('releases.environmentPlaceholder')}
-          value={environmentDraft}
-          onChange={(event) => setEnvironmentDraft(event.target.value)}
-        />
-        <button type="submit" disabled={loading}>
-          {t('releases.apply')}
-        </button>
-      </form>
+      <Card>
+        <CardContent className="flex flex-col gap-4">
+          <form
+            className="flex flex-wrap items-center gap-2"
+            onSubmit={applyEnvironment}
+          >
+            <Input
+              type="search"
+              aria-label={t('releases.environment')}
+              placeholder={t('releases.environmentPlaceholder')}
+              value={environmentDraft}
+              onChange={(event) => setEnvironmentDraft(event.target.value)}
+              className="max-w-sm flex-1"
+            />
+            <Button type="submit" disabled={loading}>
+              {t('releases.apply')}
+            </Button>
+          </form>
 
-      {loading && <LoadingState />}
+          {loading && <LoadingState />}
 
-      {!loading && error !== null && (
-        <ErrorState error={error} prefix={t('releases.loadError')} />
-      )}
-
-      {!loading && error === null && items.length === 0 && (
-        <EmptyState>{t('releases.empty')}</EmptyState>
-      )}
-
-      {!loading && error === null && items.length > 0 && (
-        <>
-          <table className="releases-table">
-            <thead>
-              <tr>
-                <th scope="col">{t('releases.table.release')}</th>
-                <th scope="col">{t('releases.table.firstSeen')}</th>
-                <th scope="col">{t('releases.table.lastSeen')}</th>
-                <th scope="col">{t('releases.table.events')}</th>
-                <th scope="col">{t('releases.table.issues')}</th>
-                <th scope="col">{t('releases.table.newIssues')}</th>
-                <th scope="col">{t('releases.table.unresolvedIssues')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.release}>
-                  <td className="releases-name">
-                    <a href={issuesHash('release', item.release)}>
-                      {item.release}
-                    </a>
-                  </td>
-                  <td>
-                    <RelativeTime value={item.first_seen} />
-                  </td>
-                  <td>
-                    <RelativeTime value={item.last_seen} />
-                  </td>
-                  <td className="releases-number">
-                    {formatNumber(item.event_count, locale)}
-                  </td>
-                  <td className="releases-number">
-                    {formatNumber(item.issue_count, locale)}
-                  </td>
-                  <td className="releases-number">
-                    <a href={issuesHash('first_release', item.release)}>
-                      {formatNumber(item.new_issue_count, locale)}
-                    </a>
-                  </td>
-                  <td className="releases-number">
-                    {formatNumber(item.unresolved_issue_count, locale)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {moreError !== null && (
-            <ErrorState error={moreError} prefix={t('releases.loadError')} />
+          {!loading && error !== null && (
+            <ErrorState error={error} prefix={t('releases.loadError')} />
           )}
 
-          {nextCursor !== null && (
-            <button
-              type="button"
-              className="releases-load-more"
-              onClick={loadMore}
-              disabled={loading || loadingMore}
-            >
-              {t('releases.loadMore')}
-            </button>
+          {!loading && error === null && items.length === 0 && (
+            <EmptyState>{t('releases.empty')}</EmptyState>
           )}
-        </>
-      )}
+
+          {!loading && error === null && items.length > 0 && (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead scope="col">
+                      {t('releases.table.release')}
+                    </TableHead>
+                    <TableHead scope="col">
+                      {t('releases.table.firstSeen')}
+                    </TableHead>
+                    <TableHead scope="col">
+                      {t('releases.table.lastSeen')}
+                    </TableHead>
+                    <TableHead scope="col" className="text-right">
+                      {t('releases.table.events')}
+                    </TableHead>
+                    <TableHead scope="col" className="text-right">
+                      {t('releases.table.issues')}
+                    </TableHead>
+                    <TableHead scope="col" className="text-right">
+                      {t('releases.table.newIssues')}
+                    </TableHead>
+                    <TableHead scope="col" className="text-right">
+                      {t('releases.table.unresolvedIssues')}
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.map((item) => (
+                    <TableRow key={item.release}>
+                      <TableCell className="font-medium">
+                        <a
+                          href={issuesHash('release', item.release)}
+                          className="font-semibold hover:underline"
+                        >
+                          {item.release}
+                        </a>
+                      </TableCell>
+                      <TableCell>
+                        <RelativeTime value={item.first_seen} />
+                      </TableCell>
+                      <TableCell>
+                        <RelativeTime value={item.last_seen} />
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatNumber(item.event_count, locale)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatNumber(item.issue_count, locale)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        <a href={issuesHash('first_release', item.release)}>
+                          {formatNumber(item.new_issue_count, locale)}
+                        </a>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatNumber(item.unresolved_issue_count, locale)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              {moreError !== null && (
+                <ErrorState error={moreError} prefix={t('releases.loadError')} />
+              )}
+
+              {nextCursor !== null && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="self-start"
+                  onClick={loadMore}
+                  disabled={loading || loadingMore}
+                >
+                  {t('releases.loadMore')}
+                </Button>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
     </section>
   );
 }

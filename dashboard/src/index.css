@@ -1,247 +1,167 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/*
+ * Theme tokens. Every colour in the dashboard comes from these variables so
+ * that the light values here and the dark values below are the only place a
+ * colour is defined. The dark block is selected by `data-theme="dark"` on
+ * <html>, which the theme provider (and the bootstrap script in index.html)
+ * apply.
+ */
 :root {
-  --layout-max-width: 1600px;
-  color-scheme: light;
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
 
-  /*
-   * Theme tokens. Every colour in the dashboard comes from these variables so
-   * that the light values here and the dark values below are the only place a
-   * colour is defined. The dark block is selected by `data-theme="dark"` on
-   * <html>, which the theme provider (and the bootstrap script in index.html)
-   * apply.
-   */
-  --color-bg: #ffffff;
-  --color-bg-subtle: #f6f8fa;
-  --color-surface: #ffffff;
-  --color-fg: #1f2328;
-  --color-fg-muted: #57606a;
-  --color-border: #d0d7de;
-  --color-border-subtle: #eaeef2;
-  --color-accent: #0969da;
-  --color-accent-subtle: #ddf4ff;
-  --color-danger: #cf222e;
-  --color-danger-subtle: #ffebe9;
-  --color-danger-border: #ffcecb;
-  --color-danger-strong: #cf222e;
-  --color-on-danger: #ffffff;
-  --color-warning: #9a6700;
-  --color-warning-subtle: #fff8c5;
-  --color-success: #1a7f37;
-  --color-success-subtle: #dafbe1;
-  --color-code-bg: #f6f8fa;
-  --color-stack-bg: #f6f8fa;
-  --color-chip-bg: #eaeef2;
-  --color-row-selected: #f0f6ff;
-  --color-frame-in-app-bg: #fff5f5;
-  --color-shadow: #00000040;
-
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  color: var(--color-fg);
-  background-color: var(--color-bg);
+  /* Semantic states that the base palette does not cover. */
+  --success: oklch(0.627 0.194 149.214);
+  --success-foreground: oklch(0.985 0 0);
+  --warning: oklch(0.666 0.179 58.318);
+  --warning-foreground: oklch(0.985 0 0);
+  --info: oklch(0.546 0.245 262.881);
+  --info-foreground: oklch(0.985 0 0);
 }
 
 :root[data-theme='dark'] {
-  color-scheme: dark;
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
 
-  --color-bg: #0d1117;
-  --color-bg-subtle: #161b22;
-  --color-surface: #0d1117;
-  --color-fg: #e6edf3;
-  --color-fg-muted: #9198a1;
-  --color-border: #30363d;
-  --color-border-subtle: #21262d;
-  --color-accent: #58a6ff;
-  --color-accent-subtle: #132a44;
-  --color-danger: #ff7b72;
-  --color-danger-subtle: #3d1418;
-  --color-danger-border: #6e2424;
-  --color-danger-strong: #da3633;
-  --color-on-danger: #ffffff;
-  --color-warning: #e3b341;
-  --color-warning-subtle: #3b2e0a;
-  --color-success: #3fb950;
-  --color-success-subtle: #10331c;
-  --color-code-bg: #161b22;
-  --color-stack-bg: #161b22;
-  --color-chip-bg: #21262d;
-  --color-row-selected: #12243d;
-  --color-frame-in-app-bg: #2a1518;
-  --color-shadow: #00000080;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-}
-
-a {
-  color: var(--color-accent);
-}
-
-main {
-  max-width: var(--layout-max-width);
-  margin: 0 auto;
-  padding: 2rem 1rem;
-}
-
-.page {
-  width: 100%;
-  max-width: var(--layout-max-width);
-  margin: 0 auto;
-  padding: 2rem 1rem;
-}
-
-.top-bar {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  max-width: var(--layout-max-width);
-  margin: 0 auto;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.top-bar h1 {
-  margin: 0;
-  font-size: 1.25rem;
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  white-space: nowrap;
-}
-
-.brand-logo {
-  display: block;
-  flex: none;
-}
-
-.tabs {
-  display: flex;
-  gap: 0.25rem;
-}
-
-.tab {
-  padding: 0.5rem 0.75rem;
-  border-bottom: 2px solid transparent;
-  color: var(--color-fg-muted);
-  font-weight: 500;
-  text-decoration: none;
-}
-
-.tab:hover {
-  color: var(--color-fg);
-}
-
-.tab[aria-current='page'] {
-  border-bottom-color: var(--color-accent);
-  color: var(--color-fg);
-  font-weight: 600;
-}
-
-.project-picker {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-left: auto;
-  color: var(--color-fg-muted);
-  font-size: 0.875rem;
-}
-
-.project-picker select {
-  padding: 0.25rem 0.5rem;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background-color: var(--color-surface);
-  color: var(--color-fg);
-  font: inherit;
-}
-
-.project-picker-state {
-  margin-left: auto;
-  color: var(--color-fg-muted);
-  font-size: 0.875rem;
+  --success: oklch(0.792 0.209 151.711);
+  --success-foreground: oklch(0.145 0 0);
+  --warning: oklch(0.828 0.189 84.429);
+  --warning-foreground: oklch(0.145 0 0);
+  --info: oklch(0.707 0.165 254.624);
+  --info-foreground: oklch(0.145 0 0);
 }
 
 /*
- * The right-hand settings cluster: the language select and the theme control.
- * Keep the container a row so both controls share it.
+ * Expose the palette to Tailwind. `inline` keeps the generated utilities on the
+ * underlying variables, so a utility such as `bg-background` follows the active
+ * theme instead of copying the value.
  */
-.top-bar-settings {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  color: var(--color-fg-muted);
-  font-size: 0.875rem;
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
 }
 
-.top-bar-settings label {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
+/*
+ * Base element defaults. They live in the base layer so component and utility
+ * classes always win over them.
+ */
+@layer base {
+  * {
+    box-sizing: border-box;
+    @apply border-border outline-ring/50;
+  }
 
-.top-bar-settings select {
-  padding: 0.25rem 0.5rem;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background-color: var(--color-surface);
-  color: var(--color-fg);
-  font: inherit;
-}
+  body {
+    margin: 0;
+    @apply bg-background text-foreground;
+  }
 
-.project-placeholder p {
-  color: var(--color-fg-muted);
-}
-
-h1 {
-  font-size: 1.5rem;
-}
-
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.page-header h2 {
-  margin: 0;
-}
-
-button {
-  padding: 0.375rem 0.75rem;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background-color: var(--color-bg-subtle);
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-th,
-td {
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--color-border);
-  text-align: left;
-  vertical-align: top;
-}
-
-th {
-  white-space: nowrap;
-  background-color: var(--color-bg-subtle);
+  a {
+    color: var(--primary);
+  }
 }

@@ -1,5 +1,3 @@
-import './ui.css';
-
 export {
   formatAbsoluteTime,
   formatClockTime,

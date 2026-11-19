@@ -1,10 +1,11 @@
 /**
- * Locale selection shared by the provider, the top-bar language control and
- * the persisted preference.
+ * Locale selection shared by the provider, the settings page language control
+ * and the persisted preference.
  *
  * The dashboard ships two locales: English (the source strings) and Korean.
- * The browser language only picks the initial value; an explicit choice in the
- * top bar is stored under {@link LOCALE_STORAGE_KEY} and wins on later visits.
+ * The browser language only picks the initial value; an explicit choice on the
+ * settings page is stored under {@link LOCALE_STORAGE_KEY} and wins on later
+ * visits.
  */
 
 export type Locale = 'en' | 'ko';

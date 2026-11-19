@@ -1,4 +1,7 @@
 import type { BulkAction } from '../../../api/types';
+import { Button } from '../../../components/ui/button';
+import { Card } from '../../../components/ui/card';
+import { Input } from '../../../components/ui/input';
 import { useI18n } from '../../../i18n';
 import { ErrorState } from '../../../ui';
 
@@ -29,76 +32,94 @@ export function BulkActionBar({
   const hasLabelName = labelName.trim() !== '';
 
   return (
-    <div className="bulk-bar" role="group" aria-label={t('issues.bulk.actions')}>
-      <span className="bulk-count">
+    <Card
+      role="group"
+      aria-label={t('issues.bulk.actions')}
+      className="flex-row flex-wrap items-center gap-2 p-3"
+    >
+      <span className="font-semibold">
         {t('issues.bulk.selected', { count })}
       </span>
 
-      <div className="bulk-actions">
-        <button
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={() => onAction('resolve')}
           disabled={pending}
         >
           {t('issues.bulk.resolve')}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={() => onAction('resolve_next_release')}
           disabled={pending}
         >
           {t('issues.bulk.resolveNextRelease')}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={() => onAction('unresolve')}
           disabled={pending}
         >
           {t('issues.bulk.unresolve')}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={() => onAction('ignore')}
           disabled={pending}
         >
           {t('issues.bulk.ignore')}
-        </button>
+        </Button>
 
-        <input
+        <Input
           type="text"
           aria-label={t('issues.bulk.labelName')}
           placeholder={t('issues.bulk.labelName')}
           value={labelName}
           onChange={(event) => onLabelNameChange(event.target.value)}
+          className="h-8 w-40"
         />
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={() => onLabelAction('add_labels')}
           disabled={pending || !hasLabelName}
         >
           {t('issues.bulk.addLabel')}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={() => onLabelAction('remove_labels')}
           disabled={pending || !hasLabelName}
         >
           {t('issues.bulk.removeLabel')}
-        </button>
+        </Button>
 
-        <button
+        <Button
           type="button"
-          className="bulk-delete"
+          variant="destructive"
+          size="sm"
           onClick={() => onAction('delete')}
           disabled={pending}
         >
           {t('issues.bulk.delete')}
-        </button>
+        </Button>
       </div>
 
       {error !== null && (
         <ErrorState error={error} prefix={t('issues.bulk.error')} />
       )}
-    </div>
+    </Card>
   );
 }

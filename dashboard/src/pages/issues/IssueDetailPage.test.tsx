@@ -368,6 +368,8 @@ describe('IssueDetailPage', () => {
     const header = await screen.findByTestId('issue-detail-header');
 
     expect(screen.getByTestId('issue-detail-page')).toBeInTheDocument();
+    // The header is a shadcn Card with Badges for the level and status.
+    expect(header).toHaveAttribute('data-slot', 'card');
     expect(
       within(header).getByRole('heading', {
         level: 2,
@@ -375,10 +377,16 @@ describe('IssueDetailPage', () => {
       }),
     ).toBeInTheDocument();
     expect(within(header).getByText('UGameEngine::Init')).toBeInTheDocument();
-    expect(within(header).getByText('error')).toBeInTheDocument();
+    expect(within(header).getByText('error')).toHaveAttribute(
+      'data-slot',
+      'badge',
+    );
     expect(within(header).getByText('Platform')).toBeInTheDocument();
     expect(within(header).getByText('unreal')).toHaveClass('platform-chip');
-    expect(within(header).getByText('Unresolved')).toBeInTheDocument();
+    expect(within(header).getByText('Unresolved')).toHaveAttribute(
+      'data-slot',
+      'badge',
+    );
     expect(within(header).getByText('3')).toBeInTheDocument();
     expect(within(header).getByText('1.2.0')).toBeInTheDocument();
     expect(within(header).getByText('production')).toBeInTheDocument();
@@ -407,7 +415,10 @@ describe('IssueDetailPage', () => {
 
     const items = within(
       screen.getByTestId('issue-event-list'),
-    ).getAllByRole('listitem');
+    ).getAllByRole('row');
+    expect(
+      within(screen.getByTestId('issue-event-list')).getByRole('table'),
+    ).toBeInTheDocument();
     expect(items).toHaveLength(3);
     expect(within(items[0]).getByText('Third summary')).toBeInTheDocument();
     expect(within(items[0]).getByText('error')).toBeInTheDocument();
@@ -431,6 +442,7 @@ describe('IssueDetailPage', () => {
     // latest_event is rendered straight from GET /issues/{id}.
     expect(await screen.findByText('Latest payload body')).toBeInTheDocument();
     const eventPanel = screen.getByTestId('issue-event-panel');
+    expect(eventPanel).toHaveAttribute('data-slot', 'card');
     expect(within(eventPanel).getByText('Platform')).toBeInTheDocument();
     expect(within(eventPanel).getByText('unreal')).toHaveClass(
       'platform-chip',
@@ -464,7 +476,7 @@ describe('IssueDetailPage', () => {
     await screen.findByTestId('issue-detail-header');
     const items = within(
       screen.getByTestId('issue-event-list'),
-    ).getAllByRole('listitem');
+    ).getAllByRole('row');
 
     expect(within(items[0]).getByText('<no message>')).toBeInTheDocument();
     expect(within(items[1]).getByText('<no message>')).toBeInTheDocument();
@@ -735,6 +747,20 @@ describe('IssueDetailPage', () => {
     expect(screen.getByRole('checkbox', { name: 'crash' })).not.toBeChecked();
   });
 
+  it('toggles a project label from its visible label text', async () => {
+    const user = userEvent.setup();
+    stubApi();
+
+    renderPage(<IssueDetailPage issueId={42} projectId={1} />);
+
+    await screen.findByTestId('issue-detail-header');
+
+    expect(screen.getByRole('checkbox', { name: 'ui' })).not.toBeChecked();
+    await user.click(screen.getByText('ui'));
+
+    expect(screen.getByRole('checkbox', { name: 'ui' })).toBeChecked();
+  });
+
   it('shows an action error when a status update fails', async () => {
     const user = userEvent.setup();
     stubApi({ patchError: jsonResponse({ error: 'boom' }, 500) });
@@ -760,7 +786,7 @@ describe('IssueDetailPage', () => {
     await screen.findByText('Latest payload body');
     const items = within(
       screen.getByTestId('issue-event-list'),
-    ).getAllByRole('listitem');
+    ).getAllByRole('row');
 
     await user.click(within(items[1]).getByRole('button'));
 
@@ -825,7 +851,7 @@ describe('IssueDetailPage', () => {
     await screen.findByText('Latest payload body');
     const items = within(
       screen.getByTestId('issue-event-list'),
-    ).getAllByRole('listitem');
+    ).getAllByRole('row');
 
     await user.click(within(items[1]).getByRole('button'));
 
@@ -857,7 +883,7 @@ describe('IssueDetailPage', () => {
 
     expect(await screen.findByText('First summary')).toBeInTheDocument();
     expect(
-      within(screen.getByTestId('issue-event-list')).getAllByRole('listitem'),
+      within(screen.getByTestId('issue-event-list')).getAllByRole('row'),
     ).toHaveLength(3);
 
     const pageCalls = callsTo(calls, 'GET', EVENTS_PATH);
@@ -869,9 +895,8 @@ describe('IssueDetailPage', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('does not delete an event when the confirmation is declined', async () => {
+  it('does not delete an event when the confirmation is cancelled', async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     const onDeleteEvent = vi.fn();
     const { calls } = stubApi({ onDeleteEvent });
 
@@ -881,7 +906,18 @@ describe('IssueDetailPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Delete event' }));
 
-    expect(confirm).toHaveBeenCalledWith('Delete this event?');
+    const dialog = await screen.findByRole('alertdialog');
+    expect(
+      within(dialog).getByRole('heading', { name: 'Delete event' }),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText('Delete this event?')).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Delete' }),
+    ).toHaveAttribute('data-variant', 'destructive');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(onDeleteEvent).not.toHaveBeenCalled();
     expect(calls.some((call) => call.method === 'DELETE')).toBe(false);
     expect(screen.getByText('Latest payload body')).toBeInTheDocument();
@@ -889,7 +925,6 @@ describe('IssueDetailPage', () => {
 
   it('deletes the selected event and selects the new latest event', async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     let deleted = false;
 
     const { calls } = stubApi({
@@ -913,6 +948,8 @@ describe('IssueDetailPage', () => {
     await screen.findByText('Latest payload body');
 
     await user.click(screen.getByRole('button', { name: 'Delete event' }));
+    const dialog = await screen.findByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
 
     expect(await screen.findByText('Second payload body')).toBeInTheDocument();
     expect(callsTo(calls, 'DELETE', '/api/manage/events/event-3')).toHaveLength(
@@ -930,7 +967,7 @@ describe('IssueDetailPage', () => {
     ).toBeInTheDocument();
     const items = within(
       screen.getByTestId('issue-event-list'),
-    ).getAllByRole('listitem');
+    ).getAllByRole('row');
     expect(items).toHaveLength(2);
     expect(within(items[0]).getByRole('button')).toHaveAttribute(
       'aria-current',
@@ -938,9 +975,8 @@ describe('IssueDetailPage', () => {
     );
   });
 
-  it('does not delete the issue when the confirmation is declined', async () => {
+  it('does not delete the issue when the confirmation is cancelled', async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     const { calls } = stubApi();
 
     renderPage(<IssueDetailPage issueId={42} projectId={1} />);
@@ -949,16 +985,26 @@ describe('IssueDetailPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Delete issue' }));
 
-    expect(confirm).toHaveBeenCalledWith(
-      'Delete this issue and all of its events?',
-    );
+    const dialog = await screen.findByRole('alertdialog');
+    expect(
+      within(dialog).getByRole('heading', { name: 'Delete issue' }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText('Delete this issue and all of its events?'),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Delete' }),
+    ).toHaveAttribute('data-variant', 'destructive');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(calls.some((call) => call.method === 'DELETE')).toBe(false);
     expect(window.location.hash).toBe('#/issues/42');
   });
 
   it('deletes the issue after confirmation and navigates to the issues list', async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     const { calls } = stubApi();
 
     renderPage(<IssueDetailPage issueId={42} projectId={1} />);
@@ -966,6 +1012,8 @@ describe('IssueDetailPage', () => {
     await screen.findByTestId('issue-detail-header');
 
     await user.click(screen.getByRole('button', { name: 'Delete issue' }));
+    const dialog = await screen.findByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
 
     expect(callsTo(calls, 'DELETE', ISSUE_PATH)).toHaveLength(1);
     await waitFor(() => expect(window.location.hash).toBe('#/issues'));
@@ -1026,7 +1074,6 @@ describe('IssueDetailPage', () => {
   it('renders the header, actions, labels and event list in Korean', async () => {
     window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ko');
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     stubApi();
 
     renderPage(<IssueDetailPage issueId={42} projectId={1} />);
@@ -1095,12 +1142,36 @@ describe('IssueDetailPage', () => {
     expect(within(header).getByText('1.2.0')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '이벤트 삭제' }));
-    expect(confirm).toHaveBeenCalledWith('이 이벤트를 삭제할까요?');
+    const eventDialog = await screen.findByRole('alertdialog');
+    expect(
+      within(eventDialog).getByRole('heading', { name: '이벤트 삭제' }),
+    ).toBeInTheDocument();
+    expect(
+      within(eventDialog).getByText('이 이벤트를 삭제할까요?'),
+    ).toBeInTheDocument();
+    expect(
+      within(eventDialog).getByRole('button', { name: '삭제' }),
+    ).toHaveAttribute('data-variant', 'destructive');
+    await user.click(
+      within(eventDialog).getByRole('button', { name: '취소' }),
+    );
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '이슈 삭제' }));
-    expect(confirm).toHaveBeenCalledWith(
-      '이 이슈와 모든 이벤트를 삭제할까요?',
+    const issueDialog = await screen.findByRole('alertdialog');
+    expect(
+      within(issueDialog).getByRole('heading', { name: '이슈 삭제' }),
+    ).toBeInTheDocument();
+    expect(
+      within(issueDialog).getByText('이 이슈와 모든 이벤트를 삭제할까요?'),
+    ).toBeInTheDocument();
+    expect(
+      within(issueDialog).getByRole('button', { name: '삭제' }),
+    ).toHaveAttribute('data-variant', 'destructive');
+    await user.click(
+      within(issueDialog).getByRole('button', { name: '취소' }),
     );
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
   it('renders the Korean empty label state instead of the English text', async () => {
