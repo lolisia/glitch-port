@@ -1,5 +1,9 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { createAlertRule, updateAlertRule } from '../../../api/client';
 import type {
   AlertChannel,
@@ -246,7 +250,7 @@ export function AlertRuleForm({
 
   return (
     <form
-      className="project-detail-form alert-rule-form"
+      className="flex flex-col gap-4 rounded-lg border bg-muted/30 p-4"
       aria-label={
         rule === null
           ? t('projects.detail.alerts.createHeading')
@@ -254,152 +258,158 @@ export function AlertRuleForm({
       }
       onSubmit={(event) => void handleSubmit(event)}
     >
-      <h3>
+      <h3 className="text-base leading-none font-semibold">
         {rule === null
           ? t('projects.detail.alerts.createHeading')
           : t('projects.detail.alerts.editHeading')}
       </h3>
 
-      <div className="project-detail-field">
-        <label htmlFor="alert-rule-name">
-          {t('projects.detail.alerts.name')}
-        </label>
-        <input
-          id="alert-rule-name"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="alert-rule-name">
+            {t('projects.detail.alerts.name')}
+          </Label>
+          <Input
+            id="alert-rule-name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </div>
+
+        <div className="flex flex-col gap-2 [&_[data-slot=native-select-wrapper]]:w-full">
+          <Label htmlFor="alert-rule-trigger">
+            {t('projects.detail.alerts.trigger')}
+          </Label>
+          <NativeSelect
+            id="alert-rule-trigger"
+            value={trigger}
+            onChange={(event) =>
+              handleTriggerChange(event.target.value as AlertTrigger)
+            }
+          >
+            {TRIGGERS.map((value) => (
+              <NativeSelectOption key={value} value={value}>
+                {t(`projects.detail.alerts.triggers.${value}`)}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </div>
+
+        {trigger === 'event_frequency' && (
+          <>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="alert-rule-threshold">
+                {t('projects.detail.alerts.form.threshold')}
+              </Label>
+              <Input
+                id="alert-rule-threshold"
+                inputMode="numeric"
+                value={threshold}
+                onChange={(event) => setThreshold(event.target.value)}
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="alert-rule-window">
+                {t('projects.detail.alerts.form.window')}
+              </Label>
+              <Input
+                id="alert-rule-window"
+                inputMode="numeric"
+                value={windowMinutes}
+                onChange={(event) => setWindowMinutes(event.target.value)}
+              />
+            </div>
+          </>
+        )}
+
+        <div className="flex flex-col gap-2 [&_[data-slot=native-select-wrapper]]:w-full">
+          <Label htmlFor="alert-rule-channel">
+            {t('projects.detail.alerts.channel')}
+          </Label>
+          <NativeSelect
+            id="alert-rule-channel"
+            value={channel}
+            onChange={(event) =>
+              setChannel(event.target.value as AlertChannel)
+            }
+          >
+            {CHANNELS.map((value) => (
+              <NativeSelectOption key={value} value={value}>
+                {t(`projects.detail.alerts.channels.${value}`)}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </div>
+
+        <div className="flex flex-col gap-2 sm:col-span-2 xl:col-span-2">
+          <Label htmlFor="alert-rule-target">
+            {t('projects.detail.alerts.form.targetUrl')}
+          </Label>
+          <Input
+            id="alert-rule-target"
+            inputMode="url"
+            placeholder="https://hooks.example.com/alerts"
+            value={targetUrl}
+            onChange={(event) => setTargetUrl(event.target.value)}
+          />
+        </div>
+
+        <div className="flex flex-col gap-2 [&_[data-slot=native-select-wrapper]]:w-full">
+          <Label htmlFor="alert-rule-min-level">
+            {t('projects.detail.alerts.form.minLevel')}
+          </Label>
+          <NativeSelect
+            id="alert-rule-min-level"
+            value={minLevel}
+            onChange={(event) => setMinLevel(event.target.value)}
+          >
+            <NativeSelectOption value="">
+              {t('projects.detail.alerts.form.minLevelAny')}
+            </NativeSelectOption>
+            {LEVELS.map((value) => (
+              <NativeSelectOption key={value} value={value}>
+                {t(`ui.level.${value}`)}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="alert-rule-environment">
+            {t('projects.detail.alerts.form.environment')}
+          </Label>
+          <Input
+            id="alert-rule-environment"
+            placeholder={t('projects.detail.alerts.form.environmentPlaceholder')}
+            value={environment}
+            onChange={(event) => setEnvironment(event.target.value)}
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="alert-rule-cooldown">
+            {t('projects.detail.alerts.form.cooldown')}
+          </Label>
+          <Input
+            id="alert-rule-cooldown"
+            inputMode="numeric"
+            value={cooldownMinutes}
+            onChange={(event) => setCooldownMinutes(event.target.value)}
+          />
+          <span className="text-xs text-muted-foreground">
+            {t('projects.detail.alerts.form.cooldownHint')}
+          </span>
+        </div>
       </div>
 
-      <div className="project-detail-field">
-        <label htmlFor="alert-rule-trigger">
-          {t('projects.detail.alerts.trigger')}
-        </label>
-        <select
-          id="alert-rule-trigger"
-          value={trigger}
-          onChange={(event) =>
-            handleTriggerChange(event.target.value as AlertTrigger)
-          }
-        >
-          {TRIGGERS.map((value) => (
-            <option key={value} value={value}>
-              {t(`projects.detail.alerts.triggers.${value}`)}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {trigger === 'event_frequency' && (
-        <>
-          <div className="project-detail-field">
-            <label htmlFor="alert-rule-threshold">
-              {t('projects.detail.alerts.form.threshold')}
-            </label>
-            <input
-              id="alert-rule-threshold"
-              inputMode="numeric"
-              value={threshold}
-              onChange={(event) => setThreshold(event.target.value)}
-            />
-          </div>
-
-          <div className="project-detail-field">
-            <label htmlFor="alert-rule-window">
-              {t('projects.detail.alerts.form.window')}
-            </label>
-            <input
-              id="alert-rule-window"
-              inputMode="numeric"
-              value={windowMinutes}
-              onChange={(event) => setWindowMinutes(event.target.value)}
-            />
-          </div>
-        </>
-      )}
-
-      <div className="project-detail-field">
-        <label htmlFor="alert-rule-channel">
-          {t('projects.detail.alerts.channel')}
-        </label>
-        <select
-          id="alert-rule-channel"
-          value={channel}
-          onChange={(event) => setChannel(event.target.value as AlertChannel)}
-        >
-          {CHANNELS.map((value) => (
-            <option key={value} value={value}>
-              {t(`projects.detail.alerts.channels.${value}`)}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="project-detail-field alert-rule-form-wide">
-        <label htmlFor="alert-rule-target">
-          {t('projects.detail.alerts.form.targetUrl')}
-        </label>
-        <input
-          id="alert-rule-target"
-          inputMode="url"
-          placeholder="https://hooks.example.com/alerts"
-          value={targetUrl}
-          onChange={(event) => setTargetUrl(event.target.value)}
-        />
-      </div>
-
-      <div className="project-detail-field">
-        <label htmlFor="alert-rule-min-level">
-          {t('projects.detail.alerts.form.minLevel')}
-        </label>
-        <select
-          id="alert-rule-min-level"
-          value={minLevel}
-          onChange={(event) => setMinLevel(event.target.value)}
-        >
-          <option value="">{t('projects.detail.alerts.form.minLevelAny')}</option>
-          {LEVELS.map((value) => (
-            <option key={value} value={value}>
-              {t(`ui.level.${value}`)}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="project-detail-field">
-        <label htmlFor="alert-rule-environment">
-          {t('projects.detail.alerts.form.environment')}
-        </label>
-        <input
-          id="alert-rule-environment"
-          placeholder={t('projects.detail.alerts.form.environmentPlaceholder')}
-          value={environment}
-          onChange={(event) => setEnvironment(event.target.value)}
-        />
-      </div>
-
-      <div className="project-detail-field">
-        <label htmlFor="alert-rule-cooldown">
-          {t('projects.detail.alerts.form.cooldown')}
-        </label>
-        <input
-          id="alert-rule-cooldown"
-          inputMode="numeric"
-          value={cooldownMinutes}
-          onChange={(event) => setCooldownMinutes(event.target.value)}
-        />
-        <span className="project-detail-hint">
-          {t('projects.detail.alerts.form.cooldownHint')}
-        </span>
-      </div>
-
-      <div className="alert-rule-form-actions">
-        <button type="submit" disabled={saving}>
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" disabled={saving}>
           {t('projects.detail.alerts.save')}
-        </button>
-        <button type="button" onClick={onCancel} disabled={saving}>
+        </Button>
+        <Button type="button" variant="outline" onClick={onCancel} disabled={saving}>
           {t('projects.detail.alerts.cancel')}
-        </button>
+        </Button>
       </div>
 
       {error !== null && (
