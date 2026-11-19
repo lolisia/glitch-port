@@ -1,5 +1,7 @@
+using GlitchPort.Processor.Alerts;
 using GlitchPort.Processor.Migrations;
 using GlitchPort.Processor.Projects;
+using GlitchPort.Processor.Retention;
 using Microsoft.Extensions.Configuration;
 using Npgsql;
 using Xunit;
@@ -79,9 +81,56 @@ public sealed class ProjectBootstrapTests
     }
 
     [Fact]
-    public void The_bootstrap_lock_differs_from_the_migration_lock()
+    public async Task A_deleted_seed_project_is_not_recreated_by_a_later_bootstrap()
     {
+        await using var database = await ScratchDatabase.CreateAsync(_fixture.ConnectionString);
+        await DatabaseMigrator.ApplyAsync(database.ConnectionString, DatabaseMigrator.DefaultDirectory);
+
+        using var dataSource = NpgsqlDataSource.Create(database.ConnectionString);
+
+        await ProjectBootstrapper.BootstrapAsync(dataSource, DevelopmentProjects);
+
+        // A project created through the management API, then the seeded
+        // project deleted by the user.
+        await TestDatabase.ExecuteAsync(
+            database.ConnectionString,
+            """
+            insert into projects (name, slug) values ('Game', 'game');
+            delete from projects where id = 1;
+            """);
+
+        await ProjectBootstrapper.BootstrapAsync(dataSource, DevelopmentProjects);
+
+        Assert.Equal(0, await ScalarAsync(database.ConnectionString, "select count(*) from projects where id = 1"));
+        Assert.Equal(0, await ScalarAsync(database.ConnectionString, "select count(*) from project_keys"));
+        Assert.Equal(1, await ScalarAsync(database.ConnectionString, "select count(*) from projects"));
+    }
+
+    [Fact]
+    public async Task A_database_that_already_has_projects_is_not_seeded()
+    {
+        await using var database = await ScratchDatabase.CreateAsync(_fixture.ConnectionString);
+        await DatabaseMigrator.ApplyAsync(database.ConnectionString, DatabaseMigrator.DefaultDirectory);
+
+        await TestDatabase.ExecuteAsync(
+            database.ConnectionString,
+            "insert into projects (id, name, slug) values (2, 'Game', 'game')");
+
+        using var dataSource = NpgsqlDataSource.Create(database.ConnectionString);
+
+        await ProjectBootstrapper.BootstrapAsync(dataSource, DevelopmentProjects);
+
+        Assert.Equal(0, await ScalarAsync(database.ConnectionString, "select count(*) from projects where id = 1"));
+        Assert.Equal(0, await ScalarAsync(database.ConnectionString, "select count(*) from project_keys"));
+    }
+
+    [Fact]
+    public void The_bootstrap_lock_differs_from_every_other_advisory_lock()
+    {
+        Assert.Equal(823654, ProjectBootstrapper.AdvisoryLockKey);
         Assert.NotEqual(DatabaseMigrator.AdvisoryLockKey, ProjectBootstrapper.AdvisoryLockKey);
+        Assert.NotEqual(RetentionRunner.AdvisoryLockKey, ProjectBootstrapper.AdvisoryLockKey);
+        Assert.NotEqual(AlertEvaluator.AdvisoryLockKey, ProjectBootstrapper.AdvisoryLockKey);
     }
 
     [Fact]

@@ -4,30 +4,36 @@ using Npgsql;
 namespace GlitchPort.Processor.Projects;
 
 /// <summary>
-/// Creates the projects and public keys configured under
-/// <c>Processor:Bootstrap:Projects</c> when the Processor starts.
+/// Seeds the projects and public keys configured under
+/// <c>Processor:Bootstrap:Projects</c> into an empty database when the
+/// Processor starts.
 /// </summary>
 /// <remarks>
 /// <para>
 /// The bootstrap gives a fresh deployment (and the local development
 /// environment) a DSN before any project has been created through the
-/// management API.
+/// management API. It only runs while the <c>projects</c> table is empty: once
+/// any project exists, projects and keys are managed exclusively through the
+/// management API, so a configured project that was deleted is never
+/// recreated by a later restart.
 /// </para>
 /// <para>
-/// It is idempotent: only missing projects and keys are inserted, and the
-/// inserts use explicit project ids with <c>on conflict do nothing</c>. Two
+/// The inserts use explicit project ids with <c>on conflict do nothing</c>. Two
 /// instances starting at the same time serialize on the session advisory lock
-/// <see cref="AdvisoryLockKey"/>, which is distinct from the migration lock in
-/// <see cref="Migrations.DatabaseMigrator"/>.
+/// <see cref="AdvisoryLockKey"/>; the second one finds the seeded projects and
+/// skips. The key is distinct from the migration, retention and alert
+/// evaluation locks.
 /// </para>
 /// </remarks>
 public static class ProjectBootstrapper
 {
     /// <summary>Session advisory lock key that serializes bootstraps.</summary>
-    public const long AdvisoryLockKey = 823652;
+    public const long AdvisoryLockKey = 823654;
 
     private static readonly string LockSql = $"select pg_advisory_lock({AdvisoryLockKey})";
     private static readonly string UnlockSql = $"select pg_advisory_unlock({AdvisoryLockKey})";
+
+    private const string AnyProjectSql = "select exists (select 1 from projects)";
 
     private const string InsertProjectSql = """
         insert into projects (id, name, slug)
@@ -53,7 +59,8 @@ public static class ProjectBootstrapper
         """;
 
     /// <summary>
-    /// Inserts the projects and keys that are not stored yet.
+    /// Inserts the configured projects and keys when no project exists yet;
+    /// does nothing otherwise.
     /// </summary>
     /// <param name="dataSource">Data source of the Processor database.</param>
     /// <param name="projects">Configured projects, already bound from configuration.</param>
@@ -94,6 +101,22 @@ public static class ProjectBootstrapper
 
             try
             {
+                var anyProject = await connection
+                    .ExecuteScalarAsync<bool>(new CommandDefinition(
+                        AnyProjectSql,
+                        transaction: transaction,
+                        cancellationToken: cancellationToken))
+                    .ConfigureAwait(false);
+
+                if (anyProject)
+                {
+                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+                    logger?.LogInformation(
+                        "Skipped the project bootstrap: the database already contains projects.");
+                    return;
+                }
+
                 foreach (var project in projects)
                 {
                     await connection

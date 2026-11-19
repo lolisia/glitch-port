@@ -52,8 +52,9 @@ Relay.
 
 `INGEST_PUBLIC_KEY` is used only to seed project `1` and its key on first start
 via `Processor__Bootstrap__Projects` (`Processor__Bootstrap__Projects__0__*`).
-The Processor creates missing projects and keys and never updates or deletes
-them. Keys are created and revoked afterwards only through the Management API.
+The Processor seeds them only while the database has no projects, so a deleted
+project 1 is not recreated on restart, and it never updates or deletes rows. Keys
+are created and revoked afterwards only through the Management API.
 
 Data persists in `glitch-port_postgres-data`. Back up with `pg_dump` before
 upgrades. `docker compose -f compose.yml down` preserves data; do not add `-v`.

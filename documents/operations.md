@@ -66,9 +66,8 @@ Retention is safe to enable on every Processor instance:
   Processor applying migrations and a Processor running retention never wait on
   or serialize with each other.
 
-The startup project bootstrap briefly takes `823652` as well. A retention tick
-that overlaps a Processor start can therefore be skipped; it retries on the next
-interval.
+The startup project bootstrap uses its own lock `823654` and alert evaluation
+uses `823653`, so neither waits on or skips a retention run.
 
 ### Logs
 
@@ -335,7 +334,9 @@ deployment:
 - Internal shared secret: `dev-internal-secret` (`Processor__InternalSharedSecret`
   and `Relay__InternalSharedSecret`).
 - Public ingest key: `dev-public-key`, seeded as project `1` with slug
-  `default` through `Processor__Bootstrap__Projects__0__*`.
+  `default` through `Processor__Bootstrap__Projects__0__*` when the database has
+  no projects yet. Deleting the project does not bring it back on restart while
+  any other project exists.
 - DSN: `http://dev-public-key@localhost:5080/1`.
 
 The dashboard image is built with the arguments
