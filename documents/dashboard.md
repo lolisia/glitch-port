@@ -9,10 +9,12 @@ secondary **messages** screen keeps the raw ingest-queue view that predates
 issue grouping.
 
 The dashboard is a React 19 single-page application built with Vite and written
-in TypeScript. It adds no runtime dependencies beyond `react` and `react-dom`:
-there is no router, UI kit, state manager or chart library. Navigation is a
-small `location.hash` router in `src/router.ts`, the 24-hour chart is drawn
-with plain elements, and the API client is a thin `fetch` wrapper in
+in TypeScript. It is styled with Tailwind CSS v4 through the
+`@tailwindcss/vite` plugin and uses shadcn/ui new-york components copied into
+`src/components/ui`; [`dashboard/README.md`](../dashboard/README.md) documents
+that stack and how to add more components. Navigation is a small
+`location.hash` router in `src/router.ts`, the 24-hour chart is drawn with
+plain elements, and the API client is a thin `fetch` wrapper in
 `src/api/client.ts`. The screens only talk to the collector Processor's
 Management API.
 
@@ -94,7 +96,8 @@ header.
 
 ## Theme
 
-The **Theme** select in the top bar chooses how the dashboard is coloured:
+The **Appearance** control on the settings screen (`#/settings`) chooses how
+the dashboard is coloured:
 
 | Preference        | Meaning                                                                 |
 | ----------------- | ----------------------------------------------------------------------- |
@@ -115,20 +118,22 @@ A small inline script in `dashboard/index.html` reads the same key and applies
 the theme before the bundle loads, so reloading in dark mode does not flash the
 light theme.
 
-All colours are defined as CSS custom properties in `src/index.css`: `:root`
-holds the light tokens (`--color-bg`, `--color-bg-subtle`, `--color-surface`,
-`--color-fg`, `--color-fg-muted`, `--color-border`, `--color-accent`,
-`--color-danger`, `--color-warning`, `--color-success`, `--color-code-bg`,
-`--color-stack-bg` and supporting tokens) and `:root[data-theme='dark']`
-overrides them for dark mode. The screen styles only reference the variables,
-so a new colour must be added as a token instead of being hard-coded. Label
-chips compute black or white text from the label colour's relative luminance,
-which keeps them readable against any label colour in either theme.
+All colours come from the shadcn/ui design tokens in `src/index.css`: `:root`
+holds the light values (`--background`, `--foreground`, `--card`, `--primary`,
+`--secondary`, `--muted`, `--muted-foreground`, `--accent`, `--destructive`,
+`--border`, `--ring`, the `--sidebar-*` tokens and the semantic `--success`,
+`--warning` and `--info` states) and `:root[data-theme='dark']` overrides them
+for dark mode. The `@theme inline` block maps each token to a Tailwind colour
+utility (`bg-background`, `text-muted-foreground`, `border-border` and so on),
+and the screens style themselves with those utilities instead of raw colour
+values. A new colour must be added as a token in both blocks. Label chips
+compute black or white text from the label colour's relative luminance, which
+keeps them readable against any label colour in either theme.
 
 ## Language
 
-The **Language** select in the top bar switches the dashboard between English
-and Korean:
+The **Language** select on the settings screen (`#/settings`) switches the
+dashboard between English and Korean:
 
 | Language | Code | Notes                                                          |
 | -------- | ---- | -------------------------------------------------------------- |
@@ -156,7 +161,7 @@ define the same keys, which the `Messages` type and a key-parity test enforce.
 The dictionaries are split into per-screen modules (`messages/en/issues.ts`,
 `messages/en/event.ts` and `messages/en/projects.ts` with their `ko`
 counterparts) and merged into `en.ts`/`ko.ts`, so a screen only owns the keys
-it renders. The navigation tabs, project picker states, loading/empty/error
+it renders. The sidebar navigation, project picker states, loading/empty/error
 states, level and status badges and the 401 token guidance follow the active
 locale, and so do the issues list and detail screens, the event body and the
 project screens: their headings, filter labels and options, table headers,
@@ -183,10 +188,11 @@ the server only ever serves `index.html`.
 | `#/messages`      | Messages        | Legacy queue view.                                                    |
 | `#/projects`      | Projects list   | Project and key management entry point; hosts the create form.        |
 | `#/projects/<id>` | Project detail  | `<id>` is the numeric project id; `<id>` must be a positive integer.  |
+| `#/settings`      | Settings        | Appearance (theme) and language preferences.                          |
 
 Unknown hashes (for example `#/nope`) fall back to the issues list and are
-replaced with `#/issues`. The Issues, Releases, Messages and Projects tabs in
-the top bar change the hash, so browser back and forward navigation work
+replaced with `#/issues`. The Issues, Releases, Messages and Projects links in
+the sidebar change the hash, so browser back and forward navigation work
 normally.
 
 ### Issue-list filters in the URL
@@ -235,12 +241,13 @@ the counts themselves stay as returned by the API.
   only lists issues that reopened after being resolved and have not been
   triaged since. The toggle is a pressed button, and turning it off removes the
   query parameter because the API rejects values other than `true`.
-- **Platform filter** — a multi-select whose options are the active project's
+- **Platform filter** — a searchable multi-select combobox (a popover with a
+  search box and checkable options). Its options are the active project's
   observed `platforms`, loaded with `GET /api/manage/projects/{projectId}`.
   Selecting one or more platforms writes a single comma-separated `platform`
-  hash value and sends `platform=<names>` to the API. The control is hidden
-  when the project has not observed any platform yet or when that request
-  fails.
+  hash value and sends `platform=<names>` to the API; **Clear** empties the
+  selection. The control is hidden when the project has not observed any
+  platform yet or when that request fails.
 - **Sorting** — Last seen (default), First seen or Event count, sent as
   `last_seen`, `first_seen` or `count`.
 - **24-hour summary** — a bar chart of the `buckets` returned by `GET
@@ -372,7 +379,7 @@ and a failed request shows the error above the table. The numbers cover only
 events still inside the retention window; events removed by retention stop
 contributing to a release.
 
-`#/releases` is also a top-bar tab. Because the screen is project-scoped, it
+`#/releases` is also a sidebar link. Because the screen is project-scoped, it
 shows the "No project selected" state when no project is active.
 
 ### Projects (`#/projects`)

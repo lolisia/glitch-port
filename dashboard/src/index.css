@@ -11,9 +11,6 @@
  * apply.
  */
 :root {
-  --layout-max-width: 1600px;
-  color-scheme: light;
-
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -55,15 +52,9 @@
   --warning-foreground: oklch(0.985 0 0);
   --info: oklch(0.546 0.245 262.881);
   --info-foreground: oklch(0.985 0 0);
-
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  color: var(--color-fg);
-  background-color: var(--color-bg);
 }
 
 :root[data-theme='dark'] {
-  color-scheme: dark;
-
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -107,8 +98,8 @@
 
 /*
  * Expose the palette to Tailwind. `inline` keeps the generated utilities on the
- * underlying variables, so the legacy aliases below (which redefine a few
- * `--color-*` names) cannot leak into the shadcn utilities.
+ * underlying variables, so a utility such as `bg-background` follows the active
+ * theme instead of copying the value.
  */
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
@@ -156,41 +147,8 @@
 }
 
 /*
- * Legacy aliases for the screens that have not been migrated to the shadcn
- * tokens yet. Every `--color-*` variable used by the dashboard CSS resolves
- * through this block. It must stay after `@theme inline`: utilities consume the
- * raw token variables, while these aliases are only read by hand-written CSS.
- */
-:root {
-  --color-bg: var(--background);
-  --color-bg-subtle: var(--muted);
-  --color-surface: var(--card);
-  --color-fg: var(--foreground);
-  --color-fg-muted: var(--muted-foreground);
-  --color-border: var(--border);
-  --color-border-subtle: color-mix(in oklab, var(--border) 55%, var(--background));
-  --color-accent: var(--primary);
-  --color-accent-subtle: var(--accent);
-  --color-danger: var(--destructive);
-  --color-danger-subtle: color-mix(in oklab, var(--destructive) 12%, var(--background));
-  --color-danger-border: color-mix(in oklab, var(--destructive) 35%, var(--background));
-  --color-danger-strong: var(--destructive);
-  --color-on-danger: var(--destructive-foreground);
-  --color-warning: var(--warning);
-  --color-warning-subtle: color-mix(in oklab, var(--warning) 15%, var(--background));
-  --color-success: var(--success);
-  --color-success-subtle: color-mix(in oklab, var(--success) 15%, var(--background));
-  --color-code-bg: var(--muted);
-  --color-stack-bg: var(--muted);
-  --color-chip-bg: var(--muted);
-  --color-row-selected: var(--accent);
-  --color-frame-in-app-bg: color-mix(in oklab, var(--destructive) 10%, var(--background));
-  --color-shadow: color-mix(in oklab, var(--foreground) 25%, transparent);
-}
-
-/*
- * Element defaults for the not-yet-migrated screens. They live in the base
- * layer so the shadcn utility classes always win over them.
+ * Base element defaults. They live in the base layer so component and utility
+ * classes always win over them.
  */
 @layer base {
   * {
@@ -204,71 +162,6 @@
   }
 
   a {
-    color: var(--color-accent);
-  }
-
-  main {
-    max-width: var(--layout-max-width);
-    margin: 0 auto;
-    padding: 2rem 1rem;
-  }
-
-  .page {
-    width: 100%;
-    max-width: var(--layout-max-width);
-    margin: 0 auto;
-    padding: 2rem 1rem;
-  }
-
-  .project-placeholder p {
-    color: var(--color-fg-muted);
-  }
-
-  h1 {
-    font-size: 1.5rem;
-  }
-
-  .page-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-  }
-
-  .page-header h2 {
-    margin: 0;
-  }
-
-  button {
-    padding: 0.375rem 0.75rem;
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    background-color: var(--color-bg-subtle);
-    color: inherit;
-    font: inherit;
-    cursor: pointer;
-  }
-
-  button:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
-  }
-
-  table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-
-  th,
-  td {
-    padding: 0.5rem 0.75rem;
-    border-bottom: 1px solid var(--color-border);
-    text-align: left;
-    vertical-align: top;
-  }
-
-  th {
-    white-space: nowrap;
-    background-color: var(--color-bg-subtle);
+    color: var(--primary);
   }
 }
